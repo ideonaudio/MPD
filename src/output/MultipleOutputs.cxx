@@ -80,9 +80,8 @@ LoadOutputControl(EventLoop &event_loop, EventLoop &rt_event_loop,
 				 replay_gain_config,
 				 mixer_listener,
 				 block, defaults, filter_factory);
-	auto control = std::make_unique<AudioOutputControl>(std::move(output), client);
-	control->Configure(block);
-	return control;
+	return std::make_unique<AudioOutputControl>(std::move(output),
+						    client, block);
 }
 
 void
@@ -130,24 +129,12 @@ MultipleOutputs::FindByName(const char *name) noexcept
 }
 
 void
-MultipleOutputs::Add(std::unique_ptr<FilteredAudioOutput> output,
-		     bool enable) noexcept
+MultipleOutputs::AddMoveFrom(AudioOutputControl &&src,
+			     bool enable) noexcept
 {
 	// TODO: this operation needs to be protected with a mutex
-	outputs.push_back(std::make_unique<AudioOutputControl>(std::move(output),
-								  client));
-
-	outputs.back()->LockSetEnabled(enable);
-
-	client.ApplyEnabled();
-}
-
-void
-MultipleOutputs::AddCopy(AudioOutputControl *outputControl,
-		     bool enable) noexcept
-{
-	// TODO: this operation needs to be protected with a mutex
-	outputs.push_back(std::make_unique<AudioOutputControl>(outputControl, client));
+	outputs.push_back(std::make_unique<AudioOutputControl>(std::move(src),
+							       client));
 
 	outputs.back()->LockSetEnabled(enable);
 

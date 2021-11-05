@@ -23,6 +23,13 @@ The default plugin. Stores a copy of the database in memory. A file is used for 
      - The path of the cache directory for additional storages mounted at runtime. This setting is necessary for the **mount** protocol command.
    * - **compress yes|no**
      - Compress the database file using gzip? Enabled by default (if built with zlib).
+   * - **hide_playlist_targets yes|no**
+     - Hide songs which are referenced by playlists?  Thas is,
+       playlist files which are represented in the database as virtual
+       directories (playlist plugin setting ``as_directory``).  This
+       option is enabled by default and avoids duplicate songs; one
+       copy for the original file, and another copy in the virtual
+       directory of a CUE file referring to it.
 
 proxy
 -----
@@ -829,6 +836,16 @@ The `Advanced Linux Sound Architecture (ALSA) <http://www.alsa-project.org/>`_ p
      - If set to no, then libasound will not attempt to convert between different sample formats (16 bit, 24 bit, floating point, ...).
    * - **dop yes|no**
      - If set to yes, then DSD over PCM according to the `DoP standard <http://dsd-guide.com/dop-open-standard>`_ is enabled. This wraps DSD samples in fake 24 bit PCM, and is understood by some DSD capable products, but may be harmful to other hardware. Therefore, the default is no and you can enable the option at your own risk.
+   * - **stop_dsd_silence yes|no**
+     - If enabled, silence is played before manually stopping playback
+       ("stop" or "pause") in DSD mode (native DSD or DoP).  This is a
+       workaround for some DACs which emit noise when stopping DSD
+       playback.
+   * - **thesycon_dsd_workaround yes|no**
+     - If enabled, enables a workaround for a bug in Thesycon USB
+       audio receivers.  On these devices, playing DSD512 or PCM
+       causes all subsequent attempts to play other DSD rates to fail,
+       which can be fixed by briefly playing PCM at 44.1 kHz.
    * - **allowed_formats F1 F2 ...**
      - Specifies a list of allowed audio formats, separated by a space. All items may contain asterisks as a wild card, and may be followed by "=dop" to enable DoP (DSD over PCM) for this particular format. The first matching format is used, and if none matches, MPD chooses the best fallback of this list.
        
@@ -1087,6 +1104,8 @@ Connect to a `PipeWire <https://pipewire.org/>`_ server.  Requires
    * - **remote NAME**
      - The name of the remote to connect to.  The default is
        ``pipewire-0``.
+   * - **dsd yes|no**
+     - Enable DSD playback.  This requires PipeWire 0.38.
 
 .. _pulse_plugin:
 
@@ -1143,8 +1162,6 @@ You must set a format.
      - Sets the host name of the `ShoutCast <http://www.shoutcast.com/>`_ / `IceCast <http://icecast.org/>`_ server.
    * - **port PORTNUMBER**
      - Connect to this port number on the specified host.
-   * - **timeout SECONDS**
-     - Set the timeout for the shout connection in seconds. Defaults to 2 seconds.
    * - **protocol icecast2|icecast1|shoutcast**
      - Specifies the protocol that wil be used to connect to the server. The default is "icecast2".
    * - **tls disabled|auto|auto_no_plain|rfc2818|rfc2817**
@@ -1187,6 +1204,8 @@ Snapcast is a multiroom client-server audio player.  This plugin
 allows MPD to act as a `Snapcast
 <https://github.com/badaix/snapcast>`__ server.  Snapcast clients
 connect to it and receive audio data from MPD.
+
+You must set a format.
 
 .. list-table::
    :widths: 20 80

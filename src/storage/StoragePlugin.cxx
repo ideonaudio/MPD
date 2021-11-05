@@ -17,45 +17,18 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef MPD_FATAL_ERROR_HXX
-#define MPD_FATAL_ERROR_HXX
+#include "StoragePlugin.hxx"
+#include "util/StringCompare.hxx"
 
-#include "util/Compiler.h"
+bool
+StoragePlugin::SupportsUri(const char *uri) const noexcept
+{
+	if (prefixes == nullptr)
+		return false;
 
-#ifdef _WIN32
-#include <windef.h>
-#endif
+	for (auto i = prefixes; *i != nullptr; ++i)
+		if (StringStartsWithIgnoreCase(uri, *i))
+			return true;
 
-/**
- * Log the specified message and abort the process.
- */
-[[noreturn]]
-void
-FatalError(const char *msg);
-
-[[noreturn]]
-void
-FormatFatalError(const char *fmt, ...);
-
-/**
- * Call this after a system call has failed that is not supposed to
- * fail.  Prints the given message, the system error message (from
- * errno or GetLastError()) and abort the process.
- */
-[[noreturn]]
-void
-FatalSystemError(const char *msg);
-
-#ifdef _WIN32
-
-[[noreturn]]
-void
-FatalSystemError(const char *msg, DWORD code);
-
-#endif
-
-[[noreturn]]
-void
-FormatFatalSystemError(const char *fmt, ...);
-
-#endif
+	return false;
+}

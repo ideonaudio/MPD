@@ -74,13 +74,7 @@ AudioOutputControl::InternalOpen2(const AudioFormat in_audio_format)
 		try {
 			output->ConfigureConvertFilter();
 		} catch (...) {
-			open = false;
-
-			{
-				const ScopeUnlock unlock(mutex);
-				output->CloseOutput(false);
-			}
-
+			InternalCloseOutput(false);
 			throw;
 		}
 	}
@@ -279,7 +273,7 @@ AudioOutputControl::PlayChunk(std::unique_lock<Mutex> &lock) noexcept
 			return false;
 		} catch (...) {
 			FmtError(output_domain,
-				 "Failed to play on {}",
+				 "Failed to play on {}: {}",
 				 GetLogName(), std::current_exception());
 			InternalCloseError(std::current_exception());
 			return false;
@@ -434,8 +428,9 @@ AudioOutputControl::Task() noexcept
 	try {
 		SetThreadRealtime();
 	} catch (...) {
-		Log(LogLevel::INFO, std::current_exception(),
-		    "OutputThread could not get realtime scheduling, continuing anyway");
+		FmtInfo(output_domain,
+			"OutputThread could not get realtime scheduling, continuing anyway: {}",
+			std::current_exception());
 	}
 
 	SetThreadTimerSlack(std::chrono::microseconds(100));

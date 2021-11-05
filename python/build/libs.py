@@ -42,6 +42,18 @@ opus = AutotoolsProject(
     cppflags='-DOPUS_EXPORT=',
 )
 
+flac = AutotoolsProject(
+    'http://downloads.xiph.org/releases/flac/flac-1.3.3.tar.xz',
+    '213e82bd716c9de6db2f98bcadbc4c24c7e2efe8c75939a1a84e28539c4e1748',
+    'lib/libFLAC.a',
+    [
+        '--disable-shared', '--enable-static',
+        '--disable-xmms-plugin', '--disable-cpplibs',
+        '--disable-doxygen-docs',
+    ],
+    subdirs=['include', 'src/libFLAC'],
+)
+
 zlib = ZlibProject(
     'http://zlib.net/zlib-1.2.11.tar.xz',
     '4ff941449631ace0d4d203e3483be9dbc9da454084111f97ea0a2114e19bf066',
@@ -100,26 +112,30 @@ libmodplug = AutotoolsProject(
 )
 
 libopenmpt = AutotoolsProject(
-    'https://lib.openmpt.org/files/libopenmpt/src/libopenmpt-0.5.8+release.autotools.tar.gz',
-    '61de7cc0c011b10472ca16adcc123689',
+    'https://lib.openmpt.org/files/libopenmpt/src/libopenmpt-0.5.12+release.autotools.tar.gz',
+    '892aea7a599b5d21842bebf463b5aafdad5711be7008dd84401920c6234820af',
     'lib/libopenmpt.a',
     [
-        '--disable-shared', '--enable-static'
+        '--disable-shared', '--enable-static',
+        '--disable-openmpt123',
+        '--without-mpg123', '--without-ogg', '--without-vorbis', '--without-vorbisfile',
+        '--without-portaudio', '--without-portaudiocpp', '--without-sndfile',
     ],
+    base='libopenmpt-0.5.12+release.autotools',
 )
 
 wildmidi = CmakeProject(
-    'https://codeload.github.com/Mindwerks/wildmidi/tar.gz/wildmidi-0.4.3',
-    '498e5a96455bb4b91b37188ad6dcb070824e92c44f5ed452b90adbaec8eef3c5',
+    'https://codeload.github.com/Mindwerks/wildmidi/tar.gz/wildmidi-0.4.4',
+    '6f267c8d331e9859906837e2c197093fddec31829d2ebf7b958cf6b7ae935430',
     'lib/libWildMidi.a',
     [
         '-DBUILD_SHARED_LIBS=OFF',
         '-DWANT_PLAYER=OFF',
         '-DWANT_STATIC=ON',
     ],
-    base='wildmidi-wildmidi-0.4.3',
+    base='wildmidi-wildmidi-0.4.4',
     name='wildmidi',
-    version='0.4.3',
+    version='0.4.4',
 )
 
 gme = CmakeProject(
@@ -135,8 +151,8 @@ gme = CmakeProject(
 )
 
 ffmpeg = FfmpegProject(
-    'http://ffmpeg.org/releases/ffmpeg-4.4.tar.xz',
-    '06b10a183ce5371f915c6bb15b7b1fffbe046e8275099c96affc29e17645d909',
+    'http://ffmpeg.org/releases/ffmpeg-4.4.1.tar.xz',
+    'eadbad9e9ab30b25f5520fbfde99fae4a92a1ae3c0257a8d68569a4651e30e02',
     'lib/libavcodec.a',
     [
         '--disable-shared', '--enable-static',
@@ -370,8 +386,8 @@ openssl = OpenSSLProject(
 )
 
 curl = CmakeProject(
-    'https://curl.se/download/curl-7.78.0.tar.xz',
-    'be42766d5664a739c3974ee3dfbbcbe978a4ccb1fe628bb1d9b59ac79e445fb5',
+    'https://curl.se/download/curl-7.79.1.tar.xz',
+    '0606f74b1182ab732a17c11613cbbaf7084f2e6cca432642d0e3ad7c224c3689',
     'lib/libcurl.a',
     [
         '-DBUILD_CURL_EXE=OFF',

@@ -167,6 +167,29 @@ public:
 
 	IntrusiveList &operator=(IntrusiveList &&) = delete;
 
+	friend void swap(IntrusiveList &a, IntrusiveList &b) noexcept {
+		using std::swap;
+
+		if (a.empty()) {
+			if (b.empty())
+				return;
+
+			a.head = b.head;
+			a.head.next->prev = &a.head;
+			a.head.prev->next = &a.head;
+
+			b.head = {&b.head, &b.head};
+		} else {
+			swap(a.head, b.head);
+
+			a.head.next->prev = &a.head;
+			a.head.prev->next = &a.head;
+
+			b.head.next->prev = &b.head;
+			b.head.prev->next = &b.head;
+		}
+	}
+
 	constexpr bool empty() const noexcept {
 		return head.next == &head;
 	}
@@ -235,9 +258,7 @@ public:
 
 	class const_iterator;
 
-	class iterator final
-		: public std::iterator<std::forward_iterator_tag, T> {
-
+	class iterator final {
 		friend IntrusiveList;
 		friend const_iterator;
 
@@ -247,6 +268,12 @@ public:
 			:cursor(_cursor) {}
 
 	public:
+		using iterator_category = std::forward_iterator_tag;
+		using value_type = T;
+		using difference_type = std::ptrdiff_t;
+		using pointer = value_type *;
+		using reference = value_type &;
+
 		iterator() noexcept = default;
 
 		constexpr bool operator==(const iterator &other) const noexcept {
@@ -283,9 +310,7 @@ public:
 		return {&ToNode(t)};
 	}
 
-	class const_iterator final
-		: public std::iterator<std::forward_iterator_tag, const T> {
-
+	class const_iterator final {
 		friend IntrusiveList;
 
 		const IntrusiveListNode *cursor;
@@ -294,6 +319,12 @@ public:
 			:cursor(_cursor) {}
 
 	public:
+		using iterator_category = std::forward_iterator_tag;
+		using value_type = const T;
+		using difference_type = std::ptrdiff_t;
+		using pointer = value_type *;
+		using reference = value_type &;
+
 		const_iterator() noexcept = default;
 
 		const_iterator(iterator src) noexcept
@@ -330,7 +361,7 @@ public:
 	}
 
 	static constexpr iterator iterator_to(const T &t) noexcept {
-		return {&t};
+		return {&ToNode(t)};
 	}
 
 	iterator erase(iterator i) noexcept {

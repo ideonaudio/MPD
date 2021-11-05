@@ -22,7 +22,6 @@
 
 #include "Config.hxx"
 #include "Editor.hxx"
-#include "util/Compiler.h"
 #include "config.h"
 
 #include <atomic>
@@ -32,6 +31,7 @@ struct StorageFileInfo;
 struct Directory;
 struct ArchivePlugin;
 struct PlaylistPlugin;
+class SongEnumerator;
 class ArchiveFile;
 class Storage;
 class ExcludeList;
@@ -76,7 +76,7 @@ public:
 	bool Walk(Directory &root, const char *path, bool discard) noexcept;
 
 private:
-	gcc_pure
+	[[gnu::pure]]
 	bool SkipSymlink(const Directory *directory,
 			 std::string_view utf8_name) const noexcept;
 
@@ -88,6 +88,9 @@ private:
 	/**
 	 * Remove all virtual songs inside playlists whose "target"
 	 * field points to a non-existing song file.
+	 *
+	 * It also looks up all target songs and sets their
+	 * "in_playlist" field.
 	 */
 	void PurgeDanglingFromPlaylists(Directory &directory) noexcept;
 
@@ -125,6 +128,9 @@ private:
 		return false;
 	}
 #endif
+
+	void UpdatePlaylistFile(Directory &directory,
+				SongEnumerator &contents) noexcept;
 
 	void UpdatePlaylistFile(Directory &parent, std::string_view name,
 				const StorageFileInfo &info,

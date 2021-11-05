@@ -1,7 +1,7 @@
 project(
   'mpd',
   ['c', 'cpp'],
-  version: '0.23~git',
+  version: '0.23.4',
   meson_version: '>= 0.56.0',
   default_options: [
     'c_std=c11',
@@ -13,7 +13,6 @@ project(
     # If we build those libraries as Meson subproject, they shall be
     # linked statically into the MPD executable.
     'expat:default_library=static',
-    'flac:default_library=static',
     'fmt:default_library=static',
     'gtest:default_library=static',
     'sqlite3:default_library=static',
@@ -22,8 +21,6 @@ project(
     # Not interested in compiler warnings from subprojects.
     'expat:werror=false',
     'expat:warning_level=0',
-    'flac:werror=false',
-    'flac:warning_level=0',
     'fmt:warning_level=0',
     'gtest:warning_level=0',
     'sqlite3:warning_level=0',
@@ -47,7 +44,7 @@ version_conf = configuration_data()
 version_conf.set_quoted('PACKAGE', meson.project_name())
 version_conf.set_quoted('PACKAGE_NAME', meson.project_name())
 version_conf.set_quoted('VERSION', meson.project_version())
-version_conf.set_quoted('PROTOCOL_VERSION', '0.23.0')
+version_conf.set_quoted('PROTOCOL_VERSION', '0.23.3')
 configure_file(output: 'Version.h', configuration: version_conf)
 
 conf = configuration_data()
@@ -268,8 +265,8 @@ sources = [
   version_cxx,
   'src/Main.cxx',
   'src/protocol/ArgParser.cxx',
-  'src/protocol/Result.cxx',
   'src/command/CommandError.cxx',
+  'src/command/PositionArg.cxx',
   'src/command/AllCommands.cxx',
   'src/command/QueueCommands.cxx',
   'src/command/TagCommands.cxx',

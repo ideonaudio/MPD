@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2017 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,40 +27,18 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CONCAT_STRING_HXX
-#define CONCAT_STRING_HXX
+#include "Error.hxx"
 
-#include <algorithm>
+#include <alsa/error.h>
 
-#include <string.h>
+namespace Alsa {
 
-template<typename... Args>
-size_t
-FillLengths(size_t *lengths, const char *a, Args&&... args)
+ErrorCategory error_category;
+
+std::string
+ErrorCategory::message(int condition) const
 {
-	return FillLengths(lengths, a) + FillLengths(lengths + 1, args...);
+	return snd_strerror(condition);
 }
 
-template<>
-size_t
-FillLengths(size_t *lengths, const char *a)
-{
-	return *lengths = strlen(a);
-}
-
-template<typename... Args>
-char *
-StringCat(char *p, const size_t *lengths, const char *a, Args&&... args)
-{
-	return StringCat(StringCat(p, lengths, a),
-			 lengths + 1, args...);
-}
-
-template<>
-char *
-StringCat(char *p, const size_t *lengths, const char *a)
-{
-	return std::copy_n(a, *lengths, p);
-}
-
-#endif
+} // namespace Avahi

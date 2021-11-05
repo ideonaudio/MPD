@@ -551,7 +551,7 @@ Playback options
 
 .. _command_getvol:
 
-:command:`getvol`
+:command:`getvol` [#since_0_23]_
 
     Read the volume.  The result is a ``volume:`` line like in
     :ref:`status <command_status>`.  If there is no mixer, MPD will
@@ -689,10 +689,13 @@ Whenever possible, ids should be used.
 
 .. _command_add:
 
-:command:`add {URI}`
+:command:`add {URI} [POSITION]`
     Adds the file ``URI`` to the playlist
     (directories add recursively). ``URI``
     can also be a single file.
+
+    The position parameter is the same as in :ref:`addid
+    <command_addid>`. [#since_0_23_3]_
 
     Clients that are connected via local socket may add arbitrary
     local files (URI is an absolute path).  Example::
@@ -708,6 +711,13 @@ Whenever possible, ids should be used.
      addid "foo.mp3"
      Id: 999
      OK
+
+    If the second parameter is given, then the song is inserted at the
+    specified position.  If the parameter starts with ``+`` or ``-``,
+    then it is relative to the current song [#since_0_23]_; e.g. ``+0``
+    inserts right after the current song and ``-0`` inserts right
+    before the current song (i.e. zero songs between the current song
+    and the newly added song).
 
 .. _command_clear:
 
@@ -732,14 +742,22 @@ Whenever possible, ids should be used.
     at ``START:END`` [#since_0_15]_ to ``TO``
     in the playlist.
 
+    If ``TO`` starts with ``+`` or ``-``, then it is relative to the
+    current song; e.g. ``+0`` moves to right after the current song
+    and ``-0`` moves to right before the current song (i.e. zero songs
+    between the current song and the moved range).
+
 .. _command_moveid:
 
 :command:`moveid {FROM} {TO}`
     Moves the song with ``FROM`` (songid) to
     ``TO`` (playlist index) in the
-    playlist.  If ``TO`` is negative, it
-    is relative to the current song in the playlist (if
-    there is one).
+    playlist.
+
+    If ``TO`` starts with ``+`` or ``-``, then it is relative to the
+    current song; e.g. ``+0`` moves to right after the current song
+    and ``-0`` moves to right before the current song (i.e. zero songs
+    between the current song and the moved song).
 
 .. _command_playlist:
 
@@ -902,18 +920,27 @@ remote playlists (absolute URI with a supported scheme).
 
 .. _command_load:
 
-:command:`load {NAME} [START:END]`
+:command:`load {NAME} [START:END] [POSITION]`
     Loads the playlist into the current queue.  Playlist
     plugins are supported.  A range may be specified to load
     only a part of the playlist.
 
+    The ``POSITION`` parameter specifies where the songs will be
+    inserted into the queue; it can be relative as described in
+    :ref:`addid <command_addid>`.  (This requires specifying the range
+    as well; the special value `0:` can be used if the whole playlist
+    shall be loaded at a certain queue position.)  [#since_0_23_1]_
+
 .. _command_playlistadd:
 
-:command:`playlistadd {NAME} {URI}`
+:command:`playlistadd {NAME} {URI} [POSITION]`
     Adds ``URI`` to the playlist
     `NAME.m3u`.
     `NAME.m3u` will be created if it does
     not exist.
+
+    The ``POSITION`` parameter specifies where the songs will be
+    inserted into the playlist. [#since_0_23_3]_
 
 .. _command_playlistclear:
 
@@ -925,6 +952,8 @@ remote playlists (absolute URI with a supported scheme).
 :command:`playlistdelete {NAME} {SONGPOS}`
     Deletes ``SONGPOS`` from the
     playlist `NAME.m3u`.
+
+    The second parameter can be a range. [#since_0_23_3]_
 
 .. _command_playlistmove:
 
@@ -1039,11 +1068,11 @@ The music database
 
 .. _command_findadd:
 
-:command:`findadd {FILTER} [sort {TYPE}] [window {START:END}]`
+:command:`findadd {FILTER} [sort {TYPE}] [window {START:END}] [position POS]`
     Search the database for songs matching
     ``FILTER`` (see :ref:`Filters <filter_syntax>`) and add them to
     the queue.  Parameters have the same meaning as for
-    :ref:`find <command_find>`.
+    :ref:`find <command_find>` and :ref:`searchadd <command_searchadd>`.
 
 .. _command_list:
 
@@ -1184,12 +1213,15 @@ The music database
 
 .. _command_searchadd:
 
-:command:`searchadd {FILTER} [sort {TYPE}] [window {START:END}]`
+:command:`searchadd {FILTER} [sort {TYPE}] [window {START:END}] [position POS]`
     Search the database for songs matching
     ``FILTER`` (see :ref:`Filters <filter_syntax>`) and add them to
     the queue.
 
     Parameters have the same meaning as for :ref:`search <command_search>`.
+
+    The ``position`` parameter specifies where the songs will be
+    inserted. [#since_0_23]_
 
 .. _command_searchaddpl:
 
@@ -1620,3 +1652,6 @@ client-to-client messages are local to the current partition.
 .. [#since_0_20] Since :program:`MPD` 0.20
 .. [#since_0_21] Since :program:`MPD` 0.21
 .. [#since_0_22_4] Since :program:`MPD` 0.22.4
+.. [#since_0_23] Since :program:`MPD` 0.23
+.. [#since_0_23_1] Since :program:`MPD` 0.23.1
+.. [#since_0_23_3] Since :program:`MPD` 0.23.3

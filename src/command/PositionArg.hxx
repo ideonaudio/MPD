@@ -17,15 +17,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef MPD_LOGV_HXX
-#define MPD_LOGV_HXX
+#pragma once
 
-#include "Log.hxx" // IWYU pragma: export
+struct playlist;
+struct RangeArg;
 
-#include <cstdarg>
+/**
+ * Throws #ProtocolError on error.
+ */
+unsigned
+ParseInsertPosition(const char *s, const playlist &playlist);
 
-void
-LogFormatV(LogLevel level, const Domain &domain,
-	   const char *fmt, std::va_list ap) noexcept;
-
-#endif /* LOG_H */
+unsigned
+ParseMoveDestination(const char *s, const RangeArg range, const playlist &p);

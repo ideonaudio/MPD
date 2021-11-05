@@ -142,14 +142,24 @@ struct Config {
 #ifdef ENABLE_DAEMON
 
 static void
-glue_daemonize_init(const struct options *options,
+glue_daemonize_init(const CommandLineOptions &options,
 		    const ConfigData &config)
 {
+	auto pid_file = config.GetPath(ConfigOption::PID_FILE);
+
+#ifdef __linux__
+	if (options.systemd && pid_file != nullptr) {
+		pid_file = nullptr;
+		fprintf(stderr,
+			"Ignoring the 'pid_file' setting in systemd mode\n");
+	}
+#endif
+
 	daemonize_init(config.GetString(ConfigOption::USER),
 		       config.GetString(ConfigOption::GROUP),
-		       config.GetPath(ConfigOption::PID_FILE));
+		       std::move(pid_file));
 
-	if (options->kill)
+	if (options.kill)
 		daemonize_kill();
 }
 
@@ -344,7 +354,7 @@ Instance::BeginShutdownUpdate() noexcept
 {
 #ifdef ENABLE_DATABASE
 #ifdef ENABLE_INOTIFY
-	mpd_inotify_finish();
+	inotify_update.reset();
 #endif
 
 	if (update != nullptr)
@@ -361,7 +371,8 @@ Instance::BeginShutdownPartitions() noexcept
 }
 
 static inline void
-MainConfigured(const struct options &options, const ConfigData &raw_config)
+MainConfigured(const CommandLineOptions &options,
+	       const ConfigData &raw_config)
 {
 #ifdef ENABLE_DAEMON
 	daemonize_close_stdin();
@@ -384,7 +395,7 @@ MainConfigured(const struct options &options, const ConfigData &raw_config)
 	const Config config(raw_config);
 
 #ifdef ENABLE_DAEMON
-	glue_daemonize_init(&options, raw_config);
+	glue_daemonize_init(options, raw_config);
 #endif
 
 	TagLoadConfig(raw_config);
@@ -523,12 +534,18 @@ MainConfigured(const struct options &options, const ConfigData &raw_config)
 	if (raw_config.GetBool(ConfigOption::AUTO_UPDATE, false)) {
 #ifdef ENABLE_INOTIFY
 		if (instance.storage != nullptr &&
-		    instance.update != nullptr)
-			mpd_inotify_init(instance.event_loop,
-					 *instance.storage,
-					 *instance.update,
-					 raw_config.GetUnsigned(ConfigOption::AUTO_UPDATE_DEPTH,
-								INT_MAX));
+		    instance.update != nullptr) {
+			try {
+				instance.inotify_update =
+					mpd_inotify_init(instance.event_loop,
+							 *instance.storage,
+							 *instance.update,
+							 raw_config.GetUnsigned(ConfigOption::AUTO_UPDATE_DEPTH,
+										INT_MAX));
+			} catch (...) {
+				LogError(std::current_exception());
+			}
+		}
 #else
 		LogWarning(config_domain,
 			   "inotify: auto_update was disabled. enable during compilation phase");
@@ -576,7 +593,7 @@ MainConfigured(const struct options &options, const ConfigData &raw_config)
 static void
 AndroidMain()
 {
-	struct options options;
+	CommandLineOptions options;
 	ConfigData raw_config;
 
 	const auto sdcard = Environment::getExternalStorageDirectory();
@@ -636,7 +653,7 @@ Java_org_musicpd_Bridge_pause(JNIEnv *, jclass)
 static inline void
 MainOrThrow(int argc, char *argv[])
 {
-	struct options options;
+	CommandLineOptions options;
 	ConfigData raw_config;
 
 	ParseCommandLine(argc, argv, options, raw_config);
@@ -644,27 +661,26 @@ MainOrThrow(int argc, char *argv[])
 	MainConfigured(options, raw_config);
 }
 
-int mpd_main(int argc, char *argv[]) noexcept
+int
+mpd_main(int argc, char *argv[])
 {
-	AtScopeExit() { log_deinit(); };
-
-	try {
-		MainOrThrow(argc, argv);
-		return EXIT_SUCCESS;
-	} catch (...) {
-		LogError(std::current_exception());
-		return EXIT_FAILURE;
-	}
+	MainOrThrow(argc, argv);
+	return EXIT_SUCCESS;
 }
 
 int
 main(int argc, char *argv[]) noexcept
-{
+try {
+	AtScopeExit() { log_deinit(); };
+
 #ifdef _WIN32
 	return win32_main(argc, argv);
 #else
 	return mpd_main(argc, argv);
 #endif
+} catch (...) {
+	LogError(std::current_exception());
+	return EXIT_FAILURE;
 }
 
 #endif

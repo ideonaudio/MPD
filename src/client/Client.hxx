@@ -27,7 +27,6 @@
 #include "tag/Mask.hxx"
 #include "event/FullyBufferedSocket.hxx"
 #include "event/CoarseTimerEvent.hxx"
-#include "util/Compiler.h"
 
 #include <boost/intrusive/link_mode.hpp>
 #include <boost/intrusive/list_hook.hpp>
@@ -138,7 +137,7 @@ public:
 	using FullyBufferedSocket::GetEventLoop;
 	using FullyBufferedSocket::GetOutputMaxSize;
 
-	gcc_pure
+	[[gnu::pure]]
 	bool IsExpired() const noexcept {
 		return !FullyBufferedSocket::IsDefined();
 	}
@@ -151,7 +150,13 @@ public:
 	/**
 	 * Write a null-terminated string.
 	 */
-	bool Write(const char *data) noexcept;
+	bool Write(std::string_view s) noexcept {
+		return Write(s.data(), s.size());
+	}
+
+	bool WriteOK() noexcept {
+		return Write("OK\n");
+	}
 
 	/**
 	 * returns the uid of the client process, or a negative value
@@ -211,7 +216,7 @@ public:
 		FULL,
 	};
 
-	gcc_pure
+	[[gnu::pure]]
 	bool IsSubscribed(const char *channel_name) const noexcept {
 		return subscriptions.find(channel_name) != subscriptions.end();
 	}
@@ -252,19 +257,19 @@ public:
 
 	void SetPartition(Partition &new_partition) noexcept;
 
-	gcc_pure
+	[[gnu::pure]]
 	Instance &GetInstance() const noexcept;
 
-	gcc_pure
+	[[gnu::pure]]
 	playlist &GetPlaylist() const noexcept;
 
-	gcc_pure
+	[[gnu::pure]]
 	PlayerControl &GetPlayerControl() const noexcept;
 
 	/**
 	 * Wrapper for Instance::GetDatabase().
 	 */
-	gcc_pure
+	[[gnu::pure]]
 	const Database *GetDatabase() const noexcept;
 
 	/**
@@ -272,7 +277,7 @@ public:
 	 */
 	const Database &GetDatabaseOrThrow() const;
 
-	gcc_pure
+	[[gnu::pure]]
 	const Storage *GetStorage() const noexcept;
 
 private:

@@ -17,11 +17,29 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "Result.hxx"
-#include "client/Client.hxx"
+#pragma once
 
-void
-command_success(Client &client)
+#include <system_error>
+
+struct AvahiClient;
+
+namespace PipeWire {
+
+class ErrorCategory final : public std::error_category {
+public:
+	const char *name() const noexcept override {
+		return "pipewire";
+	}
+
+	std::string message(int condition) const override;
+};
+
+extern ErrorCategory error_category;
+
+inline std::system_error
+MakeError(int error, const char *msg) noexcept
 {
-	client.Write("OK\n");
+	return std::system_error(error, error_category, msg);
 }
+
+} // namespace PipeWire

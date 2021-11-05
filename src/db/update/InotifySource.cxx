@@ -20,7 +20,6 @@
 #include "InotifySource.hxx"
 #include "InotifyDomain.hxx"
 #include "io/FileDescriptor.hxx"
-#include "system/FatalError.hxx"
 #include "system/Error.hxx"
 #include "Log.hxx"
 
@@ -37,12 +36,19 @@ InotifySource::OnSocketReady([[maybe_unused]] unsigned flags) noexcept
 	static_assert(sizeof(buffer) >= sizeof(struct inotify_event) + NAME_MAX + 1,
 		      "inotify buffer too small");
 
-	auto ifd = socket_event.GetSocket().ToFileDescriptor();
+	auto ifd = socket_event.GetFileDescriptor();
 	ssize_t nbytes = ifd.Read(buffer, sizeof(buffer));
-	if (nbytes < 0)
-		FatalSystemError("Failed to read from inotify");
-	if (nbytes == 0)
-		FatalError("end of file from inotify");
+	if (nbytes <= 0) {
+		if (nbytes < 0)
+			FmtError(inotify_domain,
+				 "Failed to read from inotify: {}",
+				 strerror(errno));
+		else
+			LogError(inotify_domain,
+				 "end of file from inotify");
+		socket_event.Cancel();
+		return;
+	}
 
 	const uint8_t *p = buffer, *const end = p + nbytes;
 
@@ -78,7 +84,7 @@ InotifyInit()
 InotifySource::InotifySource(EventLoop &_loop,
 			     mpd_inotify_callback_t _callback, void *_ctx)
 	:socket_event(_loop, BIND_THIS_METHOD(OnSocketReady),
-		      SocketDescriptor::FromFileDescriptor(InotifyInit())),
+		      InotifyInit()),
 	 callback(_callback), callback_ctx(_ctx)
 {
 	socket_event.ScheduleRead();
@@ -87,7 +93,7 @@ InotifySource::InotifySource(EventLoop &_loop,
 int
 InotifySource::Add(const char *path_fs, unsigned mask)
 {
-	auto ifd = socket_event.GetSocket().ToFileDescriptor();
+	auto ifd = socket_event.GetFileDescriptor();
 	int wd = inotify_add_watch(ifd.Get(), path_fs, mask);
 	if (wd < 0)
 		throw MakeErrno("inotify_add_watch() has failed");
@@ -98,10 +104,11 @@ InotifySource::Add(const char *path_fs, unsigned mask)
 void
 InotifySource::Remove(unsigned wd) noexcept
 {
-	auto ifd = socket_event.GetSocket().ToFileDescriptor();
+	auto ifd = socket_event.GetFileDescriptor();
 	int ret = inotify_rm_watch(ifd.Get(), wd);
 	if (ret < 0 && errno != EINVAL)
-		LogErrno(inotify_domain, "inotify_rm_watch() has failed");
+		FmtError(inotify_domain, "inotify_rm_watch() has failed: {}",
+			 strerror(errno));
 
 	/* EINVAL may happen here when the file has been deleted; the
 	   kernel seems to auto-unregister deleted files */

@@ -172,7 +172,9 @@ tarball and change into the directory.  Then, instead of
 
  mkdir -p output/win64
  cd output/win64
- ../../win32/build.py --64
+ ../../win32/build.py --64 \
+   --buildtype=debugoptimized -Db_ndebug=true \
+   -Dwrap_mode=forcefallback
 
 This downloads various library sources, and then configures and builds
 :program:`MPD` (for x64; to build a 32 bit binary, pass
@@ -181,6 +183,11 @@ contains all the libraries already and you do not need carry DLLs
 around. It is large, but easy to use. If you wish to have a small
 mpd.exe with DLLs, you need to compile manually, without the
 :file:`build.py` script.
+
+The option ``-Dwrap_mode=forcefallback`` tells Meson to download and
+cross-compile several libraries used by MPD instead of looking for
+them on your computer.
+
 
 Compiling for Android
 ---------------------
@@ -205,8 +212,10 @@ tarball and change into the directory.  Then, instead of
 
  mkdir -p output/android
  cd output/android
- ../../android/build.py SDK_PATH NDK_PATH ABI
- meson configure -Dandroid_debug_keystore=$HOME/.android/debug.keystore
+ ../../android/build.py SDK_PATH NDK_PATH ABI \
+   --buildtype=debugoptimized -Db_ndebug=true \
+   -Dwrap_mode=forcefallback \
+   -Dandroid_debug_keystore=$HOME/.android/debug.keystore
  ninja android/apk/mpd-debug.apk
 
 :envvar:`SDK_PATH` is the absolute path where you installed the
@@ -639,6 +648,9 @@ By default, all clients are unauthenticated and have a full set of permissions. 
      - Allows reading of the database, displaying the current playlist, and current status of :program:`MPD`.
    * - **add**
      - Allows adding songs and loading playlists.
+   * - **player**
+     - Allows any player and queue manipulation (start/pause/stop
+       playback etc.).
    * - **control**
      - Allows all other player and playlist manipulations.
    * - **admin**
@@ -646,6 +658,9 @@ By default, all clients are unauthenticated and have a full set of permissions. 
        mounting/unmounting storage and shutting down :program:`MPD`.
 
 :code:`local_permissions` may be used to assign other permissions to clients connecting on a local socket.
+
+:code:`host_permissions` may be used to assign permissions to clients
+with a certain IP address.
 
 :code:`password` allows the client to send a password to gain other permissions. This option may be specified multiple times with different passwords.
 
@@ -656,6 +671,8 @@ Example:
 .. code-block:: none
 
     default_permissions "read"
+    host_permissions "192.168.0.100 read,add,control,admin"
+    host_permissions "2003:1234:4567::1 read,add,control,admin"
     password "the_password@read,add,control"
     password "the_admin_password@read,add,control,admin"
 
