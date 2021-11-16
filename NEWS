@@ -1,8 +1,16 @@
-ver 0.23.4 (not yet released)
+ver 0.23.5 (not yet released)
+
+ver 0.23.4 (2021/11/11)
+* protocol
+  - add optional position parameter to "searchaddpl"
+* decoder
+  - ffmpeg: support libavcodec 59
 * output
   - alsa: add option "thesycon_dsd_workaround" to work around device bug
 * fix crash on debug builds if startup fails
-* ignore the "pid_file" setting if started as systemd service
+* systemd
+  - remove "RuntimeDirectory" directive because it caused problems
+  - ignore the "pid_file" setting if started as systemd service
 * Windows
   - enable the "openmpt" decoder plugin
 

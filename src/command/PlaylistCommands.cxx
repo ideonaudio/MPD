@@ -231,15 +231,14 @@ handle_playlistadd_position(Client &client, const char *playlist_name,
 		editor.Insert(position, uri);
 	} else {
 #ifdef ENABLE_DATABASE
-		const auto &db = client.GetDatabaseOrThrow();
-		const auto *storage = client.GetStorage();
 		const DatabaseSelection selection(uri, true, nullptr);
 
-		db.Visit(selection, [&editor, &position, storage](const auto &song){
-			editor.Insert(position,
-				      DatabaseDetachSong(storage, song));
-			++position;
-		});
+		if (SearchInsertIntoPlaylist(client.GetDatabaseOrThrow(),
+					     client.GetStorage(),
+					     selection,
+					     editor, position) == 0)
+			/* no song was found, don't need to save */
+			return CommandResult::OK;
 #else
 		(void)client;
 		r.Error(ACK_ERROR_NO_EXIST, "No database");
