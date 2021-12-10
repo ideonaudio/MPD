@@ -22,13 +22,13 @@
 
 #include "Command.hxx"
 #include "pcm/AudioFormat.hxx"
-#include "MixRampInfo.hxx"
+#include "tag/MixRampInfo.hxx"
 #include "input/Handler.hxx"
 #include "thread/Mutex.hxx"
 #include "thread/Cond.hxx"
 #include "thread/Thread.hxx"
 #include "Chrono.hxx"
-#include "ReplayGainConfig.hxx"
+#include "config/ReplayGainConfig.hxx"
 #include "ReplayGainMode.hxx"
 
 #include <cassert>
@@ -231,7 +231,7 @@ public:
 
 	[[gnu::pure]]
 	bool LockIsIdle() const noexcept {
-		const std::lock_guard<Mutex> protect(mutex);
+		const std::scoped_lock<Mutex> protect(mutex);
 		return IsIdle();
 	}
 
@@ -241,7 +241,7 @@ public:
 
 	[[gnu::pure]]
 	bool LockIsStarting() const noexcept {
-		const std::lock_guard<Mutex> protect(mutex);
+		const std::scoped_lock<Mutex> protect(mutex);
 		return IsStarting();
 	}
 
@@ -253,7 +253,7 @@ public:
 
 	[[gnu::pure]]
 	bool LockHasFailed() const noexcept {
-		const std::lock_guard<Mutex> protect(mutex);
+		const std::scoped_lock<Mutex> protect(mutex);
 		return HasFailed();
 	}
 
@@ -284,7 +284,7 @@ public:
 	 * Like CheckRethrowError(), but locks and unlocks the object.
 	 */
 	void LockCheckRethrowError() const {
-		const std::lock_guard<Mutex> protect(mutex);
+		const std::scoped_lock<Mutex> protect(mutex);
 		CheckRethrowError();
 	}
 
@@ -360,7 +360,7 @@ private:
 	}
 
 	void LockAsynchronousCommand(DecoderCommand cmd) noexcept {
-		const std::lock_guard<Mutex> protect(mutex);
+		const std::scoped_lock<Mutex> protect(mutex);
 		command = cmd;
 		Signal();
 	}
@@ -419,12 +419,20 @@ public:
 		return mix_ramp.GetStart();
 	}
 
+	void SetMixRampStart(std::string &&s) noexcept {
+		mix_ramp.SetStart(std::move(s));
+	}
+
 	const char *GetMixRampEnd() const noexcept {
 		return mix_ramp.GetEnd();
 	}
 
 	const char *GetMixRampPreviousEnd() const noexcept {
 		return previous_mix_ramp.GetEnd();
+	}
+
+	void SetMixRampPreviousEnd(std::string &&s) noexcept {
+		previous_mix_ramp.SetEnd(std::move(s));
 	}
 
 	void SetMixRamp(MixRampInfo &&new_value) noexcept {

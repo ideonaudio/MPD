@@ -17,33 +17,16 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef MPD_AUTO_GUNZIP_READER_HXX
-#define MPD_AUTO_GUNZIP_READER_HXX
+#pragma once
 
-#include "PeekReader.hxx"
+#include "QueueConfig.hxx"
+#include "PlayerConfig.hxx"
 
-#include <memory>
+struct PartitionConfig {
+	QueueConfig queue;
+	PlayerConfig player;
 
-class GunzipReader;
+	PartitionConfig() = default;
 
-/**
- * A filter that detects gzip compression and optionally inserts a
- * #GunzipReader.
- */
-class AutoGunzipReader final : public Reader {
-	Reader *next = nullptr;
-	PeekReader peek;
-	std::unique_ptr<GunzipReader> gunzip;
-
-public:
-	explicit AutoGunzipReader(Reader &_next) noexcept;
-	~AutoGunzipReader() noexcept;
-
-	/* virtual methods from class Reader */
-	size_t Read(void *data, size_t size) override;
-
-private:
-	void Detect();
+	explicit PartitionConfig(const ConfigData &config);
 };
-
-#endif

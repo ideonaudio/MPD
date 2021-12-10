@@ -27,31 +27,43 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef READER_HXX
-#define READER_HXX
+#ifndef GUNZIP_READER_HXX
+#define GUNZIP_READER_HXX
 
-#include <cstddef>
+#include "io/Reader.hxx"
+#include "util/StaticFifoBuffer.hxx"
+
+#include <zlib.h>
 
 /**
- * An interface that can read bytes from a stream until the stream
- * ends.
- *
- * This interface is simpler and less cumbersome to use than
- * #InputStream.
+ * A filter that decompresses data using zlib.
  */
-class Reader {
-public:
-	Reader() = default;
-	Reader(const Reader &) = delete;
+class GunzipReader final : public Reader {
+	Reader &next;
 
+	bool eof = false;
+
+	z_stream z;
+
+	StaticFifoBuffer<Bytef, 65536> buffer;
+
+public:
 	/**
-	 * Read data from the stream.
+	 * Construct the filter.
 	 *
-	 * @return the number of bytes read into the given buffer or 0
-	 * on end-of-stream
+	 * Throws on error.
 	 */
-	[[gnu::nonnull]]
-	virtual size_t Read(void *data, size_t size) = 0;
+	explicit GunzipReader(Reader &_next);
+
+	~GunzipReader() noexcept {
+		inflateEnd(&z);
+	}
+
+	/* virtual methods from class Reader */
+	size_t Read(void *data, size_t size) override;
+
+private:
+	bool FillBuffer();
 };
 
 #endif

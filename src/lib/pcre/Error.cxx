@@ -1,5 +1,8 @@
 /*
- * Copyright 2014-2019 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2007-2021 CM4all GmbH
+ * All rights reserved.
+ *
+ * author: Max Kellermann <mk@cm4all.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,43 +30,20 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef GUNZIP_READER_HXX
-#define GUNZIP_READER_HXX
+#include "Error.hxx"
 
-#include "Reader.hxx"
-#include "util/StaticFifoBuffer.hxx"
+#include <pcre2.h>
 
-#include <zlib.h>
+namespace Pcre {
 
-/**
- * A filter that decompresses data using zlib.
- */
-class GunzipReader final : public Reader {
-	Reader &next;
+ErrorCategory error_category;
 
-	bool eof = false;
+std::string
+ErrorCategory::message(int condition) const
+{
+	PCRE2_UCHAR8 buffer[256];
+	pcre2_get_error_message_8(condition, buffer, std::size(buffer));
+	return std::string{(const char *)buffer};
+}
 
-	z_stream z;
-
-	StaticFifoBuffer<Bytef, 65536> buffer;
-
-public:
-	/**
-	 * Construct the filter.
-	 *
-	 * Throws on error.
-	 */
-	explicit GunzipReader(Reader &_next);
-
-	~GunzipReader() noexcept {
-		inflateEnd(&z);
-	}
-
-	/* virtual methods from class Reader */
-	size_t Read(void *data, size_t size) override;
-
-private:
-	bool FillBuffer();
-};
-
-#endif
+} // namespace Pcre

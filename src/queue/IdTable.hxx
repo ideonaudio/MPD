@@ -22,14 +22,22 @@
 
 #include "util/Compiler.h"
 
-#include <algorithm>
 #include <cassert>
 
 /**
  * A table that maps id numbers to position numbers.
  */
 class IdTable {
-	unsigned size;
+	const unsigned size;
+
+	/**
+	 * How many members of "data" are initialized?
+	 *
+	 * The initial value is 1 and not 0 because the first element
+	 * of the array is never used, because 0 is not a valid song
+	 * id.
+	 */
+	unsigned initialized = 1;
 
 	unsigned next;
 
@@ -38,7 +46,6 @@ class IdTable {
 public:
 	IdTable(unsigned _size) noexcept
 		:size(_size), next(1), data(new int[size]) {
-		std::fill_n(data, size, -1);
 	}
 
 	~IdTable() noexcept {
@@ -49,14 +56,14 @@ public:
 	IdTable &operator=(const IdTable &) = delete;
 
 	int IdToPosition(unsigned id) const noexcept {
-		return id < size
+		return id < initialized
 			? data[id]
 			: -1;
 	}
 
 	unsigned GenerateId() noexcept {
 		assert(next > 0);
-		assert(next < size);
+		assert(next <= initialized);
 
 		while (true) {
 			unsigned id = next;
@@ -65,6 +72,15 @@ public:
 			if (next == size)
 				next = 1;
 
+			if (id == initialized) {
+				/* the caller will initialize
+				   data[id] */
+				++initialized;
+				return id;
+			}
+
+			assert(id < initialized);
+
 			if (data[id] < 0)
 				return id;
 		}
@@ -72,19 +88,20 @@ public:
 
 	unsigned Insert(unsigned position) noexcept {
 		unsigned id = GenerateId();
+		assert(id < initialized);
 		data[id] = position;
 		return id;
 	}
 
 	void Move(unsigned id, unsigned position) noexcept {
-		assert(id < size);
+		assert(id < initialized);
 		assert(data[id] >= 0);
 
 		data[id] = position;
 	}
 
 	void Erase(unsigned id) noexcept {
-		assert(id < size);
+		assert(id < initialized);
 		assert(data[id] >= 0);
 
 		data[id] = -1;

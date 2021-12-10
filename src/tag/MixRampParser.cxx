@@ -17,40 +17,36 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "ReplayGain.hxx"
+#include "MixRampParser.hxx"
 #include "VorbisComment.hxx"
-#include "ReplayGainInfo.hxx"
+#include "MixRampInfo.hxx"
 #include "util/ASCII.hxx"
-#include "util/NumberParser.hxx"
 #include "util/StringView.hxx"
 
 #include <cassert>
 
 template<typename T>
 static bool
-ParseReplayGainTagTemplate(ReplayGainInfo &info, const T t)
+ParseMixRampTagTemplate(MixRampInfo &info, const T t) noexcept
 {
-	const char *value;
+	if (const std::string_view value = t["mixramp_start"];
+	    !value.empty()) {
+		info.SetStart(std::string{value});
+		return true;
+	}
 
-	if ((value = t["replaygain_track_gain"]) != nullptr) {
-		info.track.gain = ParseFloat(value);
+	if (const std::string_view value = t["mixramp_end"];
+	    !value.empty()) {
+		info.SetEnd(std::string{value});
 		return true;
-	} else if ((value = t["replaygain_album_gain"]) != nullptr) {
-		info.album.gain = ParseFloat(value);
-		return true;
-	} else if ((value = t["replaygain_track_peak"]) != nullptr) {
-		info.track.peak = ParseFloat(value);
-		return true;
-	} else if ((value = t["replaygain_album_peak"]) != nullptr) {
-		info.album.peak = ParseFloat(value);
-		return true;
-	} else
-		return false;
+	}
 
+	return false;
 }
 
 bool
-ParseReplayGainTag(ReplayGainInfo &info, const char *name, const char *value)
+ParseMixRampTag(MixRampInfo &info,
+		const char *name, const char *value) noexcept
 {
 	assert(name != nullptr);
 	assert(value != nullptr);
@@ -59,28 +55,28 @@ ParseReplayGainTag(ReplayGainInfo &info, const char *name, const char *value)
 		const char *name;
 		const char *value;
 
-		gcc_pure
-		const char *operator[](const char *n) const noexcept {
+		[[gnu::pure]]
+		StringView operator[](const char *n) const noexcept {
 			return StringEqualsCaseASCII(name, n)
 				? value
 				: nullptr;
 		}
 	};
 
-	return ParseReplayGainTagTemplate(info, NameValue{name, value});
+	return ParseMixRampTagTemplate(info, NameValue{name, value});
 }
 
 bool
-ParseReplayGainVorbis(ReplayGainInfo &info, StringView entry)
+ParseMixRampVorbis(MixRampInfo &info, StringView entry) noexcept
 {
 	struct VorbisCommentEntry {
 		StringView entry;
 
-		gcc_pure
-		const char *operator[](StringView n) const noexcept {
-			return GetVorbisCommentValue(entry, n).data;
+		[[gnu::pure]]
+		StringView operator[](StringView n) const noexcept {
+			return GetVorbisCommentValue(entry, n);
 		}
 	};
 
-	return ParseReplayGainTagTemplate(info, VorbisCommentEntry{entry});
+	return ParseMixRampTagTemplate(info, VorbisCommentEntry{entry});
 }

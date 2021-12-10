@@ -17,13 +17,20 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef MPD_REPLAY_GAIN_GLOBAL_HXX
-#define MPD_REPLAY_GAIN_GLOBAL_HXX
+#pragma once
 
 struct ConfigData;
-struct ReplayGainConfig;
 
-ReplayGainConfig
-LoadReplayGainConfig(const ConfigData &config);
+struct ReplayGainConfig {
+	static constexpr bool DEFAULT_LIMIT = true;
 
-#endif
+	float preamp = 1.0;
+
+	float missing_preamp = 1.0;
+
+	bool limit = DEFAULT_LIMIT;
+
+	ReplayGainConfig() = default;
+
+	explicit ReplayGainConfig(const ConfigData &config);
+};

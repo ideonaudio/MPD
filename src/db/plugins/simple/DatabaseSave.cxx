@@ -20,8 +20,8 @@
 #include "DatabaseSave.hxx"
 #include "db/DatabaseLock.hxx"
 #include "DirectorySave.hxx"
-#include "fs/io/BufferedOutputStream.hxx"
-#include "fs/io/TextFile.hxx"
+#include "io/BufferedOutputStream.hxx"
+#include "io/LineReader.hxx"
 #include "tag/ParseName.hxx"
 #include "tag/Settings.hxx"
 #include "fs/Charset.hxx"
@@ -64,7 +64,7 @@ db_save_internal(BufferedOutputStream &os, const Directory &music_root)
 }
 
 void
-db_load_internal(TextFile &file, Directory &music_root)
+db_load_internal(LineReader &file, Directory &music_root)
 {
 	char *line;
 	unsigned format = 0;

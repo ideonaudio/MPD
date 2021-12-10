@@ -28,12 +28,10 @@
 #include "lib/alsa/NonBlock.hxx"
 #include "lib/alsa/Error.hxx"
 #include "lib/alsa/Format.hxx"
-#include "../InputPlugin.hxx"
 #include "../AsyncInputStream.hxx"
 #include "event/Call.hxx"
 #include "config/Block.hxx"
 #include "util/Domain.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/ASCII.hxx"
 #include "util/DivideString.hxx"
 #include "pcm/AudioParser.hxx"
@@ -239,7 +237,7 @@ AlsaInputStream::DispatchSockets() noexcept
 {
 	non_block.DispatchSockets(*this, capture_handle);
 
-	const std::lock_guard<Mutex> protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 
 	auto w = PrepareWriteBuffer();
 	const snd_pcm_uframes_t w_frames = w.size / frame_size;

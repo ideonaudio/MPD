@@ -23,9 +23,10 @@
 #include "input/InputStream.hxx"
 #include "tag/Id3Scan.hxx"
 #include "tag/Id3ReplayGain.hxx"
+#include "tag/Id3MixRamp.hxx"
 #include "tag/Handler.hxx"
-#include "tag/ReplayGain.hxx"
-#include "tag/MixRamp.hxx"
+#include "tag/ReplayGainParser.hxx"
+#include "tag/MixRampParser.hxx"
 #include "pcm/CheckAudioFormat.hxx"
 #include "util/Clamp.hxx"
 #include "util/StringCompare.hxx"
@@ -268,35 +269,6 @@ MadDecoder::FillBuffer() noexcept
 	return true;
 }
 
-#ifdef ENABLE_ID3TAG
-gcc_pure
-static MixRampInfo
-parse_id3_mixramp(struct id3_tag *tag) noexcept
-{
-	MixRampInfo result;
-
-	struct id3_frame *frame;
-	for (unsigned i = 0; (frame = id3_tag_findframe(tag, "TXXX", i)); i++) {
-		if (frame->nfields < 3)
-			continue;
-
-		char *const key = (char *)
-		    id3_ucs4_latin1duplicate(id3_field_getstring
-					     (&frame->fields[1]));
-		char *const value = (char *)
-		    id3_ucs4_latin1duplicate(id3_field_getstring
-					     (&frame->fields[2]));
-
-		ParseMixRampTag(result, key, value);
-
-		free(key);
-		free(value);
-	}
-
-	return result;
-}
-#endif
-
 inline void
 MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 {
@@ -338,7 +310,9 @@ MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 			found_replay_gain = true;
 		}
 
-		client->SubmitMixRamp(parse_id3_mixramp(id3_tag.get()));
+		if (auto mix_ramp = Id3ToMixRampInfo(id3_tag.get());
+		    mix_ramp.IsDefined())
+			client->SubmitMixRamp(std::move(mix_ramp));
 	}
 
 #else /* !ENABLE_ID3TAG */

@@ -17,17 +17,36 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef MPD_REPLAY_GAIN_CONFIG_HXX
-#define MPD_REPLAY_GAIN_CONFIG_HXX
+#include "ReadFrames.hxx"
+#include "system/Error.hxx"
+#include "io/FileDescriptor.hxx"
 
-struct ReplayGainConfig {
-	static constexpr bool DEFAULT_LIMIT = true;
+static size_t
+ReadOrThrow(FileDescriptor fd, void *buffer, size_t size)
+{
+	auto nbytes = fd.Read(buffer, size);
+	if (nbytes < 0)
+		throw MakeErrno("Read failed");
 
-	float preamp = 1.0;
+	return nbytes;
+}
 
-	float missing_preamp = 1.0;
+std::size_t
+ReadFrames(FileDescriptor fd, void *_buffer, std::size_t size,
+	   std::size_t frame_size)
+{
+	auto buffer = (std::byte *)_buffer;
 
-	bool limit = DEFAULT_LIMIT;
-};
+	size = (size / frame_size) * frame_size;
 
-#endif
+	size_t nbytes = ReadOrThrow(fd, buffer, size);
+
+	const size_t modulo = nbytes % frame_size;
+	if (modulo > 0) {
+		size_t rest = frame_size - modulo;
+		fd.FullRead(buffer + nbytes, rest);
+		nbytes += rest;
+	}
+
+	return nbytes;
+}

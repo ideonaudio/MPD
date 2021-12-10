@@ -34,8 +34,8 @@
 #include "db/DatabaseLock.hxx"
 #include "db/DatabaseError.hxx"
 #include "fs/io/TextFile.hxx"
-#include "fs/io/BufferedOutputStream.hxx"
-#include "fs/io/FileOutputStream.hxx"
+#include "io/BufferedOutputStream.hxx"
+#include "io/FileOutputStream.hxx"
 #include "fs/FileInfo.hxx"
 #include "config/Block.hxx"
 #include "fs/FileSystem.hxx"
@@ -46,7 +46,7 @@
 #include "Log.hxx"
 
 #ifdef ENABLE_ZLIB
-#include "fs/io/GzipOutputStream.hxx"
+#include "lib/zlib/GzipOutputStream.hxx"
 #endif
 
 #include <cerrno>
@@ -316,7 +316,7 @@ SimpleDatabase::Visit(const DatabaseSelection &selection,
 
 	if (r.rest.find('/') == std::string_view::npos) {
 		if (visit_song) {
-			Song *song = r.directory->FindSong(r.rest);
+			const Song *song = r.directory->FindSong(r.rest);
 			if (song != nullptr) {
 				const auto song2 = song->Export();
 				if (selection.Match(song2))

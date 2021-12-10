@@ -33,10 +33,10 @@
 #include "input/Ptr.hxx"
 #include "Command.hxx"
 #include "DecoderPlugin.hxx"
-#include "ReplayGainInfo.hxx"
+#include "tag/ReplayGainInfo.hxx"
 #include "tag/Tag.hxx"
+#include "tag/MixRampInfo.hxx"
 #include "pcm/AudioFormat.hxx"
-#include "MixRampInfo.hxx"
 #include "config/Block.hxx"
 #include "Chrono.hxx"
 

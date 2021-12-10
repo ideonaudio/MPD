@@ -1,5 +1,5 @@
 /*
- * Copyright 2014-2019 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2008-2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,20 +27,61 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef OUTPUT_STREAM_HXX
-#define OUTPUT_STREAM_HXX
+#ifndef CURL_ADAPTER_HXX
+#define CURL_ADAPTER_HXX
+
+#include <curl/curl.h>
 
 #include <cstddef>
+#include <map>
+#include <string>
 
-class OutputStream {
+struct StringView;
+class CurlEasy;
+class CurlResponseHandler;
+
+class CurlResponseHandlerAdapter {
+	CURL *curl;
+
+	CurlResponseHandler &handler;
+
+	std::multimap<std::string, std::string> headers;
+
+	/** error message provided by libcurl */
+	char error_buffer[CURL_ERROR_SIZE];
+
+	enum class State {
+		UNINITIALISED,
+		HEADERS,
+		BODY,
+		CLOSED,
+	} state = State::UNINITIALISED;
+
 public:
-	OutputStream() = default;
-	OutputStream(const OutputStream &) = delete;
+	explicit CurlResponseHandlerAdapter(CurlResponseHandler &_handler) noexcept
+		:handler(_handler) {}
 
-	/**
-	 * Throws std::exception on error.
-	 */
-	virtual void Write(const void *data, size_t size) = 0;
+	void Install(CurlEasy &easy);
+
+	void Done(CURLcode result) noexcept;
+
+private:
+	void FinishHeaders();
+	void FinishBody();
+
+	void HeaderFunction(StringView s) noexcept;
+
+	/** called by curl when a new header is available */
+	static std::size_t _HeaderFunction(char *ptr,
+					   std::size_t size, std::size_t nmemb,
+					   void *stream) noexcept;
+
+	std::size_t DataReceived(const void *ptr, std::size_t size) noexcept;
+
+	/** called by curl when new data is available */
+	static std::size_t WriteFunction(char *ptr,
+					 std::size_t size, std::size_t nmemb,
+					 void *stream) noexcept;
 };
 
 #endif

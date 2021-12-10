@@ -31,6 +31,7 @@
 #include "ASCII.hxx"
 #include "SplitString.hxx"
 
+#include <array>
 #include <cassert>
 #include <cstring>
 
@@ -73,7 +74,7 @@ gcc_pure
 static const char *
 SkipUriScheme(const char *uri) noexcept
 {
-	static const char *const schemes[] = {
+	static constexpr auto schemes = std::array {
 		"http://", "https://",
 		"ftp://",
 		"smb://",
@@ -94,16 +95,16 @@ uri_remove_auth(const char *uri) noexcept
 	const char *auth = SkipUriScheme(uri);
 	if (auth == nullptr)
 		/* unrecognized URI */
-		return std::string();
+		return {};
 
 	const char *slash = std::strchr(auth, '/');
 	if (slash == nullptr)
 		slash = auth + strlen(auth);
 
-	const char *at = (const char *)std::memchr(auth, '@', slash - auth);
+	auto at = (const char *)std::memchr(auth, '@', slash - auth);
 	if (at == nullptr)
 		/* no auth info present, do nothing */
-		return std::string();
+		return {};
 
 	/* duplicate the full URI and then delete the auth
 	   information */

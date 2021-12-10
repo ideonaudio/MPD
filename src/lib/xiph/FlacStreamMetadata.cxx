@@ -21,13 +21,13 @@
 #include "FlacAudioFormat.hxx"
 #include "ScanVorbisComment.hxx"
 #include "pcm/CheckAudioFormat.hxx"
-#include "MixRampInfo.hxx"
 #include "tag/Handler.hxx"
 #include "tag/Builder.hxx"
 #include "tag/Tag.hxx"
-#include "tag/ReplayGain.hxx"
-#include "tag/MixRamp.hxx"
-#include "ReplayGainInfo.hxx"
+#include "tag/MixRampInfo.hxx"
+#include "tag/MixRampParser.hxx"
+#include "tag/ReplayGainInfo.hxx"
+#include "tag/ReplayGainParser.hxx"
 #include "util/StringView.hxx"
 
 #include <cassert>

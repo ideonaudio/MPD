@@ -28,15 +28,12 @@
 PlayerControl::PlayerControl(PlayerListener &_listener,
 			     PlayerOutputs &_outputs,
 			     InputCacheManager *_input_cache,
-			     unsigned _buffer_chunks,
-			     AudioFormat _configured_audio_format,
-			     const ReplayGainConfig &_replay_gain_config) noexcept
+			     const PlayerConfig &_config) noexcept
 	:listener(_listener), outputs(_outputs),
 	 input_cache(_input_cache),
-	 buffer_chunks(_buffer_chunks),
-	 configured_audio_format(_configured_audio_format),
-	 thread(BIND_THIS_METHOD(RunThread)),
-	 replay_gain_config(_replay_gain_config)
+	 config(_config),
+	 thread(BIND_THIS_METHOD(RunThread))
+
 {
 }
 
@@ -160,7 +157,7 @@ PlayerControl::LockSetPause(bool pause_flag) noexcept
 void
 PlayerControl::LockSetBorderPause(bool _border_pause) noexcept
 {
-	const std::lock_guard<Mutex> protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 	border_pause = _border_pause;
 }
 
@@ -198,14 +195,14 @@ PlayerControl::SetError(PlayerError type, std::exception_ptr &&_error) noexcept
 void
 PlayerControl::LockClearError() noexcept
 {
-	const std::lock_guard<Mutex> protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 	ClearError();
 }
 
 void
 PlayerControl::LockSetTaggedSong(const DetachedSong &song) noexcept
 {
-	const std::lock_guard<Mutex> protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 	tagged_song.reset();
 	tagged_song = std::make_unique<DetachedSong>(song);
 }
@@ -225,7 +222,7 @@ PlayerControl::ReadTaggedSong() noexcept
 std::unique_ptr<DetachedSong>
 PlayerControl::LockReadTaggedSong() noexcept
 {
-	const std::lock_guard<Mutex> protect(mutex);
+	const std::scoped_lock<Mutex> protect(mutex);
 	return ReadTaggedSong();
 }
 

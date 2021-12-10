@@ -1,7 +1,7 @@
 project(
   'mpd',
   ['c', 'cpp'],
-  version: '0.23.5',
+  version: '0.24',
   meson_version: '>= 0.56.0',
   default_options: [
     'c_std=c11',
@@ -44,7 +44,7 @@ version_conf = configuration_data()
 version_conf.set_quoted('PACKAGE', meson.project_name())
 version_conf.set_quoted('PACKAGE_NAME', meson.project_name())
 version_conf.set_quoted('VERSION', meson.project_version())
-version_conf.set_quoted('PROTOCOL_VERSION', '0.23.4')
+version_conf.set_quoted('PROTOCOL_VERSION', '0.23.5')
 configure_file(output: 'Version.h', configuration: version_conf)
 
 conf = configuration_data()
@@ -279,6 +279,9 @@ sources = [
   'src/command/PartitionCommands.cxx',
   'src/command/OtherCommands.cxx',
   'src/command/CommandListBuilder.cxx',
+  'src/config/PartitionConfig.cxx',
+  'src/config/PlayerConfig.cxx',
+  'src/config/ReplayGainConfig.cxx',
   'src/Idle.cxx',
   'src/IdleFlags.cxx',
   'src/decoder/Thread.cxx',
@@ -334,7 +337,6 @@ sources = [
   'src/queue/PlaylistEdit.cxx',
   'src/queue/PlaylistTag.cxx',
   'src/queue/PlaylistState.cxx',
-  'src/ReplayGainGlobal.cxx',
   'src/LocateUri.cxx',
   'src/SongUpdate.cxx',
   'src/SongLoader.cxx',
@@ -461,7 +463,6 @@ endif
 
 basic = static_library(
   'basic',
-  'src/ReplayGainInfo.cxx',
   'src/ReplayGainMode.cxx',
   'src/SingleMode.cxx',
   include_directories: inc,

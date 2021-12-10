@@ -20,7 +20,6 @@
 #ifndef MPD_CONFIG_DEFAULTS_HXX
 #define MPD_CONFIG_DEFAULTS_HXX
 
-static constexpr unsigned DEFAULT_PLAYLIST_MAX_LENGTH = 16 * 1024;
 static constexpr bool DEFAULT_PLAYLIST_SAVE_ABSOLUTE_PATHS = false;
 
 #endif

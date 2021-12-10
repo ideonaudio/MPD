@@ -33,8 +33,8 @@
 #include "LogBackend.hxx"
 #include "fs/Path.hxx"
 #include "fs/NarrowPath.hxx"
-#include "fs/io/BufferedOutputStream.hxx"
-#include "fs/io/StdioOutputStream.hxx"
+#include "io/BufferedOutputStream.hxx"
+#include "io/StdioOutputStream.hxx"
 #include "util/ConstBuffer.hxx"
 #include "util/OptionDef.hxx"
 #include "util/OptionParser.hxx"
@@ -223,14 +223,14 @@ public:
 
 	/* virtual methods from RemoteTagHandler */
 	void OnRemoteTag(Tag &&_tag) noexcept override {
-		const std::lock_guard<Mutex> lock(mutex);
+		const std::scoped_lock<Mutex> lock(mutex);
 		tag = std::move(_tag);
 		done = true;
 		cond.notify_all();
 	}
 
 	void OnRemoteTagError(std::exception_ptr e) noexcept override {
-		const std::lock_guard<Mutex> lock(mutex);
+		const std::scoped_lock<Mutex> lock(mutex);
 		error = std::move(e);
 		done = true;
 		cond.notify_all();

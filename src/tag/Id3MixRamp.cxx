@@ -17,26 +17,36 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "ReplayGainInfo.hxx"
-#include "ReplayGainConfig.hxx"
+#include "Id3MixRamp.hxx"
+#include "MixRampParser.hxx"
+#include "MixRampInfo.hxx"
 
-#include <cmath>
+#include <id3tag.h>
 
-float
-ReplayGainTuple::CalculateScale(const ReplayGainConfig &config) const noexcept
+#include <stdlib.h>
+
+MixRampInfo
+Id3ToMixRampInfo(const struct id3_tag *tag) noexcept
 {
-	float scale;
+	MixRampInfo result;
 
-	if (IsDefined()) {
-		scale = std::pow(10.0f, gain / 20.0f);
-		scale *= config.preamp;
-		if (scale > 15.0f)
-			scale = 15.0f;
+	struct id3_frame *frame;
+	for (unsigned i = 0; (frame = id3_tag_findframe(tag, "TXXX", i)); i++) {
+		if (frame->nfields < 3)
+			continue;
 
-		if (config.limit && scale * peak > 1.0f)
-			scale = 1.0f / peak;
-	} else
-		scale = config.missing_preamp;
+		char *const key = (char *)
+		    id3_ucs4_latin1duplicate(id3_field_getstring
+					     (&frame->fields[1]));
+		char *const value = (char *)
+		    id3_ucs4_latin1duplicate(id3_field_getstring
+					     (&frame->fields[2]));
 
-	return scale;
+		ParseMixRampTag(result, key, value);
+
+		free(key);
+		free(value);
+	}
+
+	return result;
 }

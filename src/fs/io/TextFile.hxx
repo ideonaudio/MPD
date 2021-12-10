@@ -20,6 +20,7 @@
 #ifndef MPD_TEXT_FILE_HXX
 #define MPD_TEXT_FILE_HXX
 
+#include "io/LineReader.hxx"
 #include "config.h"
 
 #include <memory>
@@ -29,7 +30,7 @@ class FileReader;
 class AutoGunzipReader;
 class BufferedReader;
 
-class TextFile {
+class TextFile final : public LineReader {
 	const std::unique_ptr<FileReader> file_reader;
 
 #ifdef ENABLE_ZLIB
@@ -45,14 +46,8 @@ public:
 
 	~TextFile() noexcept;
 
-	/**
-	 * Reads a line from the input file, and strips trailing
-	 * space.  There is a reasonable maximum line length, only to
-	 * prevent denial of service.
-	 *
-	 * @return a pointer to the line, or nullptr on end-of-file
-	 */
-	char *ReadLine();
+	/* virtual methods from class LineReader */
+	char *ReadLine() override;
 };
 
 #endif
