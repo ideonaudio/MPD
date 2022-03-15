@@ -17,7 +17,6 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#include "config.h"
 #include "ServerSocket.hxx"
 #include "lib/fmt/ExceptionFormatter.hxx"
 #include "net/IPv4Address.hxx"
@@ -36,7 +35,6 @@
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
-#include <cassert>
 #include <string>
 #include <utility>
 
@@ -182,6 +180,22 @@ ServerSocket::OneServerSocket::Open()
 	auto _fd = socket_bind_listen(address.GetFamily(),
 				      SOCK_STREAM, 0,
 				      address, 5);
+
+#ifdef HAVE_TCP
+	if (parent.dscp_class >= 0) {
+		const int family = address.GetFamily();
+		if ((family == AF_INET &&
+		     !_fd.SetIntOption(IPPROTO_IP, IP_TOS, parent.dscp_class)) ||
+		    (family == AF_INET6 &&
+		     !_fd.SetIntOption(IPPROTO_IPV6, IPV6_TCLASS,
+				       parent.dscp_class))) {
+			const SocketErrorMessage msg;
+			FmtError(server_socket_domain,
+				 "Could not set DSCP class: {}",
+				 (const char *)msg);
+		}
+	}
+#endif
 
 #ifdef HAVE_UN
 	/* allow everybody to connect */

@@ -44,7 +44,7 @@ version_conf = configuration_data()
 version_conf.set_quoted('PACKAGE', meson.project_name())
 version_conf.set_quoted('PACKAGE_NAME', meson.project_name())
 version_conf.set_quoted('VERSION', meson.project_version())
-version_conf.set_quoted('PROTOCOL_VERSION', '0.23.5')
+version_conf.set_quoted('PROTOCOL_VERSION', '0.24.0')
 configure_file(output: 'Version.h', configuration: version_conf)
 
 conf = configuration_data()
@@ -330,8 +330,9 @@ sources = [
   'src/playlist/Print.cxx',
   'src/db/PlaylistVector.cxx',
   'src/queue/Queue.cxx',
-  'src/queue/QueuePrint.cxx',
-  'src/queue/QueueSave.cxx',
+  'src/queue/Print.cxx',
+  'src/queue/Save.cxx',
+  'src/queue/Selection.cxx',
   'src/queue/Playlist.cxx',
   'src/queue/PlaylistControl.cxx',
   'src/queue/PlaylistEdit.cxx',

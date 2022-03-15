@@ -17,29 +17,21 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-/*
- * This library saves the queue into the state file, and also loads it
- * back into memory.
- */
+#include "Selection.hxx"
+#include "Queue.hxx"
+#include "song/DetachedSong.hxx"
+#include "song/Filter.hxx"
+#include "song/LightSong.hxx"
 
-#ifndef MPD_QUEUE_SAVE_HXX
-#define MPD_QUEUE_SAVE_HXX
+bool
+QueueSelection::MatchPosition(const Queue &queue,
+			      unsigned position) const noexcept
+{
+	if (filter != nullptr) {
+		const auto song = queue.GetLight(position);
+		if (!filter->Match(song))
+			return false;
+	}
 
-struct Queue;
-class BufferedOutputStream;
-class LineReader;
-class SongLoader;
-
-void
-queue_save(BufferedOutputStream &os, const Queue &queue);
-
-/**
- * Loads one song from the state file and appends it to the queue.
- *
- * Throws on error.
- */
-void
-queue_load_song(LineReader &file, const SongLoader &loader,
-		const char *line, Queue &queue);
-
-#endif
+	return true;
+}

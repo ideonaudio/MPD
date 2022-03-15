@@ -21,7 +21,7 @@
 #include "PlaylistFile.hxx"
 #include "PlaylistError.hxx"
 #include "queue/Playlist.hxx"
-#include "queue/QueuePrint.hxx"
+#include "queue/Print.hxx"
 #include "protocol/RangeArg.hxx"
 
 #define SONG_FILE "file: "
@@ -77,9 +77,9 @@ playlist_print_current(Response &r, const playlist &playlist)
 
 void
 playlist_print_find(Response &r, const playlist &playlist,
-		    const SongFilter &filter)
+		    const QueueSelection &selection)
 {
-	queue_find(r, playlist.queue, filter);
+	PrintQueue(r, playlist.queue, selection);
 }
 
 void

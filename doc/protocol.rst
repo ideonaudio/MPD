@@ -220,6 +220,9 @@ of:
   matches the audio format with the given mask (i.e. one
   or more attributes may be ``*``).
 
+- ``(prio >= 42)``:
+  compares the priority of queued songs.
+
 - ``(!EXPRESSION)``: negate an expression.  Note that each expression
   must be enclosed in parentheses, e.g. :code:`(!(artist == 'VALUE'))`
   (which is equivalent to :code:`(artist != 'VALUE')`)
@@ -283,6 +286,7 @@ The following tags are supported by :program:`MPD`:
 * **track**: the decimal track number within the album.
 * **name**: a name for this song. This is not the song title. The exact meaning of this tag is not well-defined. It is often used by badly configured internet radio stations with broken tags to squeeze both the artist name and the song title in one tag.
 * **genre**: the music genre.
+* **mood**: the mood of the audio with a few keywords.
 * **date**: the song's release date. This is usually a 4-digit year.
 * **originaldate**: the song's original release date.
 * **composer**: the artist who composed the song.
@@ -772,9 +776,24 @@ Whenever possible, ids should be used.
 
 .. _command_playlistfind:
 
-:command:`playlistfind {FILTER}`
-    Finds songs in the queue with strict
-    matching.
+:command:`playlistfind {FILTER} [sort {TYPE}] [window {START:END}]`
+    Search the queue for songs matching
+    ``FILTER`` (see :ref:`Filters <filter_syntax>`).
+
+    ``sort`` sorts the result by the specified tag.  The sort is
+    descending if the tag is prefixed with a minus ('-').  Only the
+    first tag value will be used, if multiple of the same type exist.
+    To sort by "Artist", "Album" or "AlbumArtist", you should specify
+    "ArtistSort", "AlbumSort" or "AlbumArtistSort" instead.  These
+    will automatically fall back to the former if "\*Sort" doesn't
+    exist.  "AlbumArtist" falls back to just "Artist".  The type
+    "Last-Modified" can sort by file modification time, and "prio"
+    sorts by queue priority.
+
+    ``window`` can be used to query only a portion of the real
+    response.  The parameter is two zero-based queue positions; a
+    start index (including) and an end index (excluding). The end
+    index can be omitted, which means the range is open-ended.
 
 .. _command_playlistid:
 
@@ -793,9 +812,11 @@ Whenever possible, ids should be used.
 
 .. _command_playlistsearch:
 
-:command:`playlistsearch {FILTER}`
-    Searches case-insensitively for partial matches in the
-    queue.
+:command:`playlistsearch {FILTER} [sort {TYPE}] [window {START:END}]`
+    Search the queue for songs matching
+    ``FILTER`` (see :ref:`Filters <filter_syntax>`).
+    Parameters have the same meaning as for :ref:`find
+    <command_playlistfind>`, except that search is not case sensitive.
 
 .. _command_plchanges:
 

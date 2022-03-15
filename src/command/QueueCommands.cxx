@@ -24,11 +24,13 @@
 #include "protocol/RangeArg.hxx"
 #include "db/DatabaseQueue.hxx"
 #include "db/Selection.hxx"
+#include "tag/ParseName.hxx"
 #include "song/Filter.hxx"
 #include "SongLoader.hxx"
 #include "song/DetachedSong.hxx"
 #include "LocateUri.hxx"
 #include "queue/Playlist.hxx"
+#include "queue/Selection.hxx"
 #include "PlaylistPrint.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
@@ -285,10 +287,49 @@ handle_playlistid(Client &client, Request args, Response &r)
 	return CommandResult::OK;
 }
 
+static TagType
+ParseSortTag(const char *s)
+{
+	if (StringIsEqualIgnoreCase(s, "Last-Modified"))
+		return TagType(SORT_TAG_LAST_MODIFIED);
+
+	if (StringIsEqualIgnoreCase(s, "prio"))
+		return TagType(SORT_TAG_PRIO);
+
+	TagType tag = tag_name_parse_i(s);
+	if (tag == TAG_NUM_OF_ITEM_TYPES)
+		throw ProtocolError(ACK_ERROR_ARG, "Unknown sort tag");
+
+	return tag;
+}
+
 static CommandResult
 handle_playlist_match(Client &client, Request args, Response &r,
 		      bool fold_case)
 {
+	RangeArg window = RangeArg::All();
+	if (args.size >= 2 && StringIsEqual(args[args.size - 2], "window")) {
+		window = args.ParseRange(args.size - 1);
+
+		args.pop_back();
+		args.pop_back();
+	}
+
+	TagType sort = TAG_NUM_OF_ITEM_TYPES;
+	bool descending = false;
+	if (args.size >= 2 && StringIsEqual(args[args.size - 2], "sort")) {
+		const char *s = args.back();
+		if (*s == '-') {
+			descending = true;
+			++s;
+		}
+
+		sort = ParseSortTag(s);
+
+		args.pop_back();
+		args.pop_back();
+	}
+
 	SongFilter filter;
 	try {
 		filter.Parse(args, fold_case);
@@ -299,7 +340,13 @@ handle_playlist_match(Client &client, Request args, Response &r,
 	}
 	filter.Optimize();
 
-	playlist_print_find(r, client.GetPlaylist(), filter);
+	QueueSelection selection;
+	selection.filter = &filter;
+	selection.window = window;
+	selection.sort = sort;
+	selection.descending = descending;
+
+	playlist_print_find(r, client.GetPlaylist(), selection);
 	return CommandResult::OK;
 }
 

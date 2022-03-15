@@ -202,6 +202,9 @@ static constexpr struct {
 	{ TAG_MOVEMENTNUMBER, MPD_TAG_MOVEMENTNUMBER },
 	{ TAG_LOCATION, MPD_TAG_LOCATION },
 #endif
+#if LIBMPDCLIENT_CHECK_VERSION(2,21,0)
+	{ TAG_MOOD, MPD_TAG_MOOD },
+#endif
 	{ TAG_NUM_OF_ITEM_TYPES, MPD_TAG_COUNT }
 };
 
@@ -989,7 +992,7 @@ ProxyDatabase::Visit(const DatabaseSelection &selection,
 				     visit_song);
 
 	if (!visit_directory && !visit_playlist && selection.recursive &&
-	    !selection.IsEmpty()) {
+	    selection.IsFiltered()) {
 		/* this optimized code path can only be used under
 		   certain conditions */
 		::SearchSongs(connection, selection, visit_song);

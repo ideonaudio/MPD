@@ -17,45 +17,39 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef QOBUZ_ERROR_PARSER_HXX
-#define QOBUZ_ERROR_PARSER_HXX
+#pragma once
 
-#include "lib/curl/Headers.hxx"
-#include "lib/yajl/ResponseParser.hxx"
+#include "protocol/RangeArg.hxx"
+#include "tag/Type.h"
 
-template<typename T> struct ConstBuffer;
-struct StringView;
+struct Queue;
+class SongFilter;
 
 /**
- * Parse an error JSON response.
+ * Describes what part of and how the client wishes to see the queue.
  */
-class QobuzErrorParser final : public YajlResponseParser {
-	const unsigned status;
-
-	enum class State {
-		NONE,
-		MESSAGE,
-	} state = State::NONE;
-
-	std::string message;
-
-public:
+struct QueueSelection {
 	/**
-	 * May throw if there is a formal error in the response
-	 * headers.
+	 * An optional pointer to a #SongFilter (not owned by this
+	 * object).
 	 */
-	QobuzErrorParser(unsigned status, const Curl::Headers &headers);
+	const SongFilter *filter = nullptr;
 
-protected:
-	/* virtual methods from CurlResponseParser */
-	[[noreturn]]
-	void OnEnd() override;
+	RangeArg window = RangeArg::All();
 
-public:
-	/* yajl callbacks */
-	bool String(StringView value) noexcept;
-	bool MapKey(StringView value) noexcept;
-	bool EndMap() noexcept;
+	/**
+	 * Sort the result by the given tag.  #TAG_NUM_OF_ITEM_TYPES
+	 * means don't sort.  #SORT_TAG_LAST_MODIFIED sorts by
+	 * "Last-Modified" (not technically a tag).
+	 */
+	TagType sort = TAG_NUM_OF_ITEM_TYPES;
+
+	/**
+	 * If #sort is set, this flag can reverse the sort order.
+	 */
+	bool descending = false;
+
+	[[gnu::pure]]
+	bool MatchPosition(const Queue &queue,
+			   unsigned position) const noexcept;
 };
-
-#endif

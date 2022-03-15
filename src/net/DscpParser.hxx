@@ -1,5 +1,5 @@
 /*
- * Copyright 2021 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2022 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -29,25 +29,13 @@
 
 #pragma once
 
-#include <system_error>
-
-namespace Alsa {
-
-class ErrorCategory final : public std::error_category {
-public:
-	const char *name() const noexcept override {
-		return "libasound";
-	}
-
-	std::string message(int condition) const override;
-};
-
-extern ErrorCategory error_category;
-
-inline std::system_error
-MakeError(int error, const char *msg) noexcept
-{
-	return std::system_error(error, error_category, msg);
-}
-
-} // namespace Alsa
+/**
+ * Parse a DSCP (Differentiated Services Code Point) class name.
+ * This can either be a name (CS*, LE, AF*, EF) or numeric (decimal or
+ * hexadecimal).
+ *
+ * @return the DSCP or -1 on error
+ */
+[[gnu::pure]]
+int
+ParseDscpClass(const char *s) noexcept;

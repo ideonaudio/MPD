@@ -1,5 +1,8 @@
 /*
- * Copyright (C) 2018 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2020-2021 CM4all GmbH
+ * All rights reserved.
+ *
+ * author: Max Kellermann <mk@cm4all.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,17 +30,13 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "HexFormat.hxx"
+#pragma once
 
-#include <stdio.h>
+#include <map>
+#include <string>
 
-char *
-HexFormat(char *dest, ConstBuffer<uint8_t> src) noexcept
-{
-	for (auto i : src) {
-		sprintf(dest, "%02x", i);
-		dest += 2;
-	}
+namespace Curl {
 
-	return dest;
-}
+using Headers = std::multimap<std::string, std::string, std::less<>>;
+
+} // namespace Curl

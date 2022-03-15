@@ -20,6 +20,9 @@
 #ifndef MPD_SERVER_SOCKET_HXX
 #define MPD_SERVER_SOCKET_HXX
 
+#include "config.h"
+
+#include <cassert>
 #include <list>
 
 class SocketAddress;
@@ -38,6 +41,14 @@ class ServerSocket {
 
 	std::list<OneServerSocket> sockets;
 
+#ifdef HAVE_TCP
+	/**
+	 * A non-negative value sets the IPPROTO_IP/IP_TOS or
+	 * IPPROTO_IPV6/IPV6_TCLASS socket option.
+	 */
+	int dscp_class = -1;
+#endif
+
 	unsigned next_serial = 1;
 
 public:
@@ -47,6 +58,14 @@ public:
 	EventLoop &GetEventLoop() const noexcept {
 		return loop;
 	}
+
+#ifdef HAVE_TCP
+	void SetDscpClass(int _dscp_class) noexcept {
+		assert(sockets.empty());
+
+		dscp_class = _dscp_class;
+	}
+#endif
 
 private:
 	template<typename A>

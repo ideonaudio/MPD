@@ -28,11 +28,13 @@
 #include "Page.hxx"
 #include "IcyMetaDataServer.hxx"
 #include "event/Call.hxx"
+#include "net/DscpParser.hxx"
 #include "util/Domain.hxx"
 #include "util/DeleteDisposer.hxx"
 #include "config/Net.hxx"
 
 #include <cassert>
+#include <stdexcept>
 
 #include <string.h>
 
@@ -43,14 +45,20 @@ HttpdOutput::HttpdOutput(EventLoop &_loop, const ConfigBlock &block)
 	:AudioOutput(FLAG_ENABLE_DISABLE|FLAG_PAUSE),
 	 ServerSocket(_loop),
 	 prepared_encoder(CreateConfiguredEncoder(block)),
-	 defer_broadcast(_loop, BIND_THIS_METHOD(OnDeferredBroadcast))
+	 defer_broadcast(_loop, BIND_THIS_METHOD(OnDeferredBroadcast)),
+	 name(block.GetBlockValue("name", "Set name in config")),
+	 genre(block.GetBlockValue("genre", "Set genre in config")),
+	 website(block.GetBlockValue("website", "Set website in config")),
+	 clients_max(block.GetBlockValue("max_clients", 0U))
 {
-	/* read configuration */
-	name = block.GetBlockValue("name", "Set name in config");
-	genre = block.GetBlockValue("genre", "Set genre in config");
-	website = block.GetBlockValue("website", "Set website in config");
+	if (const auto *p = block.GetBlockParam("dscp_class"))
+		p->With([this](const char *s){
+			const int value = ParseDscpClass(s);
+			if (value < 0)
+				throw std::runtime_error("Not a valid DSCP class");
 
-	clients_max = block.GetBlockValue("max_clients", 0U);
+			ServerSocket::SetDscpClass(value);
+		});
 
 	/* set up bind_to_address */
 

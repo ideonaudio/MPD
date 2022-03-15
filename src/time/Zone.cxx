@@ -1,5 +1,8 @@
 /*
- * Copyright 2021 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2007-2022 CM4all GmbH
+ * All rights reserved.
+ *
+ * author: Max Kellermann <mk@cm4all.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,27 +30,21 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
+#include "Zone.hxx"
 
-#include <system_error>
+#include <time.h>
 
-namespace Alsa {
-
-class ErrorCategory final : public std::error_category {
-public:
-	const char *name() const noexcept override {
-		return "libasound";
-	}
-
-	std::string message(int condition) const override;
-};
-
-extern ErrorCategory error_category;
-
-inline std::system_error
-MakeError(int error, const char *msg) noexcept
+int
+GetTimeZoneOffset() noexcept
 {
-	return std::system_error(error, error_category, msg);
+	time_t t = 1234567890;
+#ifdef _WIN32
+	struct tm *p = gmtime(&t);
+#else
+	struct tm tm;
+	tm.tm_isdst = 0;
+	struct tm *p = &tm;
+	gmtime_r(&t, p);
+#endif
+	return t - mktime(p);
 }
-
-} // namespace Alsa

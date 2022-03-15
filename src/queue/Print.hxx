@@ -17,45 +17,37 @@
  * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
  */
 
-#ifndef QOBUZ_ERROR_PARSER_HXX
-#define QOBUZ_ERROR_PARSER_HXX
-
-#include "lib/curl/Headers.hxx"
-#include "lib/yajl/ResponseParser.hxx"
-
-template<typename T> struct ConstBuffer;
-struct StringView;
-
-/**
- * Parse an error JSON response.
+/*
+ * This library sends information about songs in the queue to the
+ * client.
  */
-class QobuzErrorParser final : public YajlResponseParser {
-	const unsigned status;
 
-	enum class State {
-		NONE,
-		MESSAGE,
-	} state = State::NONE;
+#pragma once
 
-	std::string message;
+#include <cstdint>
 
-public:
-	/**
-	 * May throw if there is a formal error in the response
-	 * headers.
-	 */
-	QobuzErrorParser(unsigned status, const Curl::Headers &headers);
+struct Queue;
+struct QueueSelection;
+class Response;
 
-protected:
-	/* virtual methods from CurlResponseParser */
-	[[noreturn]]
-	void OnEnd() override;
+void
+queue_print_info(Response &r, const Queue &queue,
+		 unsigned start, unsigned end);
 
-public:
-	/* yajl callbacks */
-	bool String(StringView value) noexcept;
-	bool MapKey(StringView value) noexcept;
-	bool EndMap() noexcept;
-};
+void
+queue_print_uris(Response &r, const Queue &queue,
+		 unsigned start, unsigned end);
 
-#endif
+void
+queue_print_changes_info(Response &r, const Queue &queue,
+			 uint32_t version,
+			 unsigned start, unsigned end);
+
+void
+queue_print_changes_position(Response &r, const Queue &queue,
+			     uint32_t version,
+			     unsigned start, unsigned end);
+
+void
+PrintQueue(Response &response, const Queue &queue,
+	   const QueueSelection &selection);

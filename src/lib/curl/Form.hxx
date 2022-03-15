@@ -30,17 +30,17 @@
 #ifndef CURL_FORM_HXX
 #define CURL_FORM_HXX
 
+#include "Headers.hxx"
+
 #include <curl/curl.h>
 
 #include <string>
-#include <map>
 
 /**
  * Encode the given map of form fields to a
  * "application/x-www-form-urlencoded" string.
  */
 std::string
-EncodeForm(CURL *curl,
-	   const std::multimap<std::string, std::string> &fields) noexcept;
+EncodeForm(CURL *curl, const Curl::Headers &fields) noexcept;
 
 #endif
