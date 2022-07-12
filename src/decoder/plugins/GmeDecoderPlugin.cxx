@@ -31,7 +31,6 @@
 #include "util/ScopeExit.hxx"
 #include "util/StringCompare.hxx"
 #include "util/StringFormat.hxx"
-#include "util/StringView.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
@@ -217,7 +216,7 @@ gme_file_decode(DecoderClient &client, Path path_fs)
 			return;
 		}
 
-		cmd = client.SubmitData(nullptr, buf, sizeof(buf), 0);
+		cmd = client.SubmitAudio(nullptr, std::span{buf}, 0);
 		if (cmd == DecoderCommand::SEEK) {
 			unsigned where = client.GetSeekTime().ToMS();
 			gme_err = gme_seek(emu, where);

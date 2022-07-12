@@ -20,11 +20,8 @@
 #ifndef MPD_ENCODER_INTERFACE_HXX
 #define MPD_ENCODER_INTERFACE_HXX
 
-#include "EncoderPlugin.hxx"
-#include "util/Compiler.h"
-
-#include <cassert>
 #include <cstddef>
+#include <span>
 
 struct AudioFormat;
 struct Tag;
@@ -44,11 +41,10 @@ public:
 	/**
 	 * Ends the stream: flushes the encoder object, generate an
 	 * end-of-stream marker (if applicable), make everything which
-	 * might currently be buffered available by encoder_read().
+	 * might currently be buffered available by Read().
 	 *
 	 * After this function has been called, the encoder may not be
-	 * usable for more data, and only Read() and Close() can be
-	 * called.
+	 * usable for more data, and only Read() can be called.
 	 *
 	 * Throws on error.
 	 */
@@ -78,7 +74,7 @@ public:
 	 * Sends a tag to the encoder.
 	 *
 	 * Instructions: call PreTag(); then obtain flushed data with
-	 * Read(); finally call Tag().
+	 * Read(); finally call Tag() and again Read().
 	 *
 	 * Throws on error.
 	 *
@@ -95,18 +91,20 @@ public:
 	 * @param data the buffer containing PCM samples
 	 * @param length the length of the buffer in bytes
 	 */
-	virtual void Write(const void *data, size_t length) = 0;
+	virtual void Write(std::span<const std::byte> src) = 0;
 
 	/**
 	 * Reads encoded data from the encoder.
 	 *
-	 * Call this repeatedly until no more data is returned.
+	 * Call this repeatedly after End(), Flush(), PreTag(), SendTag() and
+	 *  Write() until no more data is returned.
 	 *
-	 * @param dest the destination buffer to copy to
-	 * @param length the maximum length of the destination buffer
-	 * @return the number of bytes written to #dest
+	 * @param buffer a buffer that can be used to write data into
+	 *
+	 * @return the portion of the buffer that was filled (but may
+	 * also point to a different buffer, e.g. one owned by this object)
 	 */
-	virtual size_t Read(void *dest, size_t length) = 0;
+	virtual std::span<const std::byte> Read(std::span<std::byte> buffer) noexcept = 0;
 };
 
 class PreparedEncoder {
@@ -114,13 +112,11 @@ public:
 	virtual ~PreparedEncoder() noexcept = default;
 
 	/**
-	 * Opens the object.  You must call this prior to using it.
-	 * Before you free it, you must call Close().  You may open
-	 * and close (reuse) one encoder any number of times.
+	 * Create an #Encoder instance.
 	 *
 	 * After this function returns successfully and before the
-	 * first encoder_write() call, you should invoke
-	 * encoder_read() to obtain the file header.
+	 * first Encoder::Write() call, you should invoke
+	 * Encoder::Read() to obtain the file header.
 	 *
 	 * Throws on error.
 	 *

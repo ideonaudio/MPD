@@ -1,8 +1,5 @@
 /*
- * Copyright 2007-2021 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
+ * Copyright 2022 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -32,19 +29,12 @@
 
 #pragma once
 
-#include <exception>
+#include <type_traits>
 
-struct AvahiClient;
-
-namespace Avahi {
-
-class ErrorHandler {
-public:
-	/**
-	 * @return true to keep retrying, false if the failed object
-	 * has been disposed
-	 */
-	virtual bool OnAvahiError(std::exception_ptr e) noexcept = 0;
-};
-
-} // namespace Avahi
+/**
+ * Generate a type based on #To with the same const-ness as #From.
+ */
+template<typename To, typename From>
+using CopyConst = std::conditional_t<std::is_const_v<From>,
+				     std::add_const_t<To>,
+				     std::remove_const_t<To>>;

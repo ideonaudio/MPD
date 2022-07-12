@@ -1,5 +1,8 @@
 /*
- * Copyright 2013-2021 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2007-2022 CM4all GmbH
+ * All rights reserved.
+ *
+ * author: Max Kellermann <mk@cm4all.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,19 +30,32 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef WSTRING_VIEW_HXX
-#define WSTRING_VIEW_HXX
+#pragma once
 
-#include "StringView.hxx"
+#include <avahi-client/client.h>
 
-#include <wchar.h>
+namespace Avahi {
 
-struct WStringView : BasicStringView<wchar_t> {
-	using BasicStringView::BasicStringView;
+class ConnectionListener {
+public:
+	/**
+	 * The connection to the Avahi daemon has been established.
+	 *
+	 * Note that this may be called again after a collision
+	 * (AVAHI_CLIENT_S_COLLISION) or a host name change
+	 * (AVAHI_CLIENT_S_REGISTERING).
+	 */
+	virtual void OnAvahiConnect(AvahiClient *client) noexcept = 0;
+	virtual void OnAvahiDisconnect() noexcept = 0;
 
-	WStringView() = default;
-	constexpr WStringView(BasicStringView<value_type> src) noexcept
-		:BasicStringView(src) {}
+	/**
+	 * Something about the Avahi connection has changed, e.g. a
+	 * collision (AVAHI_CLIENT_S_COLLISION) or a host name change
+	 * (AVAHI_CLIENT_S_REGISTERING).  Services shall be
+	 * unpublished now, and will be re-published in the following
+	 * OnAvahiConnect() call.
+	 */
+	virtual void OnAvahiChanged() noexcept {}
 };
 
-#endif
+} // namespace Avahi

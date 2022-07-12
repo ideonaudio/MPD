@@ -22,19 +22,19 @@
 #include "tag/Table.hxx"
 #include "tag/Handler.hxx"
 #include "tag/VorbisComment.hxx"
-#include "util/StringView.hxx"
+#include "util/StringSplit.hxx"
 
 /**
  * Check if the comment's name equals the passed name, and if so, copy
  * the comment value into the tag.
  */
 static bool
-vorbis_copy_comment(StringView comment,
-		    StringView name, TagType tag_type,
+vorbis_copy_comment(std::string_view comment,
+		    std::string_view name, TagType tag_type,
 		    TagHandler &handler) noexcept
 {
 	const auto value = GetVorbisCommentValue(comment, name);
-	if (!value.IsNull()) {
+	if (value.data() != nullptr) {
 		handler.OnTag(tag_type, value);
 		return true;
 	}
@@ -43,11 +43,11 @@ vorbis_copy_comment(StringView comment,
 }
 
 void
-ScanVorbisComment(StringView comment, TagHandler &handler) noexcept
+ScanVorbisComment(std::string_view comment, TagHandler &handler) noexcept
 {
 	if (handler.WantPair()) {
-		const auto split = comment.Split('=');
-		if (!split.first.empty() && !split.second.IsNull())
+		const auto split = Split(comment, '=');
+		if (!split.first.empty() && split.second.data() != nullptr)
 			handler.OnPair(split.first, split.second);
 	}
 

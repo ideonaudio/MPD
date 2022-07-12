@@ -31,7 +31,6 @@
 #include "pcm/AudioFormat.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/StringBuffer.hxx"
-#include "util/StringView.hxx"
 #include "util/PrintException.hxx"
 
 #include <cassert>
@@ -60,16 +59,16 @@ public:
 		printf("duration=%f\n", duration.ToDoubleS());
 	}
 
-	void OnTag(TagType type, StringView value) noexcept override {
+	void OnTag(TagType type, std::string_view value) noexcept override {
 		printf("[%s]=%.*s\n", tag_item_names[type],
-		       int(value.size), value.data);
+		       int(value.size()), value.data());
 		empty = false;
 	}
 
-	void OnPair(StringView key, StringView value) noexcept override {
+	void OnPair(std::string_view key, std::string_view value) noexcept override {
 		printf("\"%.*s\"=%.*s\n",
-		       int(key.size), key.data,
-		       int(value.size), value.data);
+		       int(key.size()), key.data(),
+		       int(value.size()), value.data());
 	}
 
 	void OnAudioFormat(AudioFormat af) noexcept override {
@@ -77,8 +76,9 @@ public:
 	}
 
 	void OnPicture(const char *mime_type,
-		       ConstBuffer<void> buffer) noexcept override {
-		printf("picture mime='%s' size=%zu\n", mime_type, buffer.size);
+		       std::span<const std::byte> buffer) noexcept override {
+		printf("picture mime='%s' size=%zu\n",
+		       mime_type, buffer.size());
 	}
 };
 

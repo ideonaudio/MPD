@@ -55,7 +55,7 @@ and unpack it (or `clone the git repository
 
 In any case, you need:
 
-* a C++17 compiler (e.g. GCC 8 or clang 7)
+* a C++20 compiler (e.g. GCC 10 or clang 11)
 * `Meson 0.56.0 <http://mesonbuild.com/>`__ and `Ninja
   <https://ninja-build.org/>`__
 * Boost 1.58
@@ -567,7 +567,7 @@ The following table lists the playlist_plugin options valid for all plugins:
 
    * - Name
      - Description
-   * - **plugin**
+   * - **name**
      - The name of the plugin
    * - **enabled yes|no**
      - Allows you to disable a playlist plugin without recompiling. By default, all plugins are enabled.
@@ -1095,7 +1095,19 @@ The "music directory" is where you store your music files. :program:`MPD` stores
 
 Depending on the size of your music collection and the speed of the storage, this can take a while.
 
-To exclude a file from the update, create a file called :file:`.mpdignore` in its parent directory. Each line of that file may contain a list of shell wildcards. Matching files in the current directory and all subdirectories are excluded.
+To exclude a file from the update, create a file called
+:file:`.mpdignore` in its parent directory.  Each line of that file
+may contain a list of shell wildcards.  Matching files (or
+directories) in the current directory and all subdirectories are
+excluded.  Example::
+
+  *.opus
+  99*
+
+Subject to pattern matching is the file/directory name.  It is (not
+yet) possible to match nested path names, e.g. something like
+``foo/*.flac`` is not possible.
+
 
 Mounting other storages into the music directory
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^

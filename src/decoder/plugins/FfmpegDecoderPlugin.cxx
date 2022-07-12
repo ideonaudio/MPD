@@ -42,7 +42,6 @@
 #include "input/InputStream.hxx"
 #include "pcm/CheckAudioFormat.hxx"
 #include "util/ScopeExit.hxx"
-#include "util/ConstBuffer.hxx"
 #include "util/StringAPI.hxx"
 #include "Log.hxx"
 
@@ -159,10 +158,10 @@ GetMimeType(const AVStream &stream) noexcept
 	return nullptr;
 }
 
-static ConstBuffer<void>
-ToConstBuffer(const AVPacket &packet) noexcept
+static std::span<const std::byte>
+ToSpan(const AVPacket &packet) noexcept
 {
-	return {packet.data, size_t(packet.size)};
+	return std::as_bytes(std::span{packet.data, size_t(packet.size)});
 }
 
 /**
@@ -206,7 +205,7 @@ PtsToPcmFrame(uint64_t pts, const AVStream &stream,
 }
 
 /**
- * Invoke DecoderClient::SubmitData() with the contents of an
+ * Invoke DecoderClient::SubmitAudio() with the contents of an
  * #AVFrame.
  */
 static DecoderCommand
@@ -216,24 +215,20 @@ FfmpegSendFrame(DecoderClient &client, InputStream *is,
 		size_t &skip_bytes,
 		FfmpegBuffer &buffer)
 {
-	ConstBuffer<void> output_buffer =
-		Ffmpeg::InterleaveFrame(frame, buffer);
+	auto output_buffer = Ffmpeg::InterleaveFrame(frame, buffer);
 
 	if (skip_bytes > 0) {
-		if (skip_bytes >= output_buffer.size) {
-			skip_bytes -= output_buffer.size;
+		if (skip_bytes >= output_buffer.size()) {
+			skip_bytes -= output_buffer.size();
 			return DecoderCommand::NONE;
 		}
 
-		output_buffer.data =
-			(const uint8_t *)output_buffer.data + skip_bytes;
-		output_buffer.size -= skip_bytes;
+		output_buffer = output_buffer.subspan(skip_bytes);
 		skip_bytes = 0;
 	}
 
-	return client.SubmitData(is,
-				 output_buffer.data, output_buffer.size,
-				 codec_context.bit_rate / 1000);
+	return client.SubmitAudio(is, output_buffer,
+				  codec_context.bit_rate / 1000);
 }
 
 static DecoderCommand
@@ -366,7 +361,8 @@ ffmpeg_sample_format(enum AVSampleFormat sample_fmt) noexcept
 }
 
 static void
-FfmpegParseMetaData(AVDictionary &dict, ReplayGainInfo &rg, MixRampInfo &mr)
+FfmpegParseMetaData(AVDictionary &dict,
+		    ReplayGainInfo &rg, MixRampInfo &mr) noexcept
 {
 	AVDictionaryEntry *i = nullptr;
 
@@ -382,25 +378,29 @@ FfmpegParseMetaData(AVDictionary &dict, ReplayGainInfo &rg, MixRampInfo &mr)
 
 static void
 FfmpegParseMetaData(const AVStream &stream,
-		    ReplayGainInfo &rg, MixRampInfo &mr)
+		    ReplayGainInfo &rg, MixRampInfo &mr) noexcept
 {
-	FfmpegParseMetaData(*stream.metadata, rg, mr);
+	if (stream.metadata != nullptr)
+		FfmpegParseMetaData(*stream.metadata, rg, mr);
 }
 
 static void
 FfmpegParseMetaData(const AVFormatContext &format_context, int audio_stream,
-		    ReplayGainInfo &rg, MixRampInfo &mr)
+		    ReplayGainInfo &rg, MixRampInfo &mr) noexcept
 {
 	assert(audio_stream >= 0);
 
-	FfmpegParseMetaData(*format_context.metadata, rg, mr);
+	if (format_context.metadata != nullptr)
+		FfmpegParseMetaData(*format_context.metadata, rg, mr);
+
 	FfmpegParseMetaData(*format_context.streams[audio_stream],
 				    rg, mr);
 }
 
 static void
 FfmpegParseMetaData(DecoderClient &client,
-		    const AVFormatContext &format_context, int audio_stream)
+		    const AVFormatContext &format_context,
+		    int audio_stream) noexcept
 {
 	ReplayGainInfo rg;
 	rg.Clear();
@@ -436,7 +436,7 @@ FfmpegScanMetadata(const AVFormatContext &format_context, int audio_stream,
 
 static void
 FfmpegScanTag(const AVFormatContext &format_context, int audio_stream,
-	      TagBuilder &tag)
+	      TagBuilder &tag) noexcept
 {
 	FullTagHandler h(tag);
 	FfmpegScanMetadata(format_context, audio_stream, h);
@@ -448,7 +448,7 @@ FfmpegScanTag(const AVFormatContext &format_context, int audio_stream,
  */
 static void
 FfmpegCheckTag(DecoderClient &client, InputStream *is,
-	       AVFormatContext &format_context, int audio_stream)
+	       AVFormatContext &format_context, int audio_stream) noexcept
 {
 	AVStream &stream = *format_context.streams[audio_stream];
 	if ((stream.event_flags & AVSTREAM_EVENT_FLAG_METADATA_UPDATED) == 0)
@@ -468,7 +468,7 @@ static bool
 IsSeekable(const AVFormatContext &format_context) noexcept
 {
 #if LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT(58, 6, 100)
-	return (format_context.ctx_flags & AVFMTCTX_UNSEEKABLE) != 0;
+	return (format_context.ctx_flags & AVFMTCTX_UNSEEKABLE) == 0;
 #else
 	(void)format_context;
 	return false;
@@ -530,9 +530,8 @@ FfmpegDecode(DecoderClient &client, InputStream *input,
 		: FromFfmpegTimeChecked(format_context.duration, AV_TIME_BASE_Q);
 
 	client.Ready(audio_format,
-		     input
-		     ? input->IsSeekable()
-		     : IsSeekable(format_context),
+		     (input ? input->IsSeekable() : false)
+		     || IsSeekable(format_context),
 		     total_time);
 
 	FfmpegParseMetaData(client, format_context, audio_stream);
@@ -646,7 +645,7 @@ FfmpegScanStream(AVFormatContext &format_context, TagHandler &handler)
 		const auto *picture_stream = FindPictureStream(format_context);
 		if (picture_stream != nullptr)
 			handler.OnPicture(GetMimeType(*picture_stream),
-					  ToConstBuffer(picture_stream->attached_pic));
+					  ToSpan(picture_stream->attached_pic));
 	}
 
 	return true;

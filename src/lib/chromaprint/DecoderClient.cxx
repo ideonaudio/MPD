@@ -20,7 +20,7 @@
 #include "DecoderClient.hxx"
 #include "pcm/Convert.hxx"
 #include "input/InputStream.hxx"
-#include "util/ConstBuffer.hxx"
+#include "util/SpanCast.hxx"
 
 ChromaprintDecoderClient::ChromaprintDecoderClient() = default;
 ChromaprintDecoderClient::~ChromaprintDecoderClient() noexcept = default;
@@ -36,8 +36,7 @@ ChromaprintDecoderClient::Finish()
 
 	if (convert) {
 		auto flushed = convert->Flush();
-		auto data = ConstBuffer<int16_t>::FromVoid(flushed);
-		chromaprint.Feed(data.data, data.size);
+		chromaprint.Feed(FromBytesStrict<const int16_t>(flushed));
 	}
 
 	chromaprint.Finish();
@@ -64,27 +63,21 @@ ChromaprintDecoderClient::Ready(AudioFormat audio_format, bool,
 }
 
 DecoderCommand
-ChromaprintDecoderClient::SubmitData(InputStream *,
-				     const void *_data, size_t length,
-				     uint16_t) noexcept
+ChromaprintDecoderClient::SubmitAudio(InputStream *,
+				      std::span<const std::byte> audio,
+				      uint16_t) noexcept
 {
 	assert(ready);
 
-	if (length > remaining_bytes)
+	if (audio.size() > remaining_bytes)
 		remaining_bytes = 0;
 	else
-		remaining_bytes -= length;
+		remaining_bytes -= audio.size();
 
-	ConstBuffer<void> src{_data, length};
-	ConstBuffer<int16_t> data;
+	if (convert)
+		audio = convert->Convert(audio);
 
-	if (convert) {
-		auto result = convert->Convert(src);
-		data = ConstBuffer<int16_t>::FromVoid(result);
-	} else
-		data = ConstBuffer<int16_t>::FromVoid(src);
-
-	chromaprint.Feed(data.data, data.size);
+	chromaprint.Feed(FromBytesStrict<const int16_t>(audio));
 
 	return GetCommand();
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2021 CM4all GmbH
+ * Copyright 2022 CM4all GmbH
  * All rights reserved.
  *
  * author: Max Kellermann <mk@cm4all.com>
@@ -32,23 +32,25 @@
 
 #pragma once
 
-#include <avahi-common/address.h>
+template<typename T>
+struct MemberPointerHelper;
 
-#include <cstdint>
-#include <string>
-
-namespace Avahi {
-
-struct Service {
-	AvahiIfIndex interface = AVAHI_IF_UNSPEC;
-	AvahiProtocol protocol = AVAHI_PROTO_UNSPEC;
-	std::string type;
-	uint16_t port;
-
-	Service(AvahiIfIndex _interface, AvahiProtocol _protocol,
-		const char *_type, uint16_t _port) noexcept
-		:interface(_interface), protocol(_protocol),
-		 type(_type), port(_port) {}
+template<typename C, typename M>
+struct MemberPointerHelper<M C::*> {
+	using ContainerType = C;
+	using MemberType = M;
 };
 
-} // namespace Avahi
+/**
+ * Given a member pointer, this determines the member type.
+ */
+template<typename T>
+using MemberPointerType =
+	typename MemberPointerHelper<T>::MemberType;
+
+/**
+ * Given a member pointer, this determines the container type.
+ */
+template<typename T>
+using MemberPointerContainerType =
+	typename MemberPointerHelper<T>::ContainerType;

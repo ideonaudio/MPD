@@ -20,11 +20,9 @@
 #ifndef MPD_PEAK_BUFFER_HXX
 #define MPD_PEAK_BUFFER_HXX
 
-#include "Compiler.h"
-
 #include <cstddef>
+#include <span>
 
-template<typename T> struct WritableBuffer;
 template<typename T> class DynamicFifoBuffer;
 
 /**
@@ -59,15 +57,15 @@ public:
 		return normal_size + peak_size;
 	}
 
-	gcc_pure
+	[[gnu::pure]]
 	bool empty() const noexcept;
 
-	gcc_pure
-	WritableBuffer<void> Read() const noexcept;
+	[[gnu::pure]]
+	std::span<std::byte> Read() const noexcept;
 
 	void Consume(std::size_t length) noexcept;
 
-	bool Append(const void *data, std::size_t length);
+	bool Append(std::span<const std::byte> src);
 };
 
 #endif

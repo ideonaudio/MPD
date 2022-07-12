@@ -133,8 +133,6 @@ if enable_inotify
     'run_inotify',
     'run_inotify.cxx',
     'ShutdownHandler.cxx',
-    '../src/db/update/InotifyDomain.cxx',
-    '../src/db/update/InotifySource.cxx',
     include_directories: inc,
     dependencies: [
       log_dep,
@@ -490,6 +488,19 @@ if libid3tag_dep.found()
     ],
   )
 endif
+
+if ogg_dep.found()
+  executable(
+    'DumpOgg',
+    'DumpOgg.cxx',
+    include_directories: inc,
+    dependencies: [
+      ogg_dep,
+      input_glue_dep,
+      archive_glue_dep,
+    ],
+  )
+endif
   
 #
 # Filter
@@ -582,7 +593,7 @@ executable(
 # Encoder
 #
 
-if encoder_glue_dep.found()
+if need_encoder
   executable(
     'run_encoder',
     'run_encoder.cxx',

@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2014-2018 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2014-2021 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -48,15 +48,24 @@ class GzipOutputStream final : public OutputStream {
 public:
 	/**
 	 * Construct the filter.
+	 *
+	 * Throws #ZlibError on error.
 	 */
 	explicit GzipOutputStream(OutputStream &_next);
 	~GzipOutputStream();
 
 	/**
+	 * Throws on error.
+	 */
+	void SyncFlush();
+
+	/**
 	 * Finish the file and write all data remaining in zlib's
 	 * output buffer.
+	 *
+	 * Throws on error.
 	 */
-	void Flush();
+	void Finish();
 
 	/* virtual methods from class OutputStream */
 	void Write(const void *data, size_t size) override;

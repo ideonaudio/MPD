@@ -27,8 +27,7 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef FILE_DESCRIPTOR_HXX
-#define FILE_DESCRIPTOR_HXX
+#pragma once
 
 #include <cstddef>
 #include <utility>
@@ -43,6 +42,8 @@
 #ifdef _WIN32
 #include <wchar.h>
 #endif
+
+class UniqueFileDescriptor;
 
 /**
  * An OO wrapper for a UNIX file descriptor.
@@ -133,6 +134,11 @@ public:
 
 	bool OpenReadOnly(const char *pathname) noexcept;
 
+#ifdef __linux__
+	bool OpenReadOnly(FileDescriptor dir,
+			  const char *pathname) noexcept;
+#endif
+
 #ifndef _WIN32
 	bool OpenNonBlocking(const char *pathname) noexcept;
 #endif
@@ -177,6 +183,14 @@ public:
 	void DisableCloseOnExec() noexcept;
 
 	/**
+	 * Duplicate this file descriptor.
+	 *
+	 * @return the new file descriptor or UniqueFileDescriptor{}
+	 * on error
+	 */
+	UniqueFileDescriptor Duplicate() const noexcept;
+
+	/**
 	 * Duplicate the file descriptor onto the given file descriptor.
 	 */
 	bool Duplicate(FileDescriptor new_fd) const noexcept {
@@ -195,7 +209,6 @@ public:
 #ifdef __linux__
 	bool CreateEventFD(unsigned initval=0) noexcept;
 	bool CreateSignalFD(const sigset_t *mask) noexcept;
-	bool CreateInotify() noexcept;
 #endif
 
 	/**
@@ -261,5 +274,3 @@ public:
 	bool IsReadyForWriting() const noexcept;
 #endif
 };
-
-#endif

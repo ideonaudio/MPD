@@ -34,8 +34,9 @@
 #include <curl/curl.h>
 
 #include <cstddef>
+#include <exception>
+#include <string_view>
 
-struct StringView;
 class CurlEasy;
 class CurlResponseHandler;
 
@@ -45,6 +46,12 @@ class CurlResponseHandlerAdapter {
 	CurlResponseHandler &handler;
 
 	Curl::Headers headers;
+
+	/**
+	 * An exception caught from within the WriteFunction() which
+	 * will later be handled by Done().
+	 */
+	std::exception_ptr postponed_error;
 
 	/** error message provided by libcurl */
 	char error_buffer[CURL_ERROR_SIZE];
@@ -68,7 +75,7 @@ private:
 	void FinishHeaders();
 	void FinishBody();
 
-	void HeaderFunction(StringView s) noexcept;
+	void HeaderFunction(std::string_view s) noexcept;
 
 	/** called by curl when a new header is available */
 	static std::size_t _HeaderFunction(char *ptr,

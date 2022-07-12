@@ -27,7 +27,6 @@
 #include "fs/Path.hxx"
 #include "util/Domain.hxx"
 #include "util/ScopeExit.hxx"
-#include "util/StringView.hxx"
 #include "Log.hxx"
 
 #include <mpg123.h>
@@ -254,7 +253,8 @@ mpd_mpg123_file_decode(DecoderClient &client, Path path_fs)
 
 		/* send to MPD */
 
-		cmd = client.SubmitData(nullptr, buffer, nbytes, info.bitrate);
+		cmd = client.SubmitAudio(nullptr, std::span{buffer, nbytes},
+					 info.bitrate);
 
 		if (cmd == DecoderCommand::SEEK) {
 			off_t c = client.GetSeekFrame();

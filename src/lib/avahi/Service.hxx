@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2021 CM4all GmbH
+ * Copyright 2007-2022 CM4all GmbH
  * All rights reserved.
  *
  * author: Max Kellermann <mk@cm4all.com>
@@ -32,30 +32,23 @@
 
 #pragma once
 
-#include <system_error>
+#include <avahi-common/address.h>
 
-struct AvahiClient;
+#include <cstdint>
+#include <string>
 
 namespace Avahi {
 
-class ErrorCategory final : public std::error_category {
-public:
-	const char *name() const noexcept override {
-		return "avahi-client";
-	}
+struct Service {
+	AvahiIfIndex interface = AVAHI_IF_UNSPEC;
+	AvahiProtocol protocol = AVAHI_PROTO_UNSPEC;
+	std::string type;
+	uint16_t port;
 
-	std::string message(int condition) const override;
+	Service(AvahiIfIndex _interface, AvahiProtocol _protocol,
+		const char *_type, uint16_t _port) noexcept
+		:interface(_interface), protocol(_protocol),
+		 type(_type), port(_port) {}
 };
-
-extern ErrorCategory error_category;
-
-inline std::system_error
-MakeError(int error, const char *msg) noexcept
-{
-	return std::system_error(error, error_category, msg);
-}
-
-std::system_error
-MakeError(AvahiClient &client, const char *msg) noexcept;
 
 } // namespace Avahi

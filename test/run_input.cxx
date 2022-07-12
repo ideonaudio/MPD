@@ -35,7 +35,6 @@
 #include "fs/NarrowPath.hxx"
 #include "io/BufferedOutputStream.hxx"
 #include "io/StdioOutputStream.hxx"
-#include "util/ConstBuffer.hxx"
 #include "util/OptionDef.hxx"
 #include "util/OptionParser.hxx"
 #include "util/PrintException.hxx"
@@ -125,7 +124,7 @@ ParseCommandLine(int argc, char **argv)
 	}
 
 	auto args = option_parser.GetRemaining();
-	if (args.size != 1)
+	if (args.size() != 1)
 		throw std::runtime_error("Usage: run_input [--verbose] [--config=FILE] [--scan] [--chunk-size=BYTES] URI");
 
 	c.uri = args.front();

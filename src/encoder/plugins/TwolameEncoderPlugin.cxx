@@ -22,6 +22,7 @@
 #include "pcm/AudioFormat.hxx"
 #include "util/NumberParser.hxx"
 #include "util/RuntimeError.hxx"
+#include "util/SpanCast.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
@@ -30,16 +31,11 @@
 #include <cassert>
 #include <stdexcept>
 
-#include <string.h>
-
 class TwolameEncoder final : public Encoder {
-	const AudioFormat audio_format;
-
 	twolame_options *options;
 
-	unsigned char output_buffer[32768];
-	size_t output_buffer_length = 0;
-	size_t output_buffer_position = 0;
+	std::byte output_buffer[32768];
+	std::size_t fill = 0;
 
 	/**
 	 * Call libtwolame's flush function when the output_buffer is
@@ -48,10 +44,10 @@ class TwolameEncoder final : public Encoder {
 	bool flush = false;
 
 public:
-	TwolameEncoder(const AudioFormat _audio_format,
-		       twolame_options *_options)
-		:Encoder(false),
-		 audio_format(_audio_format), options(_options) {}
+	static constexpr unsigned CHANNELS = 2;
+
+	explicit TwolameEncoder(twolame_options *_options) noexcept
+		:Encoder(false), options(_options) {}
 	~TwolameEncoder() noexcept override;
 
 	TwolameEncoder(const TwolameEncoder &) = delete;
@@ -67,8 +63,8 @@ public:
 		flush = true;
 	}
 
-	void Write(const void *data, size_t length) override;
-	size_t Read(void *dest, size_t length) noexcept override;
+	void Write(std::span<const std::byte> src) override;
+	std::span<const std::byte> Read(std::span<std::byte> buffer) noexcept override;
 };
 
 class PreparedTwolameEncoder final : public PreparedEncoder {
@@ -164,7 +160,7 @@ Encoder *
 PreparedTwolameEncoder::Open(AudioFormat &audio_format)
 {
 	audio_format.format = SampleFormat::S16;
-	audio_format.channels = 2;
+	audio_format.channels = TwolameEncoder::CHANNELS;
 
 	auto options = twolame_init();
 	if (options == nullptr)
@@ -178,7 +174,7 @@ PreparedTwolameEncoder::Open(AudioFormat &audio_format)
 		throw;
 	}
 
-	return new TwolameEncoder(audio_format, options);
+	return new TwolameEncoder(options);
 }
 
 TwolameEncoder::~TwolameEncoder() noexcept
@@ -187,51 +183,40 @@ TwolameEncoder::~TwolameEncoder() noexcept
 }
 
 void
-TwolameEncoder::Write(const void *data, size_t length)
+TwolameEncoder::Write(std::span<const std::byte> _src)
 {
-	const auto *src = (const int16_t*)data;
+	const auto src = FromBytesStrict<const int16_t>(_src);
 
-	assert(output_buffer_position == output_buffer_length);
+	assert(fill == 0);
 
-	const unsigned num_frames = length / audio_format.GetFrameSize();
+	const std::size_t num_frames = src.size() / CHANNELS;
 
 	int bytes_out = twolame_encode_buffer_interleaved(options,
-							  src, num_frames,
-							  output_buffer,
+							  src.data(), num_frames,
+							  (unsigned char *)output_buffer,
 							  sizeof(output_buffer));
 	if (bytes_out < 0)
 		throw std::runtime_error("twolame encoder failed");
 
-	output_buffer_length = (size_t)bytes_out;
-	output_buffer_position = 0;
+	fill = (std::size_t)bytes_out;
 }
 
-size_t
-TwolameEncoder::Read(void *dest, size_t length) noexcept
+std::span<const std::byte>
+TwolameEncoder::Read(std::span<std::byte>) noexcept
 {
-	assert(output_buffer_position <= output_buffer_length);
+	assert(fill <= sizeof(output_buffer));
 
-	if (output_buffer_position == output_buffer_length && flush) {
-		int ret = twolame_encode_flush(options, output_buffer,
+	if (fill == 0 && flush) {
+		int ret = twolame_encode_flush(options,
+					       (unsigned char *)output_buffer,
 					       sizeof(output_buffer));
-		if (ret > 0) {
-			output_buffer_length = (size_t)ret;
-			output_buffer_position = 0;
-		}
+		if (ret > 0)
+			fill = (std::size_t)ret;
 
 		flush = false;
 	}
 
-
-	const size_t remainning = output_buffer_length - output_buffer_position;
-	if (length > remainning)
-		length = remainning;
-
-	memcpy(dest, output_buffer + output_buffer_position, length);
-
-	output_buffer_position += length;
-
-	return length;
+	return std::span{output_buffer}.first(std::exchange(fill, 0));
 }
 
 const EncoderPlugin twolame_encoder_plugin = {

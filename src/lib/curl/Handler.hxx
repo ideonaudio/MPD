@@ -30,9 +30,10 @@
 #pragma once
 
 #include "Headers.hxx"
-#include "util/ConstBuffer.hxx"
 
+#include <cstddef>
 #include <exception>
+#include <span>
 
 /**
  * Asynchronous response handler for a #CurlRequest.
@@ -50,15 +51,21 @@ public:
 
 	/**
 	 * Status line and headers have been received.
+	 *
+	 * Exceptions thrown by this method will be passed to
+	 * OnError(), aborting the request.
 	 */
 	virtual void OnHeaders(unsigned status, Curl::Headers &&headers) = 0;
 
 	/**
 	 * Response body data has been received.
 	 *
-	 * May throw #Pause (but nothing else).
+	 * May throw #Pause.
+	 *
+	 * Other exceptions thrown by this method will be passed to
+	 * OnError(), aborting the request.
 	 */
-	virtual void OnData(ConstBuffer<void> data) = 0;
+	virtual void OnData(std::span<const std::byte> data) = 0;
 
 	/**
 	 * The response has ended.  The method is allowed to delete the

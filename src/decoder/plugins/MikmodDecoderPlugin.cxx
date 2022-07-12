@@ -25,7 +25,6 @@
 #include "fs/Path.hxx"
 #include "util/Domain.hxx"
 #include "util/RuntimeError.hxx"
-#include "util/StringView.hxx"
 #include "Log.hxx"
 #include "Version.h"
 
@@ -172,7 +171,9 @@ mikmod_decoder_file_decode(DecoderClient &client, Path path_fs)
 	DecoderCommand cmd = DecoderCommand::NONE;
 	while (cmd == DecoderCommand::NONE && Player_Active()) {
 		ret = VC_WriteBytes(buffer, sizeof(buffer));
-		cmd = client.SubmitData(nullptr, buffer, ret, 0);
+		cmd = client.SubmitAudio(nullptr,
+					 std::span{buffer, std::size_t(ret)},
+					 0);
 	}
 
 	Player_Stop();

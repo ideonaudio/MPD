@@ -24,7 +24,6 @@
 #include "tag/Handler.hxx"
 #include "util/Domain.hxx"
 #include "util/ScopeExit.hxx"
-#include "util/StringView.hxx"
 #include "Log.hxx"
 
 #include <exception>
@@ -228,9 +227,9 @@ sndfile_stream_decode(DecoderClient &client, InputStream &is)
 		if (num_frames <= 0)
 			break;
 
-		cmd = client.SubmitData(is,
-					buffer, num_frames * frame_size,
-					0);
+		cmd = client.SubmitAudio(is,
+					 std::span{buffer, num_frames * frame_size},
+					 0);
 		if (cmd == DecoderCommand::SEEK) {
 			sf_count_t c = client.GetSeekFrame();
 			c = sf_seek(sf, c, SEEK_SET);

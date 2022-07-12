@@ -1,5 +1,5 @@
 /*
- * Copyright 2013-2021 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2013-2022 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -28,7 +28,7 @@
  */
 
 #include "HugeAllocator.hxx"
-#include "Compiler.h"
+#include "system/VmaName.hxx"
 
 #include <new>
 
@@ -44,7 +44,7 @@
 /**
  * Round up the parameter, make it page-aligned.
  */
-gcc_const
+[[gnu::const]]
 static size_t
 AlignToPageSize(size_t size) noexcept
 {
@@ -56,7 +56,7 @@ AlignToPageSize(size_t size) noexcept
 	return (size + ps - 1) / ps * ps;
 }
 
-WritableBuffer<void>
+std::span<std::byte>
 HugeAllocate(size_t size)
 {
 	size = AlignToPageSize(size);
@@ -74,13 +74,19 @@ HugeAllocate(size_t size)
 	madvise(p, size, MADV_HUGEPAGE);
 #endif
 
-	return {p, size};
+	return {(std::byte *)p, size};
 }
 
 void
 HugeFree(void *p, size_t size) noexcept
 {
 	munmap(p, AlignToPageSize(size));
+}
+
+void
+HugeSetName(void *p, size_t size, const char *name) noexcept
+{
+	SetVmaName(p, size, name);
 }
 
 void
@@ -102,7 +108,7 @@ HugeDiscard(void *p, size_t size) noexcept
 
 #elif defined(_WIN32)
 
-WritableBuffer<void>
+std::span<std::byte>
 HugeAllocate(size_t size)
 {
 	// TODO: use MEM_LARGE_PAGES
@@ -113,7 +119,7 @@ HugeAllocate(size_t size)
 		throw std::bad_alloc();
 
 	// TODO: round size up to the page size
-	return {p, size};
+	return {(std::byte *)p, size};
 }
 
 #endif

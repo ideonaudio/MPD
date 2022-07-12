@@ -23,6 +23,7 @@
 #include "output/OutputAPI.hxx"
 #include "output/Features.h"
 #include "encoder/EncoderInterface.hxx"
+#include "encoder/EncoderPlugin.hxx"
 #include "encoder/Configured.hxx"
 #include "encoder/plugins/WaveEncoderPlugin.hxx"
 #include "net/UniqueSocketDescriptor.hxx"
@@ -30,6 +31,7 @@
 #include "event/Call.hxx"
 #include "util/Domain.hxx"
 #include "util/DeleteDisposer.hxx"
+#include "util/SpanCast.hxx"
 #include "config/Net.hxx"
 
 #ifdef HAVE_ZEROCONF
@@ -122,26 +124,18 @@ SnapcastOutput::OnAccept(UniqueSocketDescriptor fd,
 }
 
 static AllocatedArray<std::byte>
-ReadEncoder(Encoder &encoder)
+ReadEncoder(Encoder &encoder) noexcept
 {
 	std::byte buffer[4096];
 
-	size_t nbytes = encoder.Read(buffer, sizeof(buffer));
-	const ConstBuffer<std::byte> src(buffer, nbytes);
-	return AllocatedArray<std::byte>{src};
+	return AllocatedArray<std::byte>{encoder.Read(std::span{buffer})};
 }
 
 inline void
 SnapcastOutput::OpenEncoder(AudioFormat &audio_format)
 {
 	encoder = prepared_encoder->Open(audio_format);
-
-	try {
-		codec_header = ReadEncoder(*encoder);
-	} catch (...) {
-		delete encoder;
-		throw;
-	}
+	codec_header = ReadEncoder(*encoder);
 
 	unflushed_input = 0;
 }
@@ -181,7 +175,7 @@ SnapcastOutput::Close() noexcept
 
 	ClearQueue(chunks);
 
-	codec_header = nullptr;
+	codec_header = std::span<const std::byte>{};
 	delete encoder;
 }
 
@@ -214,9 +208,8 @@ SnapcastOutput::RemoveClient(SnapcastClient &client) noexcept
 std::chrono::steady_clock::duration
 SnapcastOutput::Delay() const noexcept
 {
-	if (!LockHasClients() && pause) {
-		/* if there's no client and this output is paused,
-		   then Pause() will not do anything, it will not fill
+	if (pause) {
+		/* Pause() will not do anything, it will not fill
 		   the buffer and it will not update the timer;
 		   therefore, we reset the timer here */
 		timer->Reset();
@@ -277,8 +270,7 @@ ToJson(const Tag &tag) noexcept
 
 	gen.CloseMap();
 
-	const auto result = gen.GetBuffer();
-	return {(const char *)result.data, result.size};
+	return std::string{ToStringView(gen.GetBuffer())};
 }
 
 #endif
@@ -294,19 +286,19 @@ SnapcastOutput::SendTag(const Tag &tag)
 	if (json.empty())
 		return;
 
-	const ConstBuffer payload(json.data(), json.size());
+	const auto payload = std::as_bytes(std::span{json});
 
 	const std::scoped_lock<Mutex> protect(mutex);
 	// TODO: enqueue StreamTags, don't send directly
 	for (auto &client : clients)
-		client.SendStreamTags(payload.ToVoid());
+		client.SendStreamTags(payload);
 #else
 	(void)tag;
 #endif
 }
 
-size_t
-SnapcastOutput::Play(const void *chunk, size_t size)
+std::size_t
+SnapcastOutput::Play(std::span<const std::byte> src)
 {
 	pause = false;
 
@@ -314,13 +306,13 @@ SnapcastOutput::Play(const void *chunk, size_t size)
 
 	if (!timer->IsStarted())
 		timer->Start();
-	timer->Add(size);
+	timer->Add(src.size());
 
 	if (!LockHasClients())
-		return size;
+		return src.size();
 
-	encoder->Write(chunk, size);
-	unflushed_input += size;
+	encoder->Write(src);
+	unflushed_input += src.size();
 
 	if (unflushed_input >= 65536) {
 		/* we have fed a lot of input into the encoder, but it
@@ -338,8 +330,8 @@ SnapcastOutput::Play(const void *chunk, size_t size)
 	while (true) {
 		std::byte buffer[32768];
 
-		size_t nbytes = encoder->Read(buffer, sizeof(buffer));
-		if (nbytes == 0)
+		const auto payload = encoder->Read(std::span{buffer});
+		if (payload.empty())
 			break;
 
 		unflushed_input = 0;
@@ -348,11 +340,10 @@ SnapcastOutput::Play(const void *chunk, size_t size)
 		if (chunks.empty())
 			inject_event.Schedule();
 
-		const ConstBuffer payload{buffer, nbytes};
 		chunks.push(std::make_shared<SnapcastChunk>(now, AllocatedArray{payload}));
 	}
 
-	return size;
+	return src.size();
 }
 
 bool

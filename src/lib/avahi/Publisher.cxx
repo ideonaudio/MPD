@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2021 CM4all GmbH
+ * Copyright 2007-2022 CM4all GmbH
  * All rights reserved.
  *
  * author: Max Kellermann <mk@cm4all.com>
@@ -55,7 +55,7 @@ namespace Avahi {
  * with automatic port assignment), we don't get notified, and so we
  * never query the new port.  By appending the process id to the
  * client name, we ensure that the exiting old process broadcasts
- * AVAHI_BROWSER_REMOVE, and hte new process broadcasts
+ * AVAHI_BROWSER_REMOVE, and the new process broadcasts
  * AVAHI_BROWSER_NEW.
  */
 static std::string

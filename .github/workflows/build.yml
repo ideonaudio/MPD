@@ -34,14 +34,15 @@ jobs:
       CXX: 'ccache g++-10'
     steps:
       - id: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
       - id: cache-ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: linux
       - name: Install dependencies
         run: |
-          sudo apt install -y --no-install-recommends \
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
             g++-10 libfmt-dev libboost-dev \
             libgtest-dev \
             libpcre2-dev \
@@ -75,31 +76,44 @@ jobs:
       - name: Full Build
         uses: BSFishy/meson-build@v1.0.3
         with:
+          action: build
+          directory: output/full
+          setup-options: -Ddocumentation=disabled -Dtest=true -Dsystemd=enabled -Dpcre=enabled
+          options: --verbose
+          meson-version: 0.56.0
+
+      - name: Unit Tests
+        uses: BSFishy/meson-build@v1.0.3
+        with:
           action: test
           directory: output/full
           setup-options: -Ddocumentation=disabled -Dtest=true -Dsystemd=enabled -Dpcre=enabled
+          options: --verbose
           meson-version: 0.56.0
 
       - name: Mini Build
         uses: BSFishy/meson-build@v1.0.3
         with:
-          action: test
+          action: build
           directory: output/mini
           setup-options: -Dbuildtype=minsize -Dauto_features=disabled -Dtest=true -Ddaemon=false -Dinotify=false -Depoll=false -Deventfd=false -Dsignalfd=false -Dtcp=false -Ddsd=false -Ddatabase=false -Dneighbor=false -Dcue=false -Dfifo=false -Dhttpd=false -Dpipe=false -Drecorder=false -Dsnapcast=false
+          options: --verbose
           meson-version: 0.56.0
 
   build-macos:
     runs-on: macos-latest
     steps:
       - id: checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v3
 
       - id: cache-ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
           key: macos
 
-      - uses: actions/setup-python@v1
+      - uses: actions/setup-python@v4
+        with:
+          python-version: 3.x
 
       - name: Install dependencies
         run: |
@@ -124,10 +138,20 @@ jobs:
             wavpack \
             libmpdclient
 
-      - name: Meson Build
+      - name: Build
+        uses: BSFishy/meson-build@v1.0.3
+        with:
+          action: build
+          directory: output
+          setup-options: -Ddocumentation=disabled -Dtest=true
+          options: --verbose
+          meson-version: 0.56.0
+
+      - name: Unit Tests
         uses: BSFishy/meson-build@v1.0.3
         with:
           action: test
           directory: output
           setup-options: -Ddocumentation=disabled -Dtest=true
+          options: --verbose
           meson-version: 0.56.0

@@ -35,8 +35,6 @@
 #include "util/Manual.hxx"
 #include "util/RuntimeError.hxx"
 #include "util/Domain.hxx"
-#include "util/ConstBuffer.hxx"
-#include "util/StringView.hxx"
 #include "event/MultiSocketMonitor.hxx"
 #include "event/InjectEvent.hxx"
 #include "event/FineTimerEvent.hxx"
@@ -225,14 +223,14 @@ class AlsaOutput final
 	 * It contains silence samples, enough to fill one period (see
 	 * #period_frames).
 	 */
-	uint8_t *silence;
+	std::byte *silence;
 
 	AlsaNonBlockPcm non_block;
 
 	/**
 	 * For copying data from OutputThread to IOThread.
 	 */
-	boost::lockfree::spsc_queue<uint8_t> *ring_buffer;
+	boost::lockfree::spsc_queue<std::byte> *ring_buffer;
 
 	Alsa::PeriodBuffer period_buffer;
 
@@ -285,7 +283,7 @@ private:
 
 	void Interrupt() noexcept override;
 
-	size_t Play(const void *chunk, size_t size) override;
+	std::size_t Play(std::span<const std::byte> src) override;
 	void Drain() override;
 	void Cancel() noexcept override;
 	bool Pause() noexcept override;
@@ -587,7 +585,7 @@ AlsaOutput::Setup(AudioFormat &audio_format,
 	   in the ALSA-PCM buffer */
 	max_avail_frames = hw_result.buffer_size - hw_result.period_size;
 
-	silence = new uint8_t[snd_pcm_frames_to_bytes(pcm, alsa_period_size)];
+	silence = new std::byte[snd_pcm_frames_to_bytes(pcm, alsa_period_size)];
 	snd_pcm_format_set_silence(hw_result.format, silence,
 				   alsa_period_size * audio_format.channels);
 
@@ -760,7 +758,7 @@ Play_44_1_Silence(snd_pcm_t *pcm)
 		throw Alsa::MakeError(err, "snd_pcm_prepare() failed");
 
 	AllocatedArray<int16_t> buffer{channels * period_size};
-	buffer = {};
+	buffer = std::span<const int16_t>{};
 
 	/* play at least 250ms of silence */
 	for (snd_pcm_uframes_t remaining_frames = rate / 4;;) {
@@ -876,7 +874,7 @@ AlsaOutput::Open(AudioFormat &audio_format)
 	interrupted = false;
 
 	size_t period_size = period_frames * out_frame_size;
-	ring_buffer = new boost::lockfree::spsc_queue<uint8_t>(period_size * 4);
+	ring_buffer = new boost::lockfree::spsc_queue<std::byte>(period_size * 4);
 
 	period_buffer.Allocate(period_frames, out_frame_size);
 
@@ -1221,27 +1219,26 @@ AlsaOutput::LockWaitWriteAvailable()
 	}
 }
 
-size_t
-AlsaOutput::Play(const void *chunk, size_t size)
+std::size_t
+AlsaOutput::Play(std::span<const std::byte> src)
 {
-	assert(size > 0);
-	assert(size % in_frame_size == 0);
+	assert(!src.empty());
+	assert(src.size() % in_frame_size == 0);
 
 	const size_t max_frames = LockWaitWriteAvailable();
 	const size_t max_size = max_frames * in_frame_size;
-	if (size > max_size)
-		size = max_size;
+	if (src.size() > max_size)
+		src = src.first(max_size);
 
-	const auto e = pcm_export->Export({chunk, size});
+	const auto e = pcm_export->Export(src);
 	if (e.empty())
-		return size;
+		return src.size();
 
-	size_t bytes_written = ring_buffer->push((const uint8_t *)e.data,
-						 e.size);
-	assert(bytes_written == e.size);
+	size_t bytes_written = ring_buffer->push(e.data(), e.size());
+	assert(bytes_written == e.size());
 	(void)bytes_written;
 
-	return size;
+	return src.size();
 }
 
 Event::Duration

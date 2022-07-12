@@ -22,6 +22,7 @@
 #include "pcm/AudioFormat.hxx"
 #include "util/DynamicFifoBuffer.hxx"
 #include "util/RuntimeError.hxx"
+#include "util/SpanCast.hxx"
 
 extern "C"
 {
@@ -44,15 +45,15 @@ class ShineEncoder final : public Encoder {
 
 	int16_t *stereo[CHANNELS];
 
-	DynamicFifoBuffer<uint8_t> output_buffer;
+	DynamicFifoBuffer<std::byte> output_buffer{BUFFER_INIT_SIZE};
 
 public:
 	ShineEncoder(AudioFormat _audio_format, shine_t _shine) noexcept
 		:Encoder(false),
 		 audio_format(_audio_format), shine(_shine),
 		 frame_size(shine_samples_per_pass(shine)),
-		 stereo{new int16_t[frame_size], new int16_t[frame_size]},
-		 output_buffer(BUFFER_INIT_SIZE) {}
+		 stereo{new int16_t[frame_size], new int16_t[frame_size]}
+	{}
 
 	~ShineEncoder() noexcept override {
 		if (input_pos > SHINE_MAX_SAMPLES) {
@@ -75,10 +76,10 @@ public:
 
 	void Flush() override;
 
-	void Write(const void *data, size_t length) override;
+	void Write(std::span<const std::byte> src) override;
 
-	size_t Read(void *dest, size_t length) noexcept override {
-		return output_buffer.Read((uint8_t *)dest, length);
+	std::span<const std::byte> Read(std::span<std::byte> buffer) noexcept override {
+		return buffer.first(output_buffer.Read(buffer.data(), buffer.size()));
 	}
 };
 
@@ -152,11 +153,11 @@ ShineEncoder::WriteChunk(bool flush)
 		}
 
 		int written;
-		const uint8_t *out =
+		const auto out = (const std::byte *)
 			shine_encode_buffer(shine, stereo, &written);
 
 		if (written > 0)
-			output_buffer.Append(out, written);
+			output_buffer.Append({out, std::size_t(written)});
 
 		input_pos = 0;
 	}
@@ -165,24 +166,24 @@ ShineEncoder::WriteChunk(bool flush)
 }
 
 void
-ShineEncoder::Write(const void *_data, size_t length)
+ShineEncoder::Write(std::span<const std::byte> _src)
 {
-	const auto *data = (const int16_t*)_data;
-	length /= sizeof(*data) * audio_format.channels;
+	const auto src = FromBytesStrict<const int16_t>(_src);
+	const std::size_t nframes = src.size() / audio_format.channels;
 	size_t written = 0;
 
 	if (input_pos > SHINE_MAX_SAMPLES)
 		input_pos = 0;
 
 	/* write all data to de-interleaved buffers */
-	while (written < length) {
+	while (written < nframes) {
 		for (;
-		     written < length && input_pos < frame_size;
+		     written < nframes && input_pos < frame_size;
 		     written++, input_pos++) {
 			const size_t base =
 				written * audio_format.channels;
-			stereo[0][input_pos] = data[base];
-			stereo[1][input_pos] = data[base + 1];
+			stereo[0][input_pos] = src[base];
+			stereo[1][input_pos] = src[base + 1];
 		}
 		/* write if chunk is filled */
 		WriteChunk(false);
@@ -196,10 +197,10 @@ ShineEncoder::Flush()
 	WriteChunk(true);
 
 	int written;
-	const uint8_t *data = shine_flush(shine, &written);
+	const auto data = (const std::byte *)shine_flush(shine, &written);
 
 	if (written > 0)
-		output_buffer.Append(data, written);
+		output_buffer.Append({data, std::size_t(written)});
 }
 
 const EncoderPlugin shine_encoder_plugin = {

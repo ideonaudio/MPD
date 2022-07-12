@@ -35,6 +35,7 @@ ThreadInputStream::ThreadInputStream(const char *_plugin,
 	 allocation(_buffer_size),
 	 buffer(&allocation.front(), allocation.size())
 {
+	allocation.SetName("InputStream");
 	allocation.ForkCow(false);
 }
 
@@ -92,7 +93,7 @@ ThreadInputStream::ThreadFunc() noexcept
 
 			try {
 				const ScopeUnlock unlock(mutex);
-				nbytes = ThreadRead(w.data, w.size);
+				nbytes = ThreadRead(w.data(), w.size());
 			} catch (...) {
 				postponed_exception = std::current_exception();
 				InvokeOnAvailable();
@@ -144,8 +145,8 @@ ThreadInputStream::Read(std::unique_lock<Mutex> &lock,
 
 		auto r = buffer.Read();
 		if (!r.empty()) {
-			size_t nbytes = std::min(read_size, r.size);
-			memcpy(ptr, r.data, nbytes);
+			size_t nbytes = std::min(read_size, r.size());
+			memcpy(ptr, r.data(), nbytes);
 			buffer.Consume(nbytes);
 			wake_cond.notify_all();
 			offset += nbytes;

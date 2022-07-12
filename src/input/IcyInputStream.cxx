@@ -22,7 +22,6 @@
 #include "tag/Tag.hxx"
 #include "util/UriExtract.hxx"
 #include "util/UriQueryParser.hxx"
-#include "util/StringView.hxx"
 
 #include <string>
 
@@ -35,10 +34,8 @@ IcyInputStream::IcyInputStream(InputStreamPtr _input,
 	if (fragment != nullptr) {
 		const auto charset = UriFindRawQueryParameter(fragment,
 							      "charset");
-		if (charset != nullptr) {
-			const std::string copy(charset.data, charset.size);
-			parser->SetCharset(copy.c_str());
-		}
+		if (charset.data() != nullptr)
+			parser->SetCharset(std::string{charset}.c_str());
 	}
 #endif
 }

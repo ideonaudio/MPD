@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2008-2018 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2008-2022 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,16 +27,13 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef CURL_PARSER_HXX
-#define CURL_PARSER_HXX
+#pragma once
 
-template<typename T> struct ConstBuffer;
+#include <span>
 
 class CurlResponseParser {
 public:
 	virtual ~CurlResponseParser() = default;
-	virtual void OnData(ConstBuffer<void> data) = 0;
+	virtual void OnData(std::span<const std::byte> data) = 0;
 	virtual void OnEnd() = 0;
 };
-
-#endif

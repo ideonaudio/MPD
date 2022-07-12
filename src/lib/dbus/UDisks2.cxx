@@ -21,8 +21,8 @@
 #include "Message.hxx"
 #include "ReadIter.hxx"
 #include "ObjectManager.hxx"
+#include "util/SpanCast.hxx"
 #include "util/StringAPI.hxx"
-#include "util/StringView.hxx"
 #include "util/Compiler.h"
 
 #include <functional>
@@ -43,34 +43,34 @@ CheckString(I &&i) noexcept
 
 template<typename I>
 gcc_pure
-static StringView
+static std::string_view
 CheckRecursedByteArrayToString(I &&i) noexcept
 {
 	if (i.GetArgType() != DBUS_TYPE_BYTE)
-		return nullptr;
+		return {};
 
 	auto value = i.template GetFixedArray<char>();
-	return { value.data, value.size };
+	return ToStringView(value);
 }
 
 template<typename I>
 gcc_pure
-static StringView
+static std::string_view
 CheckByteArrayToString(I &&i) noexcept
 {
 	if (i.GetArgType() != DBUS_TYPE_ARRAY)
-		return nullptr;
+		return {};
 
 	return CheckRecursedByteArrayToString(i.Recurse());
 }
 
 template<typename I>
 gcc_pure
-static StringView
+static std::string_view
 CheckByteArrayArrayFrontToString(I &&i) noexcept
 {
 	if (i.GetArgType() != DBUS_TYPE_ARRAY)
-		return nullptr;
+		return {};
 
 	return CheckByteArrayToString(i.Recurse());
 }
@@ -109,8 +109,8 @@ ParseFileesystemDictEntry(Object &o, const char *name,
 
 		/* get the first string in the array */
 		auto value = CheckByteArrayArrayFrontToString(value_i);
-		if (value != nullptr)
-			o.mount_point = {value.data, value.size};
+		if (value.data() != nullptr)
+			o.mount_point = value;
 
 		// TODO: check whether the string is a valid filesystem path
 	}

@@ -28,7 +28,6 @@
 #include "util/RuntimeError.hxx"
 #include "util/Domain.hxx"
 #include "util/Manual.hxx"
-#include "util/ConstBuffer.hxx"
 #include "pcm/Export.hxx"
 #include "thread/Mutex.hxx"
 #include "thread/Cond.hxx"
@@ -46,6 +45,7 @@
 #include <boost/lockfree/spsc_queue.hpp>
 
 #include <memory>
+#include <span>
 
 static constexpr unsigned MPD_OSX_BUFFER_TIME_MS = 100;
 
@@ -96,7 +96,7 @@ struct OSXOutput final : AudioOutput {
 	AudioComponentInstance au;
 	AudioStreamBasicDescription asbd;
 
-	boost::lockfree::spsc_queue<uint8_t> *ring_buffer;
+	boost::lockfree::spsc_queue<std::byte> *ring_buffer;
 
 	OSXOutput(const ConfigBlock &block);
 
@@ -112,7 +112,7 @@ private:
 	void Close() noexcept override;
 
 	std::chrono::steady_clock::duration Delay() const noexcept override;
-	size_t Play(const void *chunk, size_t size) override;
+	std::size_t Play(std::span<const std::byte> src) override;
 	bool Pause() override;
 	void Cancel() noexcept override;
 };
@@ -160,13 +160,13 @@ OSXOutput::Create(EventLoop &, const ConfigBlock &block)
 	static constexpr AudioObjectPropertyAddress default_system_output_device{
 		kAudioHardwarePropertyDefaultSystemOutputDevice,
 		kAudioObjectPropertyScopeOutput,
-		kAudioObjectPropertyElementMaster,
+		kAudioObjectPropertyElementMain,
 	};
 
 	static constexpr AudioObjectPropertyAddress default_output_device{
 		kAudioHardwarePropertyDefaultOutputDevice,
 		kAudioObjectPropertyScopeOutput,
-		kAudioObjectPropertyElementMaster
+		kAudioObjectPropertyElementMain
 	};
 
 	const auto &aopa =
@@ -195,9 +195,9 @@ int
 OSXOutput::GetVolume()
 {
 	static constexpr AudioObjectPropertyAddress aopa = {
-		kAudioHardwareServiceDeviceProperty_VirtualMasterVolume,
+		kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
 		kAudioObjectPropertyScopeOutput,
-		kAudioObjectPropertyElementMaster,
+		kAudioObjectPropertyElementMain,
 	};
 
 	const auto vol = AudioObjectGetPropertyDataT<Float32>(dev_id,
@@ -211,9 +211,9 @@ OSXOutput::SetVolume(unsigned new_volume)
 {
 	Float32 vol = new_volume / 100.0;
 	static constexpr AudioObjectPropertyAddress aopa = {
-		kAudioHardwareServiceDeviceProperty_VirtualMasterVolume,
+		kAudioHardwareServiceDeviceProperty_VirtualMainVolume,
 		kAudioObjectPropertyScopeOutput,
-		kAudioObjectPropertyElementMaster
+		kAudioObjectPropertyElementMain
 	};
 	UInt32 size = sizeof(vol);
 	OSStatus status = AudioObjectSetPropertyData(dev_id,
@@ -366,25 +366,25 @@ osx_output_set_device_format(AudioDeviceID dev_id,
 	static constexpr AudioObjectPropertyAddress aopa_device_streams = {
 		kAudioDevicePropertyStreams,
 		kAudioObjectPropertyScopeOutput,
-		kAudioObjectPropertyElementMaster
+		kAudioObjectPropertyElementMain
 	};
 
 	static constexpr AudioObjectPropertyAddress aopa_stream_direction = {
 		kAudioStreamPropertyDirection,
 		kAudioObjectPropertyScopeOutput,
-		kAudioObjectPropertyElementMaster
+		kAudioObjectPropertyElementMain
 	};
 
 	static constexpr AudioObjectPropertyAddress aopa_stream_phys_formats = {
 		kAudioStreamPropertyAvailablePhysicalFormats,
 		kAudioObjectPropertyScopeOutput,
-		kAudioObjectPropertyElementMaster
+		kAudioObjectPropertyElementMain
 	};
 
 	static constexpr AudioObjectPropertyAddress aopa_stream_phys_format = {
 		kAudioStreamPropertyPhysicalFormat,
 		kAudioObjectPropertyScopeOutput,
-		kAudioObjectPropertyElementMaster
+		kAudioObjectPropertyElementMain
 	};
 
 	OSStatus err;
@@ -484,7 +484,7 @@ osx_output_hog_device(AudioDeviceID dev_id, bool hog) noexcept
 	static constexpr AudioObjectPropertyAddress aopa = {
 		kAudioDevicePropertyHogMode,
 		kAudioObjectPropertyScopeOutput,
-		kAudioObjectPropertyElementMaster
+		kAudioObjectPropertyElementMain
 	};
 
 	pid_t hog_pid;
@@ -538,7 +538,7 @@ IsAudioDeviceName(AudioDeviceID id, const char *expected_name) noexcept
 	static constexpr AudioObjectPropertyAddress aopa_name{
 		kAudioObjectPropertyName,
 		kAudioObjectPropertyScopeGlobal,
-		kAudioObjectPropertyElementMaster,
+		kAudioObjectPropertyElementMain,
 	};
 
 	char actual_name[256];
@@ -561,7 +561,7 @@ FindAudioDeviceByName(const char *name)
 	static constexpr AudioObjectPropertyAddress aopa_hw_devices{
 		kAudioHardwarePropertyDevices,
 		kAudioObjectPropertyScopeGlobal,
-		kAudioObjectPropertyElementMaster,
+		kAudioObjectPropertyElementMain,
 	};
 
 	const auto ids =
@@ -620,7 +620,7 @@ osx_render(void *vdata,
 
 	int count = in_number_frames * od->asbd.mBytesPerFrame;
 	buffer_list->mBuffers[0].mDataByteSize =
-		od->ring_buffer->pop((uint8_t *)buffer_list->mBuffers[0].mData,
+		od->ring_buffer->pop((std::byte *)buffer_list->mBuffers[0].mData,
 				     count);
 	return noErr;
 }
@@ -764,30 +764,28 @@ OSXOutput::Open(AudioFormat &audio_format)
 						   MPD_OSX_BUFFER_TIME_MS * pcm_export->GetOutputFrameSize() * asbd.mSampleRate / 1000);
 	}
 #endif
-	ring_buffer = new boost::lockfree::spsc_queue<uint8_t>(ring_buffer_size);
+	ring_buffer = new boost::lockfree::spsc_queue<std::byte>(ring_buffer_size);
 
 	pause = false;
 	started = false;
 }
 
-size_t
-OSXOutput::Play(const void *chunk, size_t size)
+std::size_t
+OSXOutput::Play(std::span<const std::byte> input)
 {
 	assert(size > 0);
 
 	pause = false;
 
-	ConstBuffer<uint8_t> input((const uint8_t *)chunk, size);
-
 #ifdef ENABLE_DSD
 	if (dop_enabled) {
-		input = ConstBuffer<uint8_t>::FromVoid(pcm_export->Export(input.ToVoid()));
+		input = pcm_export->Export(input);
 		if (input.empty())
 			return size;
 	}
 #endif
 
-	size_t bytes_written = ring_buffer->push(input.data, input.size);
+	size_t bytes_written = ring_buffer->push(input.data(), input.size());
 
 	if (!started) {
 		OSStatus status = AudioOutputUnitStart(au);

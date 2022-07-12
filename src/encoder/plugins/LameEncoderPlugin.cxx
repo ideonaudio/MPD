@@ -23,27 +23,24 @@
 #include "util/NumberParser.hxx"
 #include "util/ReusableArray.hxx"
 #include "util/RuntimeError.hxx"
+#include "util/SpanCast.hxx"
 
 #include <lame/lame.h>
 
 #include <cassert>
 #include <stdexcept>
 
-#include <string.h>
-
 class LameEncoder final : public Encoder {
-	const AudioFormat audio_format;
-
 	lame_global_flags *const gfp;
 
-	ReusableArray<unsigned char, 32768> output_buffer;
-	unsigned char *output_begin = nullptr, *output_end = nullptr;
+	ReusableArray<std::byte, 32768> output_buffer;
+	std::span<const std::byte> output{};
 
 public:
-	LameEncoder(const AudioFormat _audio_format,
-		    lame_global_flags *_gfp) noexcept
-		:Encoder(false),
-		 audio_format(_audio_format), gfp(_gfp) {}
+	static constexpr unsigned CHANNELS = 2;
+
+	explicit LameEncoder(lame_global_flags *_gfp) noexcept
+		:Encoder(false), gfp(_gfp) {}
 
 	~LameEncoder() noexcept override;
 
@@ -51,8 +48,8 @@ public:
 	LameEncoder &operator=(const LameEncoder &) = delete;
 
 	/* virtual methods from class Encoder */
-	void Write(const void *data, size_t length) override;
-	size_t Read(void *dest, size_t length) noexcept override;
+	void Write(std::span<const std::byte> src) override;
+	std::span<const std::byte> Read(std::span<std::byte> buffer) noexcept override;
 };
 
 class PreparedLameEncoder final : public PreparedEncoder {
@@ -145,7 +142,7 @@ Encoder *
 PreparedLameEncoder::Open(AudioFormat &audio_format)
 {
 	audio_format.format = SampleFormat::S16;
-	audio_format.channels = 2;
+	audio_format.channels = LameEncoder::CHANNELS;
 
 	auto gfp = lame_init();
 	if (gfp == nullptr)
@@ -158,7 +155,7 @@ PreparedLameEncoder::Open(AudioFormat &audio_format)
 		throw;
 	}
 
-	return new LameEncoder(audio_format, gfp);
+	return new LameEncoder(gfp);
 }
 
 LameEncoder::~LameEncoder() noexcept
@@ -167,46 +164,37 @@ LameEncoder::~LameEncoder() noexcept
 }
 
 void
-LameEncoder::Write(const void *data, size_t length)
+LameEncoder::Write(std::span<const std::byte> _src)
 {
-	const auto *src = (const int16_t*)data;
+	const auto src = FromBytesStrict<const int16_t>(_src);
 
-	assert(output_begin == output_end);
+	assert(output.empty());
 
-	const unsigned num_frames = length / audio_format.GetFrameSize();
-	const unsigned num_samples = length / audio_format.GetSampleSize();
+	const std::size_t num_samples = src.size();
+	const std::size_t num_frames = num_samples / CHANNELS;
 
 	/* worst-case formula according to LAME documentation */
-	const size_t output_buffer_size = 5 * num_samples / 4 + 7200;
+	const std::size_t output_buffer_size = 5 * num_samples / 4 + 7200;
 	const auto dest = output_buffer.Get(output_buffer_size);
 
 	/* this is for only 16-bit audio */
 
 	int bytes_out = lame_encode_buffer_interleaved(gfp,
-						       const_cast<short *>(src),
+						       const_cast<short *>(src.data()),
 						       num_frames,
-						       dest, output_buffer_size);
+						       (unsigned char *)dest,
+						       output_buffer_size);
 
 	if (bytes_out < 0)
 		throw std::runtime_error("lame encoder failed");
 
-	output_begin = dest;
-	output_end = dest + bytes_out;
+	output = {dest, std::size_t(bytes_out)};
 }
 
-size_t
-LameEncoder::Read(void *dest, size_t length) noexcept
+std::span<const std::byte>
+LameEncoder::Read(std::span<std::byte>) noexcept
 {
-	const auto begin = output_begin;
-	assert(begin <= output_end);
-	const size_t remainning = output_end - begin;
-	if (length > remainning)
-		length = remainning;
-
-	memcpy(dest, begin, length);
-
-	output_begin = begin + length;
-	return length;
+	return std::exchange(output, std::span<const std::byte>{});
 }
 
 const EncoderPlugin lame_encoder_plugin = {

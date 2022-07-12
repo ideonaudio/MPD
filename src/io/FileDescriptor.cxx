@@ -28,6 +28,7 @@
  */
 
 #include "FileDescriptor.hxx"
+#include "UniqueFileDescriptor.hxx"
 #include "system/Error.hxx"
 
 #include <cassert>
@@ -43,7 +44,6 @@
 #ifdef __linux__
 #include <sys/eventfd.h>
 #include <sys/signalfd.h>
-#include <sys/inotify.h>
 #endif
 
 #ifndef O_NOCTTY
@@ -120,6 +120,16 @@ FileDescriptor::OpenReadOnly(const char *pathname) noexcept
 {
 	return Open(pathname, O_RDONLY);
 }
+
+#ifdef __linux__
+
+bool
+FileDescriptor::OpenReadOnly(FileDescriptor dir, const char *pathname) noexcept
+{
+	return Open(dir, pathname, O_RDONLY);
+}
+
+#endif // __linux__
 
 #ifndef _WIN32
 
@@ -234,6 +244,12 @@ FileDescriptor::DisableCloseOnExec() noexcept
 	fcntl(fd, F_SETFD, old_flags & ~FD_CLOEXEC);
 }
 
+UniqueFileDescriptor
+FileDescriptor::Duplicate() const noexcept
+{
+	return UniqueFileDescriptor{::dup(Get())};
+}
+
 bool
 FileDescriptor::CheckDuplicate(FileDescriptor new_fd) noexcept
 {
@@ -259,17 +275,6 @@ bool
 FileDescriptor::CreateSignalFD(const sigset_t *mask) noexcept
 {
 	int new_fd = ::signalfd(fd, mask, SFD_NONBLOCK|SFD_CLOEXEC);
-	if (new_fd < 0)
-		return false;
-
-	fd = new_fd;
-	return true;
-}
-
-bool
-FileDescriptor::CreateInotify() noexcept
-{
-	int new_fd = inotify_init1(IN_CLOEXEC|IN_NONBLOCK);
 	if (new_fd < 0)
 		return false;
 

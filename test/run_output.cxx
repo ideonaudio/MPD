@@ -76,13 +76,13 @@ ParseCommandLine(int argc, char **argv)
 	}
 
 	auto args = option_parser.GetRemaining();
-	if (args.size < 2 || args.size > 3)
+	if (args.size() < 2 || args.size() > 3)
 		throw std::runtime_error("Usage: run_output CONFIG NAME [FORMAT] <IN");
 
 	c.config_path = args[0];
 	c.output_name = args[1];
 
-	if (args.size > 2)
+	if (args.size() > 2)
 		c.audio_format = ParseAudioFormat(args[2], false);
 
 	return c;
@@ -141,7 +141,7 @@ RunOutput(AudioOutput &ao, AudioFormat audio_format,
 			const auto dest = buffer.Write();
 			assert(!dest.empty());
 
-			ssize_t nbytes = in_fd.Read(dest.data, dest.size);
+			ssize_t nbytes = in_fd.Read(dest.data(), dest.size());
 			if (nbytes <= 0)
 				break;
 
@@ -151,13 +151,13 @@ RunOutput(AudioOutput &ao, AudioFormat audio_format,
 		auto src = buffer.Read();
 		assert(!src.empty());
 
-		src.size -= src.size % in_frame_size;
+		src = src.first(src.size() - src.size() % in_frame_size);
 		if (src.empty())
 			continue;
 
-		size_t consumed = ao.Play(src.data, src.size);
+		size_t consumed = ao.Play(src);
 
-		assert(consumed <= src.size);
+		assert(consumed <= src.size());
 		assert(consumed % in_frame_size == 0);
 
 		buffer.Consume(consumed);

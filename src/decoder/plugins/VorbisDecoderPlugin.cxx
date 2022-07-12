@@ -227,17 +227,16 @@ VorbisDecoder::SubmitSomePcm()
 	}
 #else
 	PcmInterleaveFloat(buffer,
-			   ConstBuffer<const in_sample_t *>(pcm,
-							    channels),
+			   {pcm, channels},
 			   n_frames);
 #endif
 
 	vorbis_synthesis_read(&dsp, n_frames);
 
-	const size_t nbytes = n_frames * frame_size;
-	auto cmd = client.SubmitData(input_stream,
-				     buffer, nbytes,
-				     0);
+	const std::size_t n_samples = n_frames * channels;
+	auto cmd = client.SubmitAudio(input_stream,
+				      std::span{buffer, n_samples},
+				      0);
 	if (cmd != DecoderCommand::NONE)
 		throw cmd;
 

@@ -37,8 +37,10 @@
 #include "time/Parser.hxx"
 #include "util/ASCII.hxx"
 #include "util/RuntimeError.hxx"
+#include "util/SpanCast.hxx"
 #include "util/StringCompare.hxx"
 #include "util/StringFormat.hxx"
+#include "util/StringSplit.hxx"
 #include "util/UriExtract.hxx"
 
 #include <cassert>
@@ -306,9 +308,9 @@ private:
 			throw std::runtime_error("Unexpected Content-Type from WebDAV server");
 	}
 
-	void OnData(ConstBuffer<void> _data) final {
-		const auto data = ConstBuffer<char>::FromVoid(_data);
-		Parse(data.data, data.size);
+	void OnData(std::span<const std::byte> _src) final {
+		auto src = ToStringView(_src);
+		Parse(src.data(), src.size());
 	}
 
 	void OnEnd() final {
@@ -508,28 +510,28 @@ private:
 	 * to the base file name.
 	 */
 	gcc_pure
-	StringView HrefToEscapedName(const char *href) const noexcept {
-		StringView path = uri_get_path(href);
-		if (path == nullptr)
-			return nullptr;
+	std::string_view HrefToEscapedName(const char *href) const noexcept {
+		std::string_view path = uri_get_path(href);
+		if (path.data() == nullptr)
+			return {};
 
 		/* kludge: ignoring case in this comparison to avoid
 		   false negatives if the web server uses a different
 		   case */
 		path = StringAfterPrefixIgnoreCase(path, base_path.c_str());
-		if (path == nullptr || path.empty())
-			return nullptr;
+		if (path.empty())
+			return {};
 
-		const char *slash = path.Find('/');
-		if (slash == nullptr)
+		const auto slash = path.find('/');
+		if (slash == path.npos)
 			/* regular file */
 			return path;
-		else if (slash == &path.back())
+		else if (slash + 1 == path.size())
 			/* trailing slash: collection; strip the slash */
-			return {path.data, slash};
+			return path.substr(0, slash);
 		else
 			/* strange, better ignore it */
-			return nullptr;
+			return {};
 	}
 
 protected:
@@ -540,10 +542,10 @@ protected:
 
 		std::string href = CurlUnescape(GetEasy(), r.href.c_str());
 		const auto name = HrefToEscapedName(href.c_str());
-		if (name.IsNull())
+		if (name.data() == nullptr)
 			return;
 
-		entries.emplace_front(std::string(name.data, name.size));
+		entries.emplace_front(name);
 
 		auto &info = entries.front().info;
 		info = StorageFileInfo(r.collection

@@ -18,5 +18,10 @@ about: Create a bug report
 <!-- Paste the output of "mpd --version" here -->
 
 
+## Configuration
+<!-- Paste your MPD configuration here -->
+
+
 ## Log
 <!-- Paste relevant portions of the log file here (--verbose) -->
+<!-- If MPD has crashed, include a backtrace (see https://mpd.readthedocs.io/en/stable/user.html#mpd-crashes) -->

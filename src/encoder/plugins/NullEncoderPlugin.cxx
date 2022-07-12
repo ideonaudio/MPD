@@ -20,23 +20,21 @@
 #include "NullEncoderPlugin.hxx"
 #include "../EncoderAPI.hxx"
 #include "util/DynamicFifoBuffer.hxx"
-#include "util/Compiler.h"
 
 class NullEncoder final : public Encoder {
-	DynamicFifoBuffer<uint8_t> buffer;
+	DynamicFifoBuffer<std::byte> buffer{8192};
 
 public:
 	NullEncoder()
-		:Encoder(false),
-		 buffer(8192) {}
+		:Encoder(false) {}
 
 	/* virtual methods from class Encoder */
-	void Write(const void *data, size_t length) override {
-		buffer.Append((const uint8_t *)data, length);
+	void Write(std::span<const std::byte> src) override {
+		buffer.Append(src);
 	}
 
-	size_t Read(void *dest, size_t length) override {
-		return buffer.Read((uint8_t *)dest, length);
+	std::span<const std::byte> Read(std::span<std::byte> b) noexcept override {
+		return b.first(buffer.Read(b.data(), b.size()));
 	}
 };
 

@@ -34,11 +34,13 @@ gcc_pure
 static int
 output_mixer_get_volume(const AudioOutputControl &ao) noexcept
 {
-	if (!ao.IsEnabled())
-		return -1;
-
 	auto *mixer = ao.GetMixer();
 	if (mixer == nullptr)
+		return -1;
+
+	/* software mixers are always considered, even if they are
+	   disabled */
+	if (!ao.IsEnabled() && !mixer->IsPlugin(software_mixer_plugin))
 		return -1;
 
 	try {
@@ -71,40 +73,77 @@ MultipleOutputs::GetVolume() const noexcept
 	return total / ok;
 }
 
-static bool
-output_mixer_set_volume(AudioOutputControl &ao, unsigned volume) noexcept
+enum class SetVolumeResult {
+	NO_MIXER,
+	DISABLED,
+	ERROR,
+	OK,
+};
+
+static SetVolumeResult
+output_mixer_set_volume(AudioOutputControl &ao, unsigned volume)
 {
 	assert(volume <= 100);
 
-	if (!ao.IsEnabled())
-		return false;
-
 	auto *mixer = ao.GetMixer();
 	if (mixer == nullptr)
-		return false;
+		return SetVolumeResult::NO_MIXER;
+
+	/* software mixers are always updated, even if they are
+	   disabled */
+	if (!mixer->IsPlugin(software_mixer_plugin) &&
+	    /* "global" mixers can be used even if the output hasn't
+	       been used yet */
+	    !(mixer->IsGlobal() ? ao.IsEnabled() : ao.IsReallyEnabled()))
+		return SetVolumeResult::DISABLED;
 
 	try {
 		mixer_set_volume(mixer, volume);
-		return true;
+		return SetVolumeResult::OK;
 	} catch (...) {
 		FmtError(mixer_domain,
 			 "Failed to set mixer for '{}': {}",
 			 ao.GetName(), std::current_exception());
-		return false;
+		std::throw_with_nested(std::runtime_error(fmt::format("Failed to set mixer for '{}'",
+								      ao.GetName())));
 	}
 }
 
-bool
-MultipleOutputs::SetVolume(unsigned volume) noexcept
+void
+MultipleOutputs::SetVolume(unsigned volume)
 {
 	assert(volume <= 100);
 
-	bool success = false;
-	for (const auto &ao : outputs)
-		success = output_mixer_set_volume(*ao, volume)
-			|| success;
+	SetVolumeResult result = SetVolumeResult::NO_MIXER;
+	std::exception_ptr error;
 
-	return success;
+	for (const auto &ao : outputs) {
+		try {
+			auto r = output_mixer_set_volume(*ao, volume);
+			if (r > result)
+				result = r;
+		} catch (...) {
+			/* remember the first error */
+			if (!error) {
+				error = std::current_exception();
+				result = SetVolumeResult::ERROR;
+			}
+		}
+	}
+
+	switch (result) {
+	case SetVolumeResult::NO_MIXER:
+		throw std::runtime_error{"No mixer"};
+
+	case SetVolumeResult::DISABLED:
+		throw std::runtime_error{"All outputs are disabled"};
+
+	case SetVolumeResult::ERROR:
+		std::rethrow_exception(error);
+
+	case SetVolumeResult::OK:
+		break;
+	}
 }
 
 static int

@@ -21,22 +21,24 @@
 #include "Builder.hxx"
 #include "pcm/AudioFormat.hxx"
 #include "util/CharUtil.hxx"
-#include "util/StringView.hxx"
+#include "util/StringCompare.hxx"
 
 #include <algorithm>
 
+using std::string_view_literals::operator""sv;
+
 void
-NullTagHandler::OnTag(TagType, StringView) noexcept
+NullTagHandler::OnTag(TagType, std::string_view) noexcept
 {
 }
 
 void
-NullTagHandler::OnPair(StringView, StringView) noexcept
+NullTagHandler::OnPair(std::string_view, std::string_view) noexcept
 {
 }
 
 void
-NullTagHandler::OnPicture(const char *, ConstBuffer<void>) noexcept
+NullTagHandler::OnPicture(const char *, std::span<const std::byte>) noexcept
 {
 }
 
@@ -54,18 +56,18 @@ AddTagHandler::OnDuration(SongTime duration) noexcept
 /**
  * Skip leading zeroes and a non-decimal suffix.
  */
-static StringView
-NormalizeDecimal(StringView s)
+static std::string_view
+NormalizeDecimal(std::string_view s)
 {
 	auto start = std::find_if(s.begin(), s.end(),
 				  [](char ch){ return ch != '0'; });
 	auto end = std::find_if(start, s.end(),
 				[](char ch){ return !IsDigitASCII(ch); });
-	return {start, end};
+	return std::string_view{start, std::size_t(std::distance(start, end))};
 }
 
 void
-AddTagHandler::OnTag(TagType type, StringView value) noexcept
+AddTagHandler::OnTag(TagType type, std::string_view value) noexcept
 {
 	if (type == TAG_TRACK || type == TAG_DISC) {
 		/* filter out this extra data and leading zeroes */
@@ -77,9 +79,9 @@ AddTagHandler::OnTag(TagType type, StringView value) noexcept
 }
 
 void
-FullTagHandler::OnPair(StringView name, StringView) noexcept
+FullTagHandler::OnPair(std::string_view name, std::string_view) noexcept
 {
-	if (name.EqualsIgnoreCase("cuesheet"))
+	if (StringIsEqualIgnoreCase(name, "cuesheet"sv))
 		tag.SetHasPlaylist(true);
 }
 

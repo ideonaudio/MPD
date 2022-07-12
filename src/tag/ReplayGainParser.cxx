@@ -22,13 +22,12 @@
 #include "ReplayGainInfo.hxx"
 #include "util/ASCII.hxx"
 #include "util/NumberParser.hxx"
-#include "util/StringView.hxx"
 
 #include <cassert>
 
 template<typename T>
 static bool
-ParseReplayGainTagTemplate(ReplayGainInfo &info, const T t)
+ParseReplayGainTagTemplate(ReplayGainInfo &info, const T t) noexcept
 {
 	const char *value;
 
@@ -50,7 +49,8 @@ ParseReplayGainTagTemplate(ReplayGainInfo &info, const T t)
 }
 
 bool
-ParseReplayGainTag(ReplayGainInfo &info, const char *name, const char *value)
+ParseReplayGainTag(ReplayGainInfo &info,
+		   const char *name, const char *value) noexcept
 {
 	assert(name != nullptr);
 	assert(value != nullptr);
@@ -71,14 +71,14 @@ ParseReplayGainTag(ReplayGainInfo &info, const char *name, const char *value)
 }
 
 bool
-ParseReplayGainVorbis(ReplayGainInfo &info, StringView entry)
+ParseReplayGainVorbis(ReplayGainInfo &info, std::string_view entry) noexcept
 {
 	struct VorbisCommentEntry {
-		StringView entry;
+		std::string_view entry;
 
 		gcc_pure
-		const char *operator[](StringView n) const noexcept {
-			return GetVorbisCommentValue(entry, n).data;
+		const char *operator[](std::string_view n) const noexcept {
+			return GetVorbisCommentValue(entry, n).data();
 		}
 	};
 

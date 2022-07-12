@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2021 CM4all GmbH
+ * Copyright 2022 CM4all GmbH
  * All rights reserved.
  *
  * author: Max Kellermann <mk@cm4all.com>
@@ -30,27 +30,34 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "Error.hxx"
+#pragma once
 
-#include <avahi-client/client.h>
-#include <avahi-common/error.h>
+#ifdef __linux__
+# include <sys/prctl.h>
 
-#include <system_error>
+/* fallback definitions if our libc is older than the kernel */
+# ifndef PR_SET_VMA
+#  define PR_SET_VMA 0x53564d41
+# endif
+# ifndef PR_SET_VMA_ANON_NAME
+#  define PR_SET_VMA_ANON_NAME 0
+# endif
+#endif // __linux__
 
-namespace Avahi {
-
-ErrorCategory error_category;
-
-std::string
-ErrorCategory::message(int condition) const
+/**
+ * Set a name for the specified virtual memory area.
+ *
+ * This feature requires Linux 5.17.
+ */
+inline void
+SetVmaName(const void *start, size_t len, const char *name)
 {
-	return avahi_strerror(condition);
+#ifdef __linux__
+	prctl(PR_SET_VMA, PR_SET_VMA_ANON_NAME, (unsigned long)start, len,
+	      (unsigned long)name);
+#else
+	(void)start;
+	(void)len;
+	(void)name;
+#endif
 }
-
-std::system_error
-MakeError(AvahiClient &client, const char *msg) noexcept
-{
-	return MakeError(avahi_client_errno(&client), msg);
-}
-
-} // namespace Avahi

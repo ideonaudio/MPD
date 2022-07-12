@@ -137,17 +137,15 @@ RelativePathImpl(typename Traits::string_view base,
 template<typename Traits>
 typename Traits::string_view
 RelativePathImpl(typename Traits::string_view base,
-		 typename Traits::string_view _other) noexcept
+		 typename Traits::string_view other) noexcept
 {
-	BasicStringView<typename Traits::value_type> other(_other);
-
-	if (!other.SkipPrefix(base))
+	if (!SkipPrefix(other, base))
 		/* mismatch */
 		return {};
 
 	if (!other.empty()) {
 		if (!Traits::IsSeparator(other.front())) {
-			if (!base.empty() && Traits::IsSeparator(other.data[-1]))
+			if (!base.empty() && Traits::IsSeparator(other.data()[-1]))
 				/* "other" has no more slash, but the
 				   matching base ended with a slash:
 				   enough to detect a match */
@@ -159,7 +157,7 @@ RelativePathImpl(typename Traits::string_view base,
 
 		/* skip remaining path separators */
 		while (!other.empty() && Traits::IsSeparator(other.front()))
-			other.pop_front();
+			other.remove_prefix(1);
 	}
 
 	return other;

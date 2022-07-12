@@ -20,7 +20,6 @@
 #include "Util.hxx"
 #include "util/AllocatedString.hxx"
 #include "util/AllocatedArray.hxx"
-#include "util/ConstBuffer.hxx"
 
 #include <unicode/ustring.h>
 
@@ -38,7 +37,7 @@ UCharFromUTF8(std::string_view src)
 
 	UErrorCode error_code = U_ZERO_ERROR;
 	int32_t dest_length;
-	u_strFromUTF8(dest.begin(), dest_capacity, &dest_length,
+	u_strFromUTF8(dest.data(), dest_capacity, &dest_length,
 		      src.data(), src.size(),
 		      &error_code);
 	if (U_FAILURE(error_code))

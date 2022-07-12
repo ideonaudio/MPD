@@ -32,11 +32,13 @@
 #include "Handler.hxx"
 #include "util/CharUtil.hxx"
 #include "util/RuntimeError.hxx"
+#include "util/StringSplit.hxx"
 #include "util/StringStrip.hxx"
-#include "util/StringView.hxx"
 
 #include <algorithm>
 #include <cassert>
+
+using std::string_view_literals::operator""sv;
 
 void
 CurlResponseHandlerAdapter::Install(CurlEasy &easy)
@@ -85,6 +87,12 @@ CurlResponseHandlerAdapter::FinishBody()
 void
 CurlResponseHandlerAdapter::Done(CURLcode result) noexcept
 {
+	if (postponed_error) {
+		state = State::CLOSED;
+		handler.OnError(std::move(postponed_error));
+		return;
+	}
+
 	try {
 		if (result != CURLE_OK) {
 			StripRight(error_buffer);
@@ -103,16 +111,16 @@ CurlResponseHandlerAdapter::Done(CURLcode result) noexcept
 
 [[gnu::pure]]
 static bool
-IsResponseBoundaryHeader(StringView s) noexcept
+IsResponseBoundaryHeader(std::string_view s) noexcept
 {
-	return s.size > 5 && (s.StartsWith("HTTP/") ||
-			      /* the proprietary "ICY 200 OK" is
-				 emitted by Shoutcast */
-			      s.StartsWith("ICY 2"));
+	return s.starts_with("HTTP/"sv) ||
+		/* the proprietary "ICY 200 OK" is emitted by
+		   Shoutcast */
+		s.starts_with("ICY 2"sv);
 }
 
 inline void
-CurlResponseHandlerAdapter::HeaderFunction(StringView s) noexcept
+CurlResponseHandlerAdapter::HeaderFunction(std::string_view s) noexcept
 {
 	if (state > State::HEADERS)
 		return;
@@ -124,27 +132,15 @@ CurlResponseHandlerAdapter::HeaderFunction(StringView s) noexcept
 		return;
 	}
 
-	const char *header = s.data;
-	const char *end = StripRight(header, header + s.size);
-
-	const char *value = s.Find(':');
-	if (value == nullptr)
+	auto [_name, value] = Split(StripRight(s), ':');
+	if (_name.empty() || value.data() == nullptr)
 		return;
 
-	std::string name(header, value);
+	std::string name{_name};
 	std::transform(name.begin(), name.end(), name.begin(),
 		       static_cast<char(*)(char)>(ToLowerASCII));
 
-	/* skip the colon */
-
-	++value;
-
-	/* strip the value */
-
-	value = StripLeft(value, end);
-	end = StripRight(value, end);
-
-	headers.emplace(std::move(name), std::string(value, end));
+	headers.emplace(std::move(name), StripLeft(value));
 }
 
 std::size_t
@@ -168,10 +164,17 @@ CurlResponseHandlerAdapter::DataReceived(const void *ptr,
 
 	try {
 		FinishHeaders();
-		handler.OnData({ptr, received_size});
+		handler.OnData({(const std::byte *)ptr, received_size});
 		return received_size;
 	} catch (CurlResponseHandler::Pause) {
 		return CURL_WRITEFUNC_PAUSE;
+	} catch (...) {
+		/* from inside this libCURL callback function, we
+		   can't do much, so we remember the exception to be
+		   handled later by Done(), and return 0, causing the
+		   response to be aborted with CURLE_WRITE_ERROR */
+		postponed_error = std::current_exception();
+		return 0;
 	}
 
 }

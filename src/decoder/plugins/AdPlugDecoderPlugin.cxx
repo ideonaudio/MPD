@@ -23,7 +23,6 @@
 #include "pcm/CheckAudioFormat.hxx"
 #include "fs/Path.hxx"
 #include "util/Domain.hxx"
-#include "util/StringView.hxx"
 #include "Log.hxx"
 
 #include <adplug/adplug.h>
@@ -72,20 +71,20 @@ adplug_file_decode(DecoderClient &client, Path path_fs)
 		int16_t buffer[2048];
 		constexpr unsigned frames_per_buffer = std::size(buffer) / 2;
 		opl.update(buffer, frames_per_buffer);
-		cmd = client.SubmitData(nullptr,
-					buffer, sizeof(buffer),
-					0);
+		cmd = client.SubmitAudio(nullptr,
+					 std::span{buffer},
+					 0);
 	} while (cmd == DecoderCommand::NONE);
 
 	delete player;
 }
 
 static void
-adplug_scan_tag(TagType type, const std::string &value,
+adplug_scan_tag(TagType type, const std::string_view value,
 		TagHandler &handler) noexcept
 {
 	if (!value.empty())
-		handler.OnTag(type, {value.data(), value.size()});
+		handler.OnTag(type, value);
 }
 
 static bool

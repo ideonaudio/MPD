@@ -1,5 +1,8 @@
 /*
- * Copyright (C) 2013-2017 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2007-2022 CM4all GmbH
+ * All rights reserved.
+ *
+ * author: Max Kellermann <mk@cm4all.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,31 +30,20 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef TSTRING_VIEW_HXX
-#define TSTRING_VIEW_HXX
+#pragma once
 
-#ifdef _UNICODE
-#include "WStringView.hxx"
+#include <avahi-client/publish.h>
 
-struct TStringView : WStringView {
-	using WStringView::WStringView;
+#include <memory>
 
-	TStringView() = default;
-	constexpr TStringView(WStringView src) noexcept
-		:WStringView(src) {}
+namespace Avahi {
+
+struct EntryGroupDeleter {
+	void operator()(AvahiEntryGroup *g) noexcept {
+		avahi_entry_group_free(g);
+	}
 };
 
-#else
-#include "StringView.hxx"
+using EntryGroupPtr = std::unique_ptr<AvahiEntryGroup, EntryGroupDeleter>;
 
-struct TStringView : StringView {
-	using StringView::StringView;
-
-	TStringView() = default;
-	constexpr TStringView(StringView src) noexcept
-		:StringView(src) {}
-};
-
-#endif
-
-#endif
+} // namespace Avahi

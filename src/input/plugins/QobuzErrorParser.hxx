@@ -23,8 +23,7 @@
 #include "lib/curl/Headers.hxx"
 #include "lib/yajl/ResponseParser.hxx"
 
-template<typename T> struct ConstBuffer;
-struct StringView;
+#include <string_view>
 
 /**
  * Parse an error JSON response.
@@ -53,8 +52,8 @@ protected:
 
 public:
 	/* yajl callbacks */
-	bool String(StringView value) noexcept;
-	bool MapKey(StringView value) noexcept;
+	bool String(std::string_view value) noexcept;
+	bool MapKey(std::string_view value) noexcept;
 	bool EndMap() noexcept;
 };
 

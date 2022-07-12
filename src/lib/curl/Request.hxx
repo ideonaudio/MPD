@@ -35,7 +35,6 @@
 
 #include <cstddef>
 
-struct StringView;
 class CurlGlobal;
 class CurlResponseHandler;
 
@@ -150,9 +149,6 @@ private:
 	 * associated with it.
 	 */
 	void FreeEasy() noexcept;
-
-	void FinishHeaders();
-	void FinishBody();
 };
 
 #endif

@@ -6,8 +6,8 @@ project(
   default_options: [
     'c_std=c11',
     'build.c_std=c11',
-    'cpp_std=c++17',
-    'build.cpp_std=c++17',
+    'cpp_std=c++2a',
+    'build.cpp_std=c++2a',
     'warning_level=3',
 
     # If we build those libraries as Meson subproject, they shall be
@@ -73,6 +73,9 @@ test_common_flags = [
   # clang specific warning options:
   '-Wunreachable-code-aggressive',
   '-Wused-but-marked-unused',
+
+  # suppress bogus GCC12 warnings in libfmt headers
+  '-Wno-stringop-overflow',
 ]
 
 test_global_cxxflags = test_global_common_flags + [

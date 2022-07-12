@@ -26,13 +26,16 @@
 #include "util/ASCII.hxx"
 #include "tag/ReplayGainInfo.hxx"
 #include "util/NumberParser.hxx"
-#include "util/StringView.hxx"
+#include "util/StringCompare.hxx"
+#include "util/StringSplit.hxx"
 
 #include <cstdint>
 
+using std::string_view_literals::operator""sv;
+
 gcc_pure
 static TagType
-ParseOpusTagName(StringView name) noexcept
+ParseOpusTagName(std::string_view name) noexcept
 {
 	TagType type = tag_name_parse_i(name);
 	if (type != TAG_NUM_OF_ITEM_TYPES)
@@ -42,19 +45,20 @@ ParseOpusTagName(StringView name) noexcept
 }
 
 static void
-ScanOneOpusTag(StringView name, StringView value,
+ScanOneOpusTag(std::string_view name, std::string_view value,
 	       ReplayGainInfo *rgi,
 	       TagHandler &handler) noexcept
 {
 	if (handler.WantPicture() &&
-	    name.EqualsIgnoreCase("METADATA_BLOCK_PICTURE"))
+	    StringIsEqualIgnoreCase(name, "METADATA_BLOCK_PICTURE"sv))
 		return ScanVorbisPicture(value, handler);
 
-	if (value.size >= 4096)
+	if (value.size() >= 4096)
 		/* ignore large values */
 		return;
 
-	if (rgi != nullptr && name.EqualsIgnoreCase("R128_TRACK_GAIN")) {
+	if (rgi != nullptr &&
+	    StringIsEqualIgnoreCase(name, "R128_TRACK_GAIN"sv)) {
 		/* R128_TRACK_GAIN is a Q7.8 fixed point number in
 		   dB */
 
@@ -63,7 +67,7 @@ ScanOneOpusTag(StringView name, StringView value,
 		if (endptr > value.begin() && endptr == value.end())
 			rgi->track.gain = float(l) / 256.0f;
 	} else if (rgi != nullptr &&
-		   name.EqualsIgnoreCase("R128_ALBUM_GAIN")) {
+		   StringIsEqualIgnoreCase(name, "R128_ALBUM_GAIN"sv)) {
 		/* R128_ALBUM_GAIN is a Q7.8 fixed point number in
 		   dB */
 
@@ -104,11 +108,11 @@ ScanOpusTags(const void *data, size_t size,
 
 	while (n-- > 0) {
 		const auto s = r.ReadString();
-		if (s == nullptr)
+		if (s.data() == nullptr)
 			return false;
 
-		const auto split = s.Split('=');
-		if (split.first.empty() || split.second.IsNull())
+		const auto split = Split(s, '=');
+		if (split.first.empty() || split.second.data() == nullptr)
 			continue;
 
 		ScanOneOpusTag(split.first, split.second, rgi, handler);

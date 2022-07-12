@@ -23,7 +23,6 @@
 #include "pcm/Export.hxx"
 #include "io/UniqueFileDescriptor.hxx"
 #include "system/Error.hxx"
-#include "util/ConstBuffer.hxx"
 #include "util/Domain.hxx"
 #include "util/ByteOrder.hxx"
 #include "util/Manual.hxx"
@@ -115,7 +114,7 @@ public:
 		DoClose();
 	}
 
-	size_t Play(const void *chunk, size_t size) override;
+	std::size_t Play(std::span<const std::byte> src) override;
 	void Cancel() noexcept override;
 
 private:
@@ -680,26 +679,21 @@ OssOutput::Cancel() noexcept
 	pcm_export->Reset();
 }
 
-size_t
-OssOutput::Play(const void *chunk, size_t size)
+std::size_t
+OssOutput::Play(std::span<const std::byte> src)
 {
-	ssize_t ret;
-
-	assert(size > 0);
+	assert(!src.empty());
 
 	/* reopen the device since it was closed by dropBufferedAudio */
 	if (!fd.IsDefined())
 		Reopen();
 
-	const auto e = pcm_export->Export({chunk, size});
+	const auto e = pcm_export->Export(src);
 	if (e.empty())
-		return size;
-
-	chunk = e.data;
-	size = e.size;
+		return src.size();
 
 	while (true) {
-		ret = fd.Write(chunk, size);
+		const ssize_t ret = fd.Write(e.data(), e.size());
 		if (ret > 0)
 			return pcm_export->CalcInputSize(ret);
 

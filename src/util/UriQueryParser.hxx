@@ -1,5 +1,5 @@
 /*
- * Copyright 2008-2019 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2008-2022 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,12 +27,9 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#ifndef URI_QUERY_PARSER_HXX
-#define URI_QUERY_PARSER_HXX
+#pragma once
 
-#include "Compiler.h"
-
-struct StringView;
+#include <string_view>
 
 /**
  * Find the first query parameter with the given name and return its
@@ -41,8 +38,6 @@ struct StringView;
  * @return the raw value (pointing into the #query_string parameter)
  * or nullptr if the parameter does not exist
  */
-gcc_pure
-StringView
-UriFindRawQueryParameter(StringView query_string, StringView name) noexcept;
-
-#endif
+[[gnu::pure]]
+std::string_view
+UriFindRawQueryParameter(std::string_view query_string, std::string_view name) noexcept;

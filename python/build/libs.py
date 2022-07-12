@@ -55,8 +55,8 @@ flac = AutotoolsProject(
 )
 
 zlib = ZlibProject(
-    'http://zlib.net/zlib-1.2.11.tar.xz',
-    '4ff941449631ace0d4d203e3483be9dbc9da454084111f97ea0a2114e19bf066',
+    'http://zlib.net/zlib-1.2.12.tar.xz',
+    '7db46b8d7726232a621befaab4a1c870f00a90805511c0e0090441dac57def18',
     'lib/libz.a',
 )
 
@@ -151,8 +151,8 @@ gme = CmakeProject(
 )
 
 ffmpeg = FfmpegProject(
-    'http://ffmpeg.org/releases/ffmpeg-5.0.tar.xz',
-    '51e919f7d205062c0fd4fae6243a84850391115104ccf1efc451733bc0ac7298',
+    'http://ffmpeg.org/releases/ffmpeg-5.0.1.tar.xz',
+    'ef2efae259ce80a240de48ec85ecb062cecca26e4352ffb3fda562c21a93007b',
     'lib/libavcodec.a',
     [
         '--disable-shared', '--enable-static',
@@ -176,6 +176,8 @@ ffmpeg = FfmpegProject(
         '--disable-devices',
         '--disable-filters',
         '--disable-v4l2_m2m',
+
+        '--disable-vulkan',
 
         '--disable-parser=bmp',
         '--disable-parser=cavsvideo',
@@ -380,14 +382,14 @@ ffmpeg = FfmpegProject(
 )
 
 openssl = OpenSSLProject(
-    'https://www.openssl.org/source/openssl-3.0.1.tar.gz',
-    'c311ad853353bce796edad01a862c50a8a587f62e7e2100ef465ab53ec9b06d1',
+    'https://www.openssl.org/source/openssl-3.0.5.tar.gz',
+    'aa7d8d9bef71ad6525c55ba11e5f4397889ce49c2c9349dcea6d3e4f0b024a7a',
     'include/openssl/ossl_typ.h',
 )
 
 curl = CmakeProject(
-    'https://curl.se/download/curl-7.82.0.tar.xz',
-    '0aaa12d7bd04b0966254f2703ce80dd5c38dbbd76af0297d3d690cdce58a583c',
+    'https://curl.se/download/curl-7.84.0.tar.xz',
+    '2d118b43f547bfe5bae806d8d47b4e596ea5b25a6c1f080aef49fbcd817c5db8',
     'lib/libcurl.a',
     [
         '-DBUILD_CURL_EXE=OFF',
@@ -444,7 +446,7 @@ jack = JackProject(
 )
 
 boost = BoostProject(
-    'https://boostorg.jfrog.io/artifactory/main/release/1.78.0/source/boost_1_78_0.tar.bz2',
-    '8681f175d4bdb26c52222665793eef08490d7758529330f98d3b29dd0735bccc',
+    'https://boostorg.jfrog.io/artifactory/main/release/1.79.0/source/boost_1_79_0.tar.bz2',
+    '475d589d51a7f8b3ba2ba4eda022b170e562ca3b760ee922c146b6c65856ef39',
     'include/boost/version.hpp',
 )

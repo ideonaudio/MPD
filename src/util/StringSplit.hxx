@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2013-2015 Max Kellermann <max.kellermann@gmail.com>
+ * Copyright 2013-2022 Max Kellermann <max.kellermann@gmail.com>
  *
  * Redistribution and use in source and binary forms, with or without
  * modification, are permitted provided that the following conditions
@@ -27,27 +27,52 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#include "StringView.hxx"
-#include "CharUtil.hxx"
+#pragma once
+
+#include <string_view>
 
 template<typename T>
-void
-BasicStringView<T>::StripLeft() noexcept
+[[gnu::pure]]
+std::pair<std::basic_string_view<T>, std::basic_string_view<T>>
+PartitionWithout(const std::basic_string_view<T> haystack,
+		 const typename std::basic_string_view<T>::size_type separator) noexcept
 {
-	while (!empty() && IsWhitespaceOrNull(front()))
-		pop_front();
+	return {
+		haystack.substr(0, separator),
+		haystack.substr(separator + 1),
+	};
 }
 
+/**
+ * Split the string at the first occurrence of the given character.
+ * If the character is not found, then the first value is the whole
+ * string and the second value is nullptr.
+ */
 template<typename T>
-void
-BasicStringView<T>::StripRight() noexcept
+[[gnu::pure]]
+std::pair<std::basic_string_view<T>, std::basic_string_view<T>>
+Split(const std::basic_string_view<T> haystack, const T ch) noexcept
 {
-	while (!empty() && IsWhitespaceOrNull(back()))
-		pop_back();
+	const auto i = haystack.find(ch);
+	if (i == haystack.npos)
+		return {haystack, {}};
+
+	return PartitionWithout(haystack, i);
 }
 
-template struct BasicStringView<char>;
+/**
+ * Split the string at the last occurrence of the given
+ * character.  If the character is not found, then the first
+ * value is the whole string and the second value is nullptr.
+ */
+template<typename T>
+[[gnu::pure]]
+std::pair<std::basic_string_view<T>, std::basic_string_view<T>>
+SplitLast(const std::basic_string_view<T> haystack, const T ch) noexcept
+{
+	const auto i = haystack.rfind(ch);
+	if (i == haystack.npos)
+		return {haystack, {}};
 
-#ifdef _UNICODE
-template struct BasicStringView<wchar_t>;
-#endif
+	return PartitionWithout(haystack, i);
+}

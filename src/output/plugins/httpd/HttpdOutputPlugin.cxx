@@ -142,7 +142,7 @@ HttpdOutput::OnAccept(UniqueSocketDescriptor fd,
 }
 
 PagePtr
-HttpdOutput::ReadPage()
+HttpdOutput::ReadPage() noexcept
 {
 	if (unflushed_input >= 65536) {
 		/* we have fed a lot of input into the encoder, but it
@@ -157,22 +157,23 @@ HttpdOutput::ReadPage()
 		unflushed_input = 0;
 	}
 
+	std::byte buffer[32768];
+
 	size_t size = 0;
 	do {
-		size_t nbytes = encoder->Read(buffer + size,
-					      sizeof(buffer) - size);
-		if (nbytes == 0)
+		const auto r = encoder->Read(std::span{buffer}.subspan(size));
+		if (r.empty())
 			break;
 
 		unflushed_input = 0;
 
-		size += nbytes;
+		size += r.size();
 	} while (size < sizeof(buffer));
 
 	if (size == 0)
 		return nullptr;
 
-	return std::make_shared<Page>(ConstBuffer{buffer, size});
+	return std::make_shared<Page>(std::span{buffer, size});
 }
 
 inline void
@@ -277,7 +278,7 @@ HttpdOutput::BroadcastPage(PagePtr page) noexcept
 }
 
 void
-HttpdOutput::BroadcastFromEncoder()
+HttpdOutput::BroadcastFromEncoder() noexcept
 {
 	/* synchronize with the IOThread */
 	{
@@ -299,28 +300,28 @@ HttpdOutput::BroadcastFromEncoder()
 }
 
 inline void
-HttpdOutput::EncodeAndPlay(const void *chunk, size_t size)
+HttpdOutput::EncodeAndPlay(std::span<const std::byte> src)
 {
-	encoder->Write(chunk, size);
+	encoder->Write(src);
 
-	unflushed_input += size;
+	unflushed_input += src.size();
 
 	BroadcastFromEncoder();
 }
 
-size_t
-HttpdOutput::Play(const void *chunk, size_t size)
+std::size_t
+HttpdOutput::Play(std::span<const std::byte> src)
 {
 	pause = false;
 
 	if (LockHasClients())
-		EncodeAndPlay(chunk, size);
+		EncodeAndPlay(src);
 
 	if (!timer->IsStarted())
 		timer->Start();
-	timer->Add(size);
+	timer->Add(src.size());
 
-	return size;
+	return src.size();
 }
 
 bool
@@ -329,8 +330,8 @@ HttpdOutput::Pause()
 	pause = true;
 
 	if (LockHasClients()) {
-		static const char silence[1020] = { 0 };
-		Play(silence, sizeof(silence));
+		static constexpr std::byte silence[1020]{};
+		Play(std::span{silence});
 	}
 
 	return true;

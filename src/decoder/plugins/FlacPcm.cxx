@@ -21,7 +21,6 @@
 #include "pcm/CheckAudioFormat.hxx"
 #include "lib/xiph/FlacAudioFormat.hxx"
 #include "util/RuntimeError.hxx"
-#include "util/ConstBuffer.hxx"
 
 #include <cassert>
 
@@ -39,7 +38,8 @@ FlacPcmImport::Open(unsigned sample_rate, unsigned bits_per_sample,
 
 template<typename T>
 static void
-FlacImportStereo(T *dest, const FLAC__int32 *const src[], size_t n_frames)
+FlacImportStereo(T *dest, const FLAC__int32 *const src[],
+		 size_t n_frames) noexcept
 {
 	for (size_t i = 0; i != n_frames; ++i) {
 		*dest++ = (T)src[0][i];
@@ -50,7 +50,7 @@ FlacImportStereo(T *dest, const FLAC__int32 *const src[], size_t n_frames)
 template<typename T>
 static void
 FlacImportAny(T *dest, const FLAC__int32 *const src[], size_t n_frames,
-	      unsigned n_channels)
+	      unsigned n_channels) noexcept
 {
 	for (size_t i = 0; i != n_frames; ++i)
 		for (unsigned c = 0; c != n_channels; ++c)
@@ -60,7 +60,7 @@ FlacImportAny(T *dest, const FLAC__int32 *const src[], size_t n_frames,
 template<typename T>
 static void
 FlacImport(T *dest, const FLAC__int32 *const src[], size_t n_frames,
-	   unsigned n_channels)
+	   unsigned n_channels) noexcept
 {
 	if (n_channels == 2)
 		FlacImportStereo(dest, src, n_frames);
@@ -69,19 +69,19 @@ FlacImport(T *dest, const FLAC__int32 *const src[], size_t n_frames,
 }
 
 template<typename T>
-static ConstBuffer<void>
+static std::span<const std::byte>
 FlacImport(PcmBuffer &buffer, const FLAC__int32 *const src[], size_t n_frames,
-	   unsigned n_channels)
+	   unsigned n_channels) noexcept
 {
 	size_t n_samples = n_frames * n_channels;
 	size_t dest_size = n_samples * sizeof(T);
 	T *dest = (T *)buffer.Get(dest_size);
 	FlacImport(dest, src, n_frames, n_channels);
-	return {dest, dest_size};
+	return std::as_bytes(std::span{dest, n_samples});
 }
 
-ConstBuffer<void>
-FlacPcmImport::Import(const FLAC__int32 *const src[], size_t n_frames)
+std::span<const std::byte>
+FlacPcmImport::Import(const FLAC__int32 *const src[], size_t n_frames) noexcept
 {
 	switch (audio_format.format) {
 	case SampleFormat::S16:

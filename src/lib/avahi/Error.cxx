@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2021 CM4all GmbH
+ * Copyright 2007-2022 CM4all GmbH
  * All rights reserved.
  *
  * author: Max Kellermann <mk@cm4all.com>
@@ -30,32 +30,27 @@
  * OF THE POSSIBILITY OF SUCH DAMAGE.
  */
 
-#pragma once
+#include "Error.hxx"
 
 #include <avahi-client/client.h>
+#include <avahi-common/error.h>
+
+#include <system_error>
 
 namespace Avahi {
 
-class ConnectionListener {
-public:
-	/**
-	 * The connection to the Avahi daemon has been established.
-	 *
-	 * Note that this may be called again after a collision
-	 * (AVAHI_CLIENT_S_COLLISION) or a host name change
-	 * (AVAHI_CLIENT_S_REGISTERING).
-	 */
-	virtual void OnAvahiConnect(AvahiClient *client) noexcept = 0;
-	virtual void OnAvahiDisconnect() noexcept = 0;
+ErrorCategory error_category;
 
-	/**
-	 * Something about the Avahi connection has changed, e.g. a
-	 * collision (AVAHI_CLIENT_S_COLLISION) or a host name change
-	 * (AVAHI_CLIENT_S_REGISTERING).  Services shall be
-	 * unpublished now, and will be re-published in the following
-	 * OnAvahiConnect() call.
-	 */
-	virtual void OnAvahiChanged() noexcept {}
-};
+std::string
+ErrorCategory::message(int condition) const
+{
+	return avahi_strerror(condition);
+}
+
+std::system_error
+MakeError(AvahiClient &client, const char *msg) noexcept
+{
+	return MakeError(avahi_client_errno(&client), msg);
+}
 
 } // namespace Avahi

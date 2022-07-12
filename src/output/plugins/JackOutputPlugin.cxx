@@ -24,14 +24,15 @@
 #include "output/Features.h"
 #include "thread/Mutex.hxx"
 #include "util/ScopeExit.hxx"
-#include "util/ConstBuffer.hxx"
 #include "util/IterableSplitString.hxx"
 #include "util/RuntimeError.hxx"
+#include "util/SpanCast.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
 #include <atomic>
 #include <cassert>
+#include <span>
 
 #include <jack/jack.h>
 #include <jack/types.h>
@@ -178,7 +179,7 @@ public:
 			: std::chrono::steady_clock::duration::zero();
 	}
 
-	size_t Play(const void *chunk, size_t size) override;
+	std::size_t Play(std::span<const std::byte> src) override;
 
 	void Cancel() noexcept override;
 	bool Pause() override;
@@ -199,11 +200,11 @@ static unsigned
 parse_port_list(const char *source, std::string dest[])
 {
 	unsigned n = 0;
-	for (auto i : IterableSplitString(source, ',')) {
+	for (const std::string_view i : IterableSplitString(source, ',')) {
 		if (n >= MAX_PORTS)
 			throw std::runtime_error("too many port names");
 
-		dest[n++] = std::string(i.data, i.size);
+		dest[n++] = i;
 	}
 
 	if (n == 0)
@@ -287,7 +288,7 @@ JackOutput::GetAvailable() const noexcept
  * Call jack_ringbuffer_read_advance() on all buffers in the list.
  */
 static void
-MultiReadAdvance(ConstBuffer<jack_ringbuffer_t *> buffers,
+MultiReadAdvance(std::span<jack_ringbuffer_t *const> buffers,
 		 size_t size)
 {
 	for (auto *i : buffers)
@@ -316,7 +317,7 @@ WriteSilence(jack_port_t &port, jack_nframes_t nframes)
  * Write a specific amount of "silence" to all ports in the list.
  */
 static void
-MultiWriteSilence(ConstBuffer<jack_port_t *> ports, jack_nframes_t nframes)
+MultiWriteSilence(std::span<jack_port_t *const> ports, jack_nframes_t nframes)
 {
 	for (auto *i : ports)
 		WriteSilence(*i, nframes);
@@ -689,14 +690,17 @@ JackOutput::WriteSamples(const float *src, size_t n_frames)
 	return result;
 }
 
-inline size_t
-JackOutput::Play(const void *chunk, size_t size)
+std::size_t
+JackOutput::Play(std::span<const std::byte> _src)
 {
+	const auto src = FromBytesStrict<const float>(_src);
+
 	pause = false;
 
 	const size_t frame_size = audio_format.GetFrameSize();
-	assert(size % frame_size == 0);
-	size /= frame_size;
+	assert(src.size() % frame_size == 0);
+
+	const std::size_t n_frames = src.size() / audio_format.channels;
 
 	while (true) {
 		{
@@ -709,7 +713,7 @@ JackOutput::Play(const void *chunk, size_t size)
 		}
 
 		size_t frames_written =
-			WriteSamples((const float *)chunk, size);
+			WriteSamples(src.data(), n_frames);
 		if (frames_written > 0)
 			return frames_written * frame_size;
 

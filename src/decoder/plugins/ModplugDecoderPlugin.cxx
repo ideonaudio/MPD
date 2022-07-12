@@ -24,7 +24,6 @@
 #include "tag/Handler.hxx"
 #include "util/Domain.hxx"
 #include "util/RuntimeError.hxx"
-#include "util/StringView.hxx"
 #include "Log.hxx"
 
 #ifdef _WIN32
@@ -73,7 +72,7 @@ static ModPlugFile *
 LoadModPlugFile(DecoderClient *client, InputStream &is)
 {
 	const auto buffer = mod_loadfile(&modplug_domain, client, is);
-	if (buffer.IsNull()) {
+	if (buffer == nullptr) {
 		LogWarning(modplug_domain, "could not load stream");
 		return nullptr;
 	}
@@ -117,9 +116,9 @@ mod_decode(DecoderClient &client, InputStream &is)
 		if (ret <= 0)
 			break;
 
-		cmd = client.SubmitData(nullptr,
-					audio_buffer, ret,
-					0);
+		cmd = client.SubmitAudio(nullptr,
+					 std::span{audio_buffer, std::size_t(ret)},
+					 0);
 
 		if (cmd == DecoderCommand::SEEK) {
 			ModPlug_Seek(f, client.GetSeekTime().ToMS());

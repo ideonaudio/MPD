@@ -40,6 +40,7 @@
 #include <queue>
 #include <list>
 #include <memory>
+#include <span>
 
 struct ConfigBlock;
 class EventLoop;
@@ -142,11 +143,6 @@ private:
 			       boost::intrusive::constant_time_size<true>> clients;
 
 	/**
-	 * A temporary buffer for the ReadPage() function.
-	 */
-	std::byte buffer[32768];
-
-	/**
 	 * The maximum number of clients connected at the same time.
 	 */
 	const unsigned clients_max;
@@ -233,7 +229,7 @@ public:
 	 * Reads data from the encoder (as much as available) and
 	 * returns it as a new #page object.
 	 */
-	PagePtr ReadPage();
+	PagePtr ReadPage() noexcept;
 
 	/**
 	 * Broadcasts a page struct to all clients.
@@ -247,18 +243,18 @@ public:
 	 *
 	 * Mutext must not be locked.
 	 */
-	void BroadcastFromEncoder();
+	void BroadcastFromEncoder() noexcept;
 
 	/**
 	 * Mutext must not be locked.
 	 *
 	 * Throws on error.
 	 */
-	void EncodeAndPlay(const void *chunk, size_t size);
+	void EncodeAndPlay(std::span<const std::byte> src);
 
 	void SendTag(const Tag &tag) override;
 
-	size_t Play(const void *chunk, size_t size) override;
+	std::size_t Play(std::span<const std::byte> src) override;
 
 	/**
 	 * Mutext must not be locked.

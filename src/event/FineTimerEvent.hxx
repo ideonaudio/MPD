@@ -1,5 +1,5 @@
 /*
- * Copyright 2007-2021 CM4all GmbH
+ * Copyright 2007-2022 CM4all GmbH
  * All rights reserved.
  *
  * author: Max Kellermann <mk@cm4all.com>
@@ -64,7 +64,7 @@ class FineTimerEvent final :
 {
 	friend class TimerList;
 #ifdef NO_BOOST
-	friend class IntrusiveList<FineTimerEvent>;
+	friend struct IntrusiveListBaseHookTraits<FineTimerEvent>;
 #endif
 
 	EventLoop &loop;
