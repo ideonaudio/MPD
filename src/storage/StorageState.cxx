@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -62,11 +62,11 @@ storage_state_save(BufferedOutputStream &os, const Instance &instance)
 		if (uri.empty() || StringIsEmpty(mount_uri))
 			return;
 
-		os.Format(
-			MOUNT_STATE_BEGIN "\n"
-			MOUNT_STATE_STORAGE_URI "%s\n"
-			MOUNT_STATE_MOUNTED_URL "%s\n"
-			MOUNT_STATE_END "\n", mount_uri, uri.c_str());
+		os.Fmt(FMT_STRING(MOUNT_STATE_BEGIN "\n"
+				  MOUNT_STATE_STORAGE_URI "{}\n"
+				  MOUNT_STATE_MOUNTED_URL "{}\n"
+				  MOUNT_STATE_END "\n"),
+		       mount_uri, uri);
 	};
 
 	((CompositeStorage*)instance.storage)->VisitMounts(visitor);

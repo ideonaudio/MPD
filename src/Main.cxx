@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -409,6 +409,15 @@ MainConfigured(const CommandLineOptions &options,
 					    partition_config.player.replay_gain);
 		partition.UpdateEffectiveReplayGainMode();
 	}
+
+	raw_config.WithEach(ConfigBlockOption::PARTITION, [&](const auto &block){
+		const char *name = block.GetBlockValue("name");
+		if (name == nullptr)
+			throw std::runtime_error("Missing 'name'");
+
+		instance.partitions.emplace_back(instance, name,
+						 partition_config);
+	});
 
 	client_manager_init(raw_config);
 	const ScopeInputPluginsInit input_plugins_init(raw_config,

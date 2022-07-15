@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -39,10 +39,23 @@ Path::ToUTF8Throw() const
 Path::const_pointer
 Path::GetSuffix() const noexcept
 {
-	const auto base = GetBase().c_str();
-	const auto *dot = StringFindLast(base, '.');
-	if (dot == nullptr || dot == base)
-		return nullptr;
+	const auto *base = GetBase().c_str();
 
-	return dot + 1;
+	/* skip all leading dots (hidden/special files on UNIX-like
+	   operating systems) */
+	while (*base == '.')
+		++base;
+
+	return StringFindLast(base, '.');
+}
+
+Path::const_pointer
+Path::GetExtension() const noexcept
+{
+	const auto *result = GetSuffix();
+	if (result != nullptr)
+		/* skip the dot */
+		++result;
+
+	return result;
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -22,6 +22,18 @@
 
 class PlayerListener {
 public:
+	/**
+	 * A playback error has occurred and
+	 * PlayerControl::CheckRethrowError() will provide details.
+	 */
+	virtual void OnPlayerError() noexcept = 0;
+
+	/**
+	 * Some state of the player has changed.  This maps to
+	 * #IDLE_PLAYER.
+	 */
+	virtual void OnPlayerStateChanged() noexcept = 0;
+
 	/**
 	 * Must call playlist_sync().
 	 */

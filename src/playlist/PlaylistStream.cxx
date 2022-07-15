@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -34,7 +34,7 @@ playlist_open_path_suffix(Path path, Mutex &mutex)
 try {
 	assert(!path.IsNull());
 
-	const auto *suffix = path.GetSuffix();
+	const auto *suffix = path.GetExtension();
 	if (suffix == nullptr)
 		return nullptr;
 

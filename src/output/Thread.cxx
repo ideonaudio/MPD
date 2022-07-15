@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -421,7 +421,7 @@ AudioOutputControl::InternalDrain() noexcept
 void
 AudioOutputControl::Task() noexcept
 {
-	FormatThreadName("output:%s", GetName());
+	FormatThreadName("output:%s", GetName().c_str());
 
 	try {
 		SetThreadRealtime();

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -184,6 +184,18 @@ Partition::OnQueueSongStarted() noexcept
 }
 
 void
+Partition::OnPlayerError() noexcept
+{
+	EmitIdle(IDLE_PLAYER);
+}
+
+void
+Partition::OnPlayerStateChanged() noexcept
+{
+	EmitIdle(IDLE_PLAYER);
+}
+
+void
 Partition::OnPlayerSync() noexcept
 {
 	EmitGlobalEvent(SYNC_WITH_PLAYER);
@@ -193,6 +205,10 @@ void
 Partition::OnPlayerTagModified() noexcept
 {
 	EmitGlobalEvent(TAG_MODIFIED);
+
+	/* notify all clients that the tag of the current song has
+	   changed */
+	EmitIdle(IDLE_PLAYER);
 }
 
 void

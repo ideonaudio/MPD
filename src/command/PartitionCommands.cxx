@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -155,7 +155,7 @@ handle_delpartition(Client &client, Request request, Response &response)
 CommandResult
 handle_moveoutput(Client &client, Request request, Response &response)
 {
-	const char *output_name = request[0];
+	const std::string_view output_name = request[0];
 
 	auto &dest_partition = client.GetPartition();
 	auto *existing_output = dest_partition.outputs.FindByName(output_name);

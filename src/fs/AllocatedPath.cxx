@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -46,6 +46,21 @@ AllocatedPath::FromUTF8Throw(std::string_view path_utf8)
 #else
 	return {::PathFromUTF8(path_utf8)};
 #endif
+}
+
+void
+AllocatedPath::SetSuffix(const_pointer new_suffix) noexcept
+{
+	assert(new_suffix != nullptr);
+	assert(*new_suffix == '.');
+
+	const auto end = value.end();
+	auto begin = end;
+
+	if (auto old = GetSuffix())
+		begin = std::next(value.begin(), old - value.data());
+
+	value.replace(begin, end, new_suffix);
 }
 
 void

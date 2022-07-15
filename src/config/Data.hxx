@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -121,6 +121,26 @@ struct ConfigData {
 
 	ConfigBlock &MakeBlock(ConfigBlockOption option,
 				     const char *key, const char *value);
+
+	/**
+	 * Invoke the given function for each instance of the
+	 * specified block.
+	 *
+	 * Exceptions thrown by the function will be nested in one
+	 * that specifies the location of the block.
+	 */
+	template<typename F>
+	void WithEach(ConfigBlockOption option, F &&f) const {
+		for (const auto &block : GetBlockList(option)) {
+			block.SetUsed();
+
+			try {
+				f(block);
+			} catch (...) {
+				block.ThrowWithNested();
+			}
+		}
+	}
 };
 
 #endif

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -28,6 +28,8 @@
 #include "util/StringCompare.hxx"
 #include "Log.hxx"
 
+#include <fmt/format.h>
+
 #include <exception>
 
 #include <stdlib.h>
@@ -38,7 +40,7 @@ static void
 queue_save_database_song(BufferedOutputStream &os,
 			 int idx, const DetachedSong &song)
 {
-	os.Format("%i:%s\n", idx, song.GetURI());
+	os.Fmt(FMT_STRING("{}:{}\n"), idx, song.GetURI());
 }
 
 static void
@@ -67,7 +69,7 @@ queue_save(BufferedOutputStream &os, const Queue &queue)
 	for (unsigned i = 0; i < queue.GetLength(); i++) {
 		uint8_t prio = queue.GetPriorityAtPosition(i);
 		if (prio != 0)
-			os.Format(PRIO_LABEL "%u\n", prio);
+			os.Fmt(FMT_STRING(PRIO_LABEL "{}\n"), prio);
 
 		queue_save_song(os, i, queue.Get(i));
 	}

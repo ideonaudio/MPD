@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -46,7 +46,6 @@
 #include "CrossFade.hxx"
 #include "pcm/MixRampGlue.hxx"
 #include "tag/Tag.hxx"
-#include "Idle.hxx"
 #include "util/Compiler.h"
 #include "util/Domain.hxx"
 #include "thread/Name.hxx"
@@ -575,8 +574,6 @@ Player::OpenOutput() noexcept
 
 		pc.SetOutputError(std::current_exception());
 
-		idle_add(IDLE_PLAYER);
-
 		return false;
 	}
 
@@ -584,8 +581,7 @@ Player::OpenOutput() noexcept
 	paused = false;
 
 	pc.state = PlayerState::PLAY;
-
-	idle_add(IDLE_PLAYER);
+	pc.listener.OnPlayerStateChanged();
 
 	return true;
 }
@@ -619,7 +615,7 @@ Player::CheckDecoderStartup(std::unique_lock<Mutex> &lock) noexcept
 			(buffer_before_play_size + sizeof(MusicChunk::data) - 1)
 			/ sizeof(MusicChunk::data);
 
-		idle_add(IDLE_PLAYER);
+		pc.listener.OnPlayerStateChanged();
 
 		if (pending_seek > SongTime::zero()) {
 			assert(pc.seeking);
@@ -709,7 +705,7 @@ Player::SeekDecoder(std::unique_lock<Mutex> &lock) noexcept
 		pc.outputs.Cancel();
 	}
 
-	idle_add(IDLE_PLAYER);
+	pc.listener.OnPlayerStateChanged();
 
 	if (!dc.IsSeekableCurrentSong(*pc.next_song)) {
 		/* the decoder is already decoding the "next" song -
@@ -931,10 +927,6 @@ PlayerControl::LockUpdateSongTag(DetachedSong &song,
 	/* the main thread will update the playlist version when he
 	   receives this event */
 	listener.OnPlayerTagModified();
-
-	/* notify all clients that the tag of the current song has
-	   changed */
-	idle_add(IDLE_PLAYER);
 }
 
 inline void
@@ -1069,8 +1061,6 @@ Player::PlayNextChunk() noexcept
 
 		pc.LockSetOutputError(std::current_exception());
 
-		idle_add(IDLE_PLAYER);
-
 		return false;
 	}
 
@@ -1116,7 +1106,7 @@ Player::SongBorder() noexcept
 		pc.outputs.Drain();
 
 		pc.outputs.Pause();
-		idle_add(IDLE_PLAYER);
+		pc.listener.OnPlayerStateChanged();
 	}
 }
 

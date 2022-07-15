@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -96,6 +96,7 @@ const ConfigTemplate config_block_templates[] = {
 	{ "filter", true },
 	{ "database" },
 	{ "neighbors", true },
+	{ "partition", true },
 };
 
 static constexpr unsigned n_config_block_templates =

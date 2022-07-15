@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -92,8 +92,7 @@ MultipleOutputs::Configure(EventLoop &event_loop, EventLoop &rt_event_loop,
 	const AudioOutputDefaults defaults(config);
 	FilterFactory filter_factory(config);
 
-	for (const auto &block : config.GetBlockList(ConfigBlockOption::AUDIO_OUTPUT)) {
-		block.SetUsed();
+	config.WithEach(ConfigBlockOption::AUDIO_OUTPUT, [&, this](const auto &block){
 		auto output = LoadOutputControl(event_loop, rt_event_loop,
 						replay_gain_config,
 						mixer_listener,
@@ -101,10 +100,11 @@ MultipleOutputs::Configure(EventLoop &event_loop, EventLoop &rt_event_loop,
 						&filter_factory);
 		if (HasName(output->GetName()))
 			throw FormatRuntimeError("output devices with identical "
-						 "names: %s", output->GetName());
+						 "names: %s",
+						 output->GetName().c_str());
 
 		outputs.emplace_back(std::move(output));
-	}
+	});
 
 	if (outputs.empty()) {
 		/* auto-detect device */
@@ -119,10 +119,10 @@ MultipleOutputs::Configure(EventLoop &event_loop, EventLoop &rt_event_loop,
 }
 
 AudioOutputControl *
-MultipleOutputs::FindByName(const char *name) noexcept
+MultipleOutputs::FindByName(const std::string_view name) noexcept
 {
 	for (const auto &i : outputs)
-		if (StringIsEqual(i->GetName(), name))
+		if (name == i->GetName())
 			return i.get();
 
 	return nullptr;

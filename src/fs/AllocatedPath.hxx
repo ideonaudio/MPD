@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -83,6 +83,18 @@ public:
 	[[gnu::pure]]
 	operator Path() const noexcept {
 		return Path::FromFS(c_str());
+	}
+
+	/**
+	 * Concatenate two paths.
+	 */
+	[[gnu::pure]]
+	static AllocatedPath Concat(string_view a, string_view b) noexcept {
+		AllocatedPath result{nullptr};
+		result.value.reserve(a.size() + b.size());
+		result.value.assign(a);
+		result.value.append(b);
+		return result;
 	}
 
 	/**
@@ -268,11 +280,11 @@ public:
 	 */
 	[[gnu::pure]]
 	std::string ToUTF8() const noexcept {
-		return ((Path)*this).ToUTF8();
+		return Path{*this}.ToUTF8();
 	}
 
 	std::string ToUTF8Throw() const {
-		return ((Path)*this).ToUTF8Throw();
+		return Path{*this}.ToUTF8Throw();
 	}
 
 	/**
@@ -281,7 +293,7 @@ public:
 	 */
 	[[gnu::pure]]
 	AllocatedPath GetDirectoryName() const noexcept {
-		return ((Path)*this).GetDirectoryName();
+		return Path{*this}.GetDirectoryName();
 	}
 
 	/**
@@ -295,9 +307,43 @@ public:
 		return Traits::Relative(c_str(), other_fs.c_str());
 	}
 
+	/**
+	 * Returns the filename suffix (including the dot) or nullptr
+	 * if the path does not have one.
+	 */
 	[[gnu::pure]]
 	const_pointer GetSuffix() const noexcept {
-		return ((Path)*this).GetSuffix();
+		return Path{*this}.GetSuffix();
+	}
+
+	/**
+	 * Replace the suffix of this path (or append the suffix if
+	 * there is none currently).
+	 *
+	 * @param new_suffix the new filename suffix (must start with
+	 * a dot)
+	 */
+	void SetSuffix(const_pointer new_suffix) noexcept;
+
+	/**
+	 * Return a copy of this path but with the given suffix
+	 * (replacing the existing suffix if there is one).
+	 *
+	 * @param new_suffix the new filename suffix (must start with
+	 * a dot)
+	 */
+	[[gnu::pure]]
+	AllocatedPath WithSuffix(const_pointer new_suffix) const noexcept {
+		return Path{*this}.WithSuffix(new_suffix);
+	}
+
+	/**
+	 * Returns the filename extension (excluding the dot) or
+	 * nullptr if the path does not have one.
+	 */
+	[[gnu::pure]]
+	const_pointer GetExtension() const noexcept {
+		return Path{*this}.GetExtension();
 	}
 
 	/**

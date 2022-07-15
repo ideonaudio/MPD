@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -166,9 +166,37 @@ public:
 		return Traits::IsAbsolute(c_str());
 	}
 
+	/**
+	 * Returns the filename suffix (including the dot) or nullptr
+	 * if the path does not have one.
+	 */
 	[[gnu::pure]]
 	const_pointer GetSuffix() const noexcept;
+
+	/**
+	 * Return a copy of this path but with the given suffix
+	 * (replacing the existing suffix if there is one).
+	 *
+	 * @param new_suffix the new filename suffix (must start with
+	 * a dot)
+	 */
+	[[gnu::pure]]
+	AllocatedPath WithSuffix(const_pointer new_suffix) const noexcept;
+
+	/**
+	 * Returns the filename extension (excluding the dot) or
+	 * nullptr if the path does not have one.
+	 */
+	[[gnu::pure]]
+	const_pointer GetExtension() const noexcept;
 };
+
+/**
+ * Concatenate a string to a #Path object.
+ */
+[[gnu::pure]]
+AllocatedPath
+operator+(Path path, PathTraitsFS::string_view other) noexcept;
 
 /**
  * Concatenate two path components using the directory separator.

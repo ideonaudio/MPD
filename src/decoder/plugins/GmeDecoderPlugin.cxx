@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -113,7 +113,7 @@ static AllocatedPath
 ReplaceSuffix(Path src,
 	      const PathTraitsFS::const_pointer new_suffix) noexcept
 {
-	const auto *old_suffix = src.GetSuffix();
+	const auto *old_suffix = src.GetExtension();
 	if (old_suffix == nullptr)
 		return nullptr;
 
@@ -322,7 +322,7 @@ gme_container_scan(Path path_fs)
 	if (num_songs < 2)
 		return list;
 
-	const auto *subtune_suffix = path_fs.GetSuffix();
+	const auto *subtune_suffix = path_fs.GetExtension();
 
 	TagBuilder tag_builder;
 

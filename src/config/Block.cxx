@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -142,4 +142,11 @@ ConfigBlock::GetBlockValue(const char *name, bool default_value) const
 		return default_value;
 
 	return bp->GetBoolValue();
+}
+
+void
+ConfigBlock::ThrowWithNested() const
+{
+	std::throw_with_nested(FormatRuntimeError("Error in block on line %i",
+						  line));
 }

@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -773,7 +773,7 @@ OSXOutput::Open(AudioFormat &audio_format)
 std::size_t
 OSXOutput::Play(std::span<const std::byte> input)
 {
-	assert(size > 0);
+	assert(!input.empty());
 
 	pause = false;
 
@@ -781,7 +781,7 @@ OSXOutput::Play(std::span<const std::byte> input)
 	if (dop_enabled) {
 		input = pcm_export->Export(input);
 		if (input.empty())
-			return size;
+			return input.size();
 	}
 #endif
 

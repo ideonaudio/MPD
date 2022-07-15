@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -26,7 +26,6 @@
 #include "pcm/AudioFormat.hxx"
 #include "ReplayGainMode.hxx"
 #include "Chrono.hxx"
-#include "util/Compiler.h"
 
 #include <algorithm>
 #include <cassert>
@@ -82,21 +81,21 @@ public:
 	 * Returns the total number of audio output devices, including
 	 * those which are disabled right now.
 	 */
-	gcc_pure
-	unsigned Size() const noexcept {
+	[[gnu::pure]]
+	std::size_t Size() const noexcept {
 		return outputs.size();
 	}
 
 	/**
 	 * Returns the "i"th audio output device.
 	 */
-	const AudioOutputControl &Get(unsigned i) const noexcept {
+	const AudioOutputControl &Get(std::size_t i) const noexcept {
 		assert(i < Size());
 
 		return *outputs[i];
 	}
 
-	AudioOutputControl &Get(unsigned i) noexcept {
+	AudioOutputControl &Get(std::size_t i) noexcept {
 		assert(i < Size());
 
 		return *outputs[i];
@@ -105,7 +104,7 @@ public:
 	/**
 	 * Are all outputs dummy?
 	 */
-	gcc_pure
+	[[gnu::pure]]
 	bool IsDummy() const noexcept {
 		return std::all_of(outputs.begin(), outputs.end(), [](const auto &i) { return i->IsDummy(); });
 	}
@@ -114,14 +113,14 @@ public:
 	 * Returns the audio output device with the specified name.
 	 * Returns nullptr if the name does not exist.
 	 */
-	gcc_pure
-	AudioOutputControl *FindByName(const char *name) noexcept;
+	[[gnu::pure]]
+	AudioOutputControl *FindByName(std::string_view name) noexcept;
 
 	/**
 	 * Does an audio output device with this name exist?
 	 */
-	gcc_pure
-	bool HasName(const char *name) noexcept {
+	[[gnu::pure]]
+	bool HasName(std::string_view name) noexcept {
 		return FindByName(name) != nullptr;
 	}
 
@@ -135,7 +134,7 @@ public:
 	 * Returns the average volume of all available mixers (range
 	 * 0..100).  Returns -1 if no mixer can be queried.
 	 */
-	gcc_pure
+	[[gnu::pure]]
 	int GetVolume() const noexcept;
 
 	/**
@@ -152,7 +151,7 @@ public:
 	 * software mixers.  See #software_mixer_plugin.  This
 	 * function fails if no software mixer is configured.
 	 */
-	gcc_pure
+	[[gnu::pure]]
 	int GetSoftwareVolume() const noexcept;
 
 	/**

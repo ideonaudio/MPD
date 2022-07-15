@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,6 +25,8 @@
 #include "util/StringStrip.hxx"
 #include "util/RuntimeError.hxx"
 
+#include <fmt/format.h>
+
 #include <cstring>
 
 #include <stdlib.h>
@@ -33,10 +35,10 @@ void
 playlist_vector_save(BufferedOutputStream &os, const PlaylistVector &pv)
 {
 	for (const PlaylistInfo &pi : pv) {
-		os.Format(PLAYLIST_META_BEGIN "%s\n", pi.name.c_str());
+		os.Fmt(FMT_STRING(PLAYLIST_META_BEGIN "{}\n"), pi.name);
 		if (!IsNegative(pi.mtime))
-			os.Format("mtime: %li\n",
-				  (long)std::chrono::system_clock::to_time_t(pi.mtime));
+			os.Fmt(FMT_STRING("mtime: {}\n"),
+			       std::chrono::system_clock::to_time_t(pi.mtime));
 		os.Write("playlist_end\n");
 	}
 }

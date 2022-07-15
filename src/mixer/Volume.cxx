@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -25,6 +25,8 @@
 #include "system/PeriodClock.hxx"
 #include "io/BufferedOutputStream.hxx"
 #include "Log.hxx"
+
+#include <fmt/format.h>
 
 #include <cassert>
 
@@ -114,7 +116,7 @@ read_sw_volume_state(const char *line, MultipleOutputs &outputs)
 void
 save_sw_volume_state(BufferedOutputStream &os)
 {
-	os.Format(SW_VOLUME_STATE "%u\n", volume_software_set);
+	os.Fmt(FMT_STRING(SW_VOLUME_STATE "{}\n"), volume_software_set);
 }
 
 unsigned

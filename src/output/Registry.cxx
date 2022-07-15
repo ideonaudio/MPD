@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -27,7 +27,6 @@
 #include "plugins/SndioOutputPlugin.hxx"
 #include "plugins/snapcast/SnapcastOutputPlugin.hxx"
 #include "plugins/httpd/HttpdOutputPlugin.hxx"
-#include "plugins/HaikuOutputPlugin.hxx"
 #include "plugins/JackOutputPlugin.hxx"
 #include "plugins/NullOutputPlugin.hxx"
 #include "plugins/OpenALOutputPlugin.hxx"
@@ -61,9 +60,6 @@ constexpr const AudioOutputPlugin *audio_output_plugins[] = {
 #endif
 #ifdef ENABLE_SNDIO
 	&sndio_output_plugin,
-#endif
-#ifdef ENABLE_HAIKU
-	&haiku_output_plugin,
 #endif
 #ifdef ENABLE_PIPE_OUTPUT
 	&pipe_output_plugin,

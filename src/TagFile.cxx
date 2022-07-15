@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -77,7 +77,7 @@ ScanFileTagsNoGeneric(Path path_fs, TagHandler &handler)
 
 	/* check if there's a suffix and a plugin */
 
-	const auto *suffix = path_fs.GetSuffix();
+	const auto *suffix = path_fs.GetExtension();
 	if (suffix == nullptr)
 		return false;
 

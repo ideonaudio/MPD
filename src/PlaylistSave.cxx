@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -32,6 +32,8 @@
 #include "io/BufferedOutputStream.hxx"
 #include "util/UriExtract.hxx"
 
+#include <fmt/format.h>
+
 static void
 playlist_print_path(BufferedOutputStream &os, const Path path)
 {
@@ -40,11 +42,11 @@ playlist_print_path(BufferedOutputStream &os, const Path path)
 	   "narrow" charset (i.e. CP_ACP) is incapable of storing all
 	   Unicode paths */
 	try {
-		os.Format("%s\n", path.ToUTF8Throw().c_str());
+		os.Fmt(FMT_STRING("{}\n"), path.ToUTF8Throw());
 	} catch (...) {
 	}
 #else
-	os.Format("%s\n", path.c_str());
+	os.Fmt(FMT_STRING("{}\n"), path.c_str());
 #endif
 }
 

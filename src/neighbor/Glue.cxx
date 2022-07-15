@@ -1,5 +1,5 @@
 /*
- * Copyright 2003-2021 The Music Player Daemon Project
+ * Copyright 2003-2022 The Music Player Daemon Project
  * http://www.musicpd.org
  *
  * This program is free software; you can redistribute it and/or modify
@@ -48,24 +48,16 @@ void
 NeighborGlue::Init(const ConfigData &config,
 		   EventLoop &loop, NeighborListener &listener)
 {
-	for (const auto &block : config.GetBlockList(ConfigBlockOption::NEIGHBORS)) {
-		block.SetUsed();
+	config.WithEach(ConfigBlockOption::NEIGHBORS, [&, this](const auto &block){
+		const char *plugin_name = block.GetBlockValue("plugin");
+		if (plugin_name == nullptr)
+			throw std::runtime_error("Missing \"plugin\" configuration");
 
-		try {
-			const char *plugin_name = block.GetBlockValue("plugin");
-			if (plugin_name == nullptr)
-				throw std::runtime_error("Missing \"plugin\" configuration");
-
-			explorers.emplace_front(plugin_name,
-						CreateNeighborExplorer(loop,
-								       listener,
-								       plugin_name,
-								       block));
-		} catch (...) {
-			std::throw_with_nested(FormatRuntimeError("Line %i: ",
-								  block.line));
-		}
-	}
+		explorers.emplace_front(plugin_name,
+					CreateNeighborExplorer(loop, listener,
+							       plugin_name,
+							       block));
+	});
 }
 
 void
