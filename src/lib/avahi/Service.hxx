@@ -17,9 +17,11 @@ namespace Avahi {
  * A service that will be published by class #Publisher.
  */
 struct Service : IntrusiveListHook<> {
+	std::string type;
+
 	AvahiIfIndex interface = AVAHI_IF_UNSPEC;
 	AvahiProtocol protocol = AVAHI_PROTO_UNSPEC;
-	std::string type;
+
 	uint16_t port;
 
 	/**
@@ -31,8 +33,9 @@ struct Service : IntrusiveListHook<> {
 
 	Service(AvahiIfIndex _interface, AvahiProtocol _protocol,
 		const char *_type, uint16_t _port) noexcept
-		:interface(_interface), protocol(_protocol),
-		 type(_type), port(_port) {}
+		:type(_type),
+		 interface(_interface), protocol(_protocol),
+		 port(_port) {}
 };
 
 } // namespace Avahi
