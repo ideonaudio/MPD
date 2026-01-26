@@ -30,7 +30,7 @@ master_doc = 'index'
 
 # General information about the project.
 project = 'Music Player Daemon'
-copyright = '2003-2021 The Music Player Daemon Project'
+copyright = '2003-2025 The Music Player Daemon Project'
 author = 'Max Kellermann'
 
 # The version info for the project you're documenting, acts as replacement for
@@ -38,7 +38,10 @@ author = 'Max Kellermann'
 # built documents.
 #
 # The short X.Y version.
-version = '0.24'
+with open('../meson.build') as f:
+    import re
+    version = re.match(r"project\([^\)]*\bversion:\s*'([^']+)'",
+                       f.read(4096)).group(1)
 # The full version, including alpha/beta/rc tags.
 release = version + '~git'
 
@@ -47,7 +50,7 @@ release = version + '~git'
 #
 # This is also used if you do content translation via gettext catalogs.
 # Usually you set "language" from the command line for these cases.
-language = None
+language = "en"
 
 # There are two options for replacing |today|: either, you set today to some
 # non-false value, then it is used:
@@ -100,14 +103,27 @@ todo_include_todos = False
 # The theme to use for HTML and HTML Help pages.  See the documentation for
 # a list of builtin themes.
 #
-html_theme = 'classic'
+html_theme = 'sphinx_rtd_theme'
+
+try:
+    __import__(html_theme)
+except ModuleNotFoundError:
+    import sys
+    print(f"Warning: Sphinx theme {html_theme!r} not available, falling back to the default theme", file=sys.stderr)
+    del html_theme
 
 # Theme options are theme-specific and customize the look and feel of a theme
 # further.  For a list of options available for each theme, see the
 # documentation.
 #
 # html_theme_options = {}
-html_theme_options = {"sidebarwidth": "300px"}
+html_theme_options = {
+    'navigation_depth': -1,
+    'sticky_navigation': False,
+    'includehidden': True,
+    'prev_next_buttons_location': 'both',
+    'github_url': "https://github.com/MusicPlayerDaemon/"
+}
 
 # Add any paths that contain custom themes here, relative to this directory.
 # html_theme_path = []
@@ -136,6 +152,10 @@ html_theme_options = {"sidebarwidth": "300px"}
 # relative to this directory. They are copied after the builtin static files,
 # so a file named "default.css" will overwrite the builtin "default.css".
 html_static_path = ['_static']
+
+html_css_files = [
+        'css/custom.css',
+]
 
 # Add any extra paths that contain custom files (such as robots.txt or
 # .htaccess) here, relative to this directory. These files are copied

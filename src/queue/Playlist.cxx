@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Playlist.hxx"
 #include "Listener.hxx"
@@ -23,6 +7,7 @@
 #include "player/Control.hxx"
 #include "song/DetachedSong.hxx"
 #include "SingleMode.hxx"
+#include "ConsumeMode.hxx"
 #include "Log.hxx"
 
 #include <cassert>
@@ -71,7 +56,7 @@ playlist::QueueSongOrder(PlayerControl &pc, unsigned order) noexcept
 
 	const DetachedSong &song = queue.GetOrder(order);
 
-	FmtDebug(playlist_domain, "queue song {}:\"{}\"",
+	FmtDebug(playlist_domain, "queue song {}:{:?}",
 		 queued, song.GetURI());
 
 	pc.LockEnqueueSong(std::make_unique<DetachedSong>(song));
@@ -101,8 +86,13 @@ playlist::QueuedSongStarted(PlayerControl &pc) noexcept
 	current = queued;
 	queued = -1;
 
-	if (queue.consume)
+	if (queue.consume != ConsumeMode::OFF)
 		DeleteOrder(pc, old_current);
+
+	if (queue.consume == ConsumeMode::ONE_SHOT) {
+		queue.consume = ConsumeMode::OFF;
+		listener.OnQueueOptionsChanged();
+	}
 
 	listener.OnQueueSongStarted();
 
@@ -168,23 +158,6 @@ playlist::UpdateQueuedSong(PlayerControl &pc,
 		else
 			queued = next_order;
 	}
-}
-
-void
-playlist::PlayOrder(PlayerControl &pc, unsigned order)
-{
-	playing = true;
-	queued = -1;
-
-	const DetachedSong &song = queue.GetOrder(order);
-
-	FmtDebug(playlist_domain, "play {}:\"{}\"", order, song.GetURI());
-
-	current = order;
-
-	pc.Play(std::make_unique<DetachedSong>(song));
-
-	SongStarted();
 }
 
 void
@@ -289,12 +262,13 @@ playlist::SetSingle(PlayerControl &pc, SingleMode status) noexcept
 }
 
 void
-playlist::SetConsume(bool status) noexcept
+playlist::SetConsume(ConsumeMode status) noexcept
 {
 	if (status == queue.consume)
 		return;
 
 	queue.consume = status;
+
 	listener.OnQueueOptionsChanged();
 }
 

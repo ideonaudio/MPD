@@ -36,7 +36,7 @@ if get_option('httpd')
     'httpd/HttpdClient.cxx',
     'httpd/HttpdOutputPlugin.cxx',
   ]
-  output_plugins_deps += [ event_dep, net_dep, boost_dep ]
+  output_plugins_deps += [ event_dep, net_dep ]
   need_encoder = true
 endif
 
@@ -120,9 +120,9 @@ if get_option('snapcast')
     'snapcast/SnapcastOutputPlugin.cxx',
     'snapcast/Client.cxx',
   ]
-  output_plugins_deps += [ event_dep, net_dep, yajl_dep, zeroconf_dep ]
+  output_plugins_deps += [ event_dep, net_dep, nlohmann_json_dep, zeroconf_dep ]
 
-  output_features.set('HAVE_YAJL', yajl_dep.found())
+  output_features.set('HAVE_NLOHMANN_JSON', nlohmann_json_dep.found())
 
   need_wave_encoder = true
 endif
@@ -177,7 +177,6 @@ output_plugins = static_library(
     sles_dep,
     winmm_dep,
     wasapi_dep,
-    boost_dep,
     output_plugins_deps,
   ],
 )

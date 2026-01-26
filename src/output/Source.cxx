@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Source.hxx"
 #include "MusicChunk.hxx"
@@ -23,8 +7,9 @@
 #include "filter/Prepared.hxx"
 #include "filter/plugins/ReplayGainFilterPlugin.hxx"
 #include "pcm/Mix.hxx"
+#include "lib/fmt/AudioFormatFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "thread/Mutex.hxx"
-#include "util/RuntimeError.hxx"
 
 #include <string.h>
 
@@ -46,7 +31,7 @@ AudioOutputSource::Open(const AudioFormat audio_format, const MusicPipe &_pipe,
 
 	/* (re)open the filter */
 
-	if (filter && audio_format != in_audio_format)
+	if (filter && (filter_flushed || audio_format != in_audio_format))
 		/* the filter must be reopened on all input format
 		   changes */
 		CloseFilter();
@@ -68,9 +53,9 @@ AudioOutputSource::Close() noexcept
 	assert(in_audio_format.IsValid());
 	in_audio_format.Clear();
 
-	Cancel();
-
 	CloseFilter();
+
+	Cancel();
 }
 
 void
@@ -85,11 +70,11 @@ AudioOutputSource::Cancel() noexcept
 	if (other_replay_gain_filter)
 		other_replay_gain_filter->Reset();
 
-	if (filter)
+	if (filter && !filter_flushed)
 		filter->Reset();
 }
 
-void
+inline void
 AudioOutputSource::OpenFilter(AudioFormat audio_format,
 			      PreparedFilter *prepared_replay_gain_filter,
 			      PreparedFilter *prepared_other_replay_gain_filter,
@@ -116,6 +101,7 @@ try {
 	}
 
 	filter = prepared_filter.Open(audio_format);
+	filter_flushed = false;
 } catch (...) {
 	CloseFilter();
 	throw;
@@ -137,7 +123,7 @@ AudioOutputSource::GetChunkData(const MusicChunk &chunk,
 	assert(!chunk.IsEmpty());
 	assert(chunk.CheckFormat(in_audio_format));
 
-	std::span<const std::byte> data(chunk.data, chunk.length);
+	auto data = chunk.ReadData();
 
 	assert(data.size() % in_audio_format.GetFrameSize() == 0);
 
@@ -153,15 +139,20 @@ AudioOutputSource::GetChunkData(const MusicChunk &chunk,
 			*replay_gain_serial_p = chunk.replay_gain_serial;
 		}
 
+		/* note: the ReplayGainFilter doesn't have a
+		   ReadMore() method */
 		data = current_replay_gain_filter->FilterPCM(data);
 	}
 
 	return data;
 }
 
-std::span<const std::byte>
+inline std::span<const std::byte>
 AudioOutputSource::FilterChunk(const MusicChunk &chunk)
 {
+	assert(filter);
+	assert(!filter_flushed);
+
 	auto data = GetChunkData(chunk, replay_gain_filter.get(),
 				 &replay_gain_serial);
 	if (data.empty())
@@ -198,8 +189,8 @@ AudioOutputSource::FilterChunk(const MusicChunk &chunk)
 		if (!pcm_mix(cross_fade_dither, dest, data.data(), data.size(),
 			     in_audio_format.format,
 			     mix_ratio))
-			throw FormatRuntimeError("Cannot cross-fade format %s",
-						 sample_format_to_string(in_audio_format.format));
+			throw FmtRuntimeError("Cannot cross-fade format {}",
+					      in_audio_format.format);
 
 		data = {(const std::byte *)dest, other_data.size()};
 	}
@@ -212,6 +203,9 @@ AudioOutputSource::FilterChunk(const MusicChunk &chunk)
 bool
 AudioOutputSource::Fill(Mutex &mutex)
 {
+	assert(filter);
+	assert(!filter_flushed);
+
 	if (current_chunk != nullptr && pending_tag == nullptr &&
 	    pending_data.empty())
 		DropCurrentChunk();
@@ -242,16 +236,26 @@ AudioOutputSource::Fill(Mutex &mutex)
 void
 AudioOutputSource::ConsumeData(size_t nbytes) noexcept
 {
+	assert(filter);
+	assert(!filter_flushed);
+
 	pending_data = pending_data.subspan(nbytes);
 
-	if (pending_data.empty())
-		DropCurrentChunk();
+	if (pending_data.empty()) {
+		/* give the filter a chance to return more data in
+		   another buffer */
+		pending_data = filter->ReadMore();
+
+		if (pending_data.empty())
+			DropCurrentChunk();
+	}
 }
 
 std::span<const std::byte>
 AudioOutputSource::Flush()
 {
-	return filter
-		? filter->Flush()
-		: std::span<const std::byte>{};
+	assert(filter);
+
+	filter_flushed = true;
+	return filter->Flush();
 }

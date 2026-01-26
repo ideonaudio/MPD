@@ -1,23 +1,7 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
+#include "config.h" // for HAVE_PCRE
 #include "OtherCommands.hxx"
 #include "Request.hxx"
 #include "FileCommands.hxx"
@@ -33,7 +17,6 @@
 #include "TimePrint.hxx"
 #include "decoder/DecoderPrint.hxx"
 #include "ls.hxx"
-#include "mixer/Volume.hxx"
 #include "time/ChronoUtil.hxx"
 #include "util/UriUtil.hxx"
 #include "util/StringAPI.hxx"
@@ -45,9 +28,11 @@
 #include "client/Response.hxx"
 #include "Partition.hxx"
 #include "Instance.hxx"
-#include "IdleFlags.hxx"
+#include "protocol/IdleFlags.hxx"
 #include "Log.hxx"
+#include "Mapper.hxx"
 
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #ifdef ENABLE_DATABASE
 #include "DatabaseCommands.hxx"
 #include "db/Interface.hxx"
@@ -57,12 +42,13 @@
 #include <fmt/format.h>
 
 #include <cassert>
+#include <utility> // for std::unreachable()
 
 static void
 print_spl_list(Response &r, const PlaylistVector &list)
 {
 	for (const auto &i : list) {
-		r.Fmt(FMT_STRING("playlist: {}\n"), i.name);
+		r.Fmt("playlist: {}\n", i.name);
 
 		if (!IsNegative(i.mtime))
 			time_print(r, "Last-Modified", i.mtime);
@@ -137,7 +123,7 @@ handle_listfiles(Client &client, Request args, Response &r)
 		return handle_listfiles_local(r, located_uri.path);
 	}
 
-	gcc_unreachable();
+	std::unreachable();
 }
 
 class PrintTagHandler final : public NullTagHandler {
@@ -169,14 +155,14 @@ static CommandResult
 handle_lsinfo_relative(Client &client, Response &r, const char *uri)
 {
 #ifdef ENABLE_DATABASE
-	CommandResult result = handle_lsinfo2(client, uri, r);
-	if (result != CommandResult::OK)
+	if (CommandResult result = handle_lsinfo2(client, uri, r);
+	    result != CommandResult::OK)
 		return result;
 #else
 	(void)client;
 #endif
 
-	if (isRootDirectory(uri)) {
+	if (!client.ProtocolFeatureEnabled(PF_HIDE_PLAYLISTS_IN_ROOT) && isRootDirectory(uri)) {
 		try {
 			print_spl_list(r, ListPlaylistFiles());
 		} catch (...) {
@@ -239,7 +225,7 @@ handle_lsinfo(Client &client, Request args, Response &r)
 					  located_uri.path);
 	}
 
-	gcc_unreachable();
+	std::unreachable();
 }
 
 #ifdef ENABLE_DATABASE
@@ -249,7 +235,7 @@ handle_update(Response &r, UpdateService &update,
 	      const char *uri_utf8, bool discard)
 {
 	unsigned ret = update.Enqueue(uri_utf8, discard);
-	r.Fmt(FMT_STRING("updating_db: {}\n"), ret);
+	r.Fmt("updating_db: {}\n", ret);
 	return CommandResult::OK;
 }
 
@@ -259,7 +245,7 @@ handle_update(Response &r, Database &db,
 {
 	unsigned id = db.Update(uri_utf8, discard);
 	if (id > 0) {
-		r.Fmt(FMT_STRING("updating_db: {}\n"), id);
+		r.Fmt("updating_db: {}\n", id);
 		return CommandResult::OK;
 	} else {
 		/* Database::Update() has returned 0 without setting
@@ -290,12 +276,10 @@ handle_update(Client &client, Request args, Response &r, bool discard)
 		}
 	}
 
-	UpdateService *update = client.GetInstance().update;
-	if (update != nullptr)
+	if (auto *update = client.GetInstance().update)
 		return handle_update(r, *update, path, discard);
 
-	Database *db = client.GetInstance().GetDatabase();
-	if (db != nullptr)
+	if (auto *db = client.GetInstance().GetDatabase())
 		return handle_update(r, *db, path, discard);
 #else
 	(void)client;
@@ -324,9 +308,9 @@ handle_getvol(Client &client, Request, Response &r)
 {
 	auto &partition = client.GetPartition();
 
-	const auto volume = volume_level_get(partition.outputs);
+	const auto volume = partition.mixer_memento.GetVolume(partition.outputs);
 	if (volume >= 0)
-		r.Fmt(FMT_STRING("volume: {}\n"), volume);
+		r.Fmt("volume: {}\n", volume);
 
 	return CommandResult::OK;
 }
@@ -336,7 +320,9 @@ handle_setvol(Client &client, Request args, Response &)
 {
 	unsigned level = args.ParseUnsigned(0, 100);
 
-	volume_level_change(client.GetPartition().outputs, level);
+	auto &partition = client.GetPartition();
+	partition.mixer_memento.SetVolume(partition.outputs, level);
+	partition.EmitIdle(IDLE_MIXER);
 	return CommandResult::OK;
 }
 
@@ -345,9 +331,11 @@ handle_volume(Client &client, Request args, Response &r)
 {
 	int relative = args.ParseInt(0, -100, 100);
 
-	auto &outputs = client.GetPartition().outputs;
+	auto &partition = client.GetPartition();
+	auto &outputs = partition.outputs;
+	auto &mixer_memento = partition.mixer_memento;
 
-	const int old_volume = volume_level_get(outputs);
+	const int old_volume = mixer_memento.GetVolume(outputs);
 	if (old_volume < 0) {
 		r.Error(ACK_ERROR_SYSTEM, "No mixer");
 		return CommandResult::ERROR;
@@ -359,8 +347,10 @@ handle_volume(Client &client, Request args, Response &r)
 	else if (new_volume > 100)
 		new_volume = 100;
 
-	if (new_volume != old_volume)
-		volume_level_change(outputs, new_volume);
+	if (new_volume != old_volume) {
+		mixer_memento.SetVolume(outputs, new_volume);
+		partition.EmitIdle(IDLE_MIXER);
+	}
 
 	return CommandResult::OK;
 }
@@ -382,11 +372,17 @@ handle_config(Client &client, [[maybe_unused]] Request args, Response &r)
 	}
 
 #ifdef ENABLE_DATABASE
-	const Storage *storage = client.GetStorage();
-	if (storage != nullptr) {
+	if (const Storage *storage = client.GetStorage()) {
 		const auto path = storage->MapUTF8("");
-		r.Fmt(FMT_STRING("music_directory: {}\n"), path);
+		r.Fmt("music_directory: {}\n", path);
 	}
+#endif
+
+	if (const auto spl_path = map_spl_path(); !spl_path.IsNull())
+		r.Fmt("playlist_directory: {}\n", spl_path.ToUTF8());
+
+#ifdef HAVE_PCRE
+	r.Write("pcre: 1\n");
 #endif
 
 	return CommandResult::OK;
@@ -400,7 +396,7 @@ handle_idle(Client &client, Request args, Response &r)
 		unsigned event = idle_parse_name(i);
 		if (event == 0) {
 			r.FmtError(ACK_ERROR_ARG,
-				   FMT_STRING("Unrecognized idle event: {}"),
+				   "Unrecognized idle event: {}",
 				   i);
 			return CommandResult::ERROR;
 		}

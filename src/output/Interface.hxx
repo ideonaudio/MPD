@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_AUDIO_OUTPUT_INTERFACE_HXX
 #define MPD_AUDIO_OUTPUT_INTERFACE_HXX
@@ -65,7 +49,7 @@ public:
 	 *
 	 * This method must be thread-safe.
 	 */
-	virtual std::map<std::string, std::string> GetAttributes() const noexcept {
+	virtual std::map<std::string, std::string, std::less<>> GetAttributes() const noexcept {
 		return {};
 	}
 
@@ -151,6 +135,10 @@ public:
 	 * until this function returns 0.  This should be implemented
 	 * instead of doing a sleep inside the plugin, because this
 	 * allows MPD to listen to commands meanwhile.
+	 *
+	 * As a special case, this method is allowed to return
+         * std::chrono::steady_clock::duration::max() which lets MPD
+         * sleep forever until a command is received.
 	 *
 	 * @return the duration to wait
 	 */

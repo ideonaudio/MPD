@@ -1,32 +1,16 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "Permission.hxx"
 #include "config/Param.hxx"
 #include "config/Data.hxx"
 #include "config/Option.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "net/AddressInfo.hxx"
 #include "net/Resolver.hxx"
 #include "net/ToString.hxx"
 #include "util/IterableSplitString.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/StringSplit.hxx"
 
 #include <cassert>
@@ -49,7 +33,7 @@ static constexpr struct {
 	{ nullptr, 0 },
 };
 
-static std::map<std::string, unsigned> permission_passwords;
+static std::map<std::string, unsigned, std::less<>> permission_passwords;
 
 static unsigned permission_default;
 
@@ -58,7 +42,7 @@ static unsigned local_permissions;
 #endif
 
 #ifdef HAVE_TCP
-static std::map<std::string, unsigned> host_passwords;
+static std::map<std::string, unsigned, std::less<>> host_passwords;
 #endif
 
 static unsigned
@@ -68,8 +52,7 @@ ParsePermission(std::string_view s)
 		if (s == i->name)
 			return i->value;
 
-	throw FormatRuntimeError("unknown permission \"%.*s\"",
-				 int(s.size()), s.data());
+	throw FmtRuntimeError("unknown permission {:?}", s);
 }
 
 static unsigned
@@ -103,8 +86,8 @@ initPermissions(const ConfigData &config)
 			const auto [password, permissions] =
 				Split(value, PERMISSION_PASSWORD_CHAR);
 			if (permissions.data() == nullptr)
-				throw FormatRuntimeError("\"%c\" not found in password string",
-							 PERMISSION_PASSWORD_CHAR);
+				throw FmtRuntimeError("{:?} not found in password string",
+						      PERMISSION_PASSWORD_CHAR);
 
 			permission_passwords.emplace(password,
 						     parsePermissions(permissions));

@@ -1,29 +1,12 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Filter.hxx"
 #include "ChannelLayout.hxx"
 #include "SampleFormat.hxx"
 #include "pcm/AudioFormat.hxx"
-#include "util/RuntimeError.hxx"
-
-#include <cinttypes>
+#include "lib/fmt/RuntimeError.hxx"
+#include "lib/fmt/ToBuffer.hxx"
 
 #include <stdio.h>
 
@@ -34,7 +17,7 @@ RequireFilterByName(const char *name)
 {
 	const auto *filter = avfilter_get_by_name(name);
 	if (filter == nullptr)
-		throw FormatRuntimeError("No such FFmpeg filter: '%s'", name);
+		throw FmtRuntimeError("No such FFmpeg filter: {:?}", name);
 
 	return *filter;
 }
@@ -81,9 +64,8 @@ MakeAudioBufferSource(AudioFormat &audio_format,
 		}
 	}
 
-	char abuffer_args[256];
-	sprintf(abuffer_args,
-		"sample_rate=%u:sample_fmt=%s:channel_layout=0x%" PRIx64 ":time_base=1/%u",
+	const auto abuffer_args = FmtBuffer<256>(
+		"sample_rate={}:sample_fmt={}:channel_layout={:#x}:time_base=1/{}",
 		audio_format.sample_rate,
 		av_get_sample_fmt_name(src_format),
 		ToFfmpegChannelLayout(audio_format.channels),
@@ -119,9 +101,8 @@ MakeAformat(AudioFormat &audio_format,
 		}
 	}
 
-	char args[256];
-	sprintf(args,
-		"sample_rates=%u:sample_fmts=%s:channel_layouts=0x%" PRIx64,
+	const auto args = FmtBuffer<256>(
+		"sample_rates={}:sample_fmts={}:channel_layouts={:#x}",
 		audio_format.sample_rate,
 		av_get_sample_fmt_name(dest_format),
 		ToFfmpegChannelLayout(audio_format.channels));

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "OpusTags.hxx"
 #include "OpusReader.hxx"
@@ -33,7 +17,7 @@
 
 using std::string_view_literals::operator""sv;
 
-gcc_pure
+[[gnu::pure]]
 static TagType
 ParseOpusTagName(std::string_view name) noexcept
 {
@@ -62,19 +46,15 @@ ScanOneOpusTag(std::string_view name, std::string_view value,
 		/* R128_TRACK_GAIN is a Q7.8 fixed point number in
 		   dB */
 
-		const char *endptr;
-		const auto l = ParseInt64(value, &endptr, 10);
-		if (endptr > value.begin() && endptr == value.end())
-			rgi->track.gain = float(l) / 256.0f;
+		if (const auto i = ParseInteger<int_least32_t>(value))
+			rgi->track.gain = float(*i) / 256.0f;
 	} else if (rgi != nullptr &&
 		   StringIsEqualIgnoreCase(name, "R128_ALBUM_GAIN"sv)) {
 		/* R128_ALBUM_GAIN is a Q7.8 fixed point number in
 		   dB */
 
-		const char *endptr;
-		const auto l = ParseInt64(value, &endptr, 10);
-		if (endptr > value.begin() && endptr == value.end())
-			rgi->album.gain = float(l) / 256.0f;
+		if (const auto i = ParseInteger<int_least32_t>(value))
+			rgi->album.gain = float(*i) / 256.0f;
 	}
 
 	handler.OnPair(name, value);

@@ -1,4 +1,4 @@
-curl_dep = dependency('libcurl', version: '>= 7.33', required: get_option('curl'))
+curl_dep = dependency('libcurl', version: '>= 7.55', required: get_option('curl'))
 conf.set('ENABLE_CURL', curl_dep.found())
 if not curl_dep.found()
   subdir_done()
@@ -22,8 +22,10 @@ curl = static_library(
   'Adapter.cxx',
   'Escape.cxx',
   'Form.cxx',
+  'StringHandler.cxx',
   include_directories: inc,
   dependencies: [
+    event_dep,
     log_dep,
     curl_dep,
   ],

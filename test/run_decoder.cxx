@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "ConfigGlue.hxx"
 #include "event/Thread.hxx"
@@ -28,8 +12,8 @@
 #include "fs/Path.hxx"
 #include "fs/NarrowPath.hxx"
 #include "pcm/AudioFormat.hxx"
-#include "util/OptionDef.hxx"
-#include "util/OptionParser.hxx"
+#include "cmdline/OptionDef.hxx"
+#include "cmdline/OptionParser.hxx"
 #include "util/PrintException.hxx"
 #include "Log.hxx"
 #include "LogBackend.hxx"
@@ -88,7 +72,7 @@ ParseCommandLine(int argc, char **argv)
 
 	auto args = option_parser.GetRemaining();
 	if (args.size() != 2)
-		throw std::runtime_error("Usage: run_decoder [--verbose] [--config=FILE] DECODER URI");
+		throw std::runtime_error("Usage: run_decoder [--verbose] [--config=FILE] [--seek=POS] DECODER URI");
 
 	c.decoder = args[0];
 	c.uri = args[1];
@@ -116,7 +100,9 @@ class MyDecoderClient final : public DumpDecoderClient {
 
 	unsigned sample_rate;
 
-	bool seekable, seek_error = false;
+	bool seekable;
+
+	std::exception_ptr seek_error;
 
 public:
 	explicit MyDecoderClient(SongTime _seek_where) noexcept
@@ -127,7 +113,7 @@ public:
 			throw "Unrecognized file";
 
 		if (seek_error)
-			throw "Seek error";
+			std::rethrow_exception(seek_error);
 
 		if (seek_where != SongTime{}) {
 			if (!seekable)
@@ -180,10 +166,10 @@ public:
 		return GetSeekTime().ToScale<uint64_t>(sample_rate);
 	}
 
-	void SeekError() noexcept override {
+	void SeekError(std::exception_ptr &&_error) noexcept override {
 		assert(seek_where != SongTime{});
 
-		seek_error = true;
+		seek_error = std::move(_error);
 		seek_where = {};
 	}
 };

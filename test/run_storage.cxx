@@ -1,29 +1,37 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
+#include "cmdline/OptionDef.hxx"
+#include "cmdline/OptionParser.hxx"
 #include "event/Thread.hxx"
+#include "ConfigGlue.hxx"
+#include "tag/Tag.hxx"
 #include "storage/Registry.hxx"
 #include "storage/StorageInterface.hxx"
 #include "storage/FileInfo.hxx"
+#include "input/Init.hxx"
+#include "input/InputStream.hxx"
+#include "input/CondHandler.hxx"
+#include "fs/Path.hxx"
+#include "fs/NarrowPath.hxx"
+#include "event/Thread.hxx"
 #include "net/Init.hxx"
+#include "io/BufferedOutputStream.hxx"
+#include "io/FileDescriptor.hxx"
+#include "io/StdioOutputStream.hxx"
 #include "time/ChronoUtil.hxx"
+#include "time/ISO8601.hxx"
 #include "util/PrintException.hxx"
+#include "util/StringAPI.hxx"
+#include "util/StringBuffer.hxx"
+#include "Log.hxx"
+#include "LogBackend.hxx"
+#include "TagSave.hxx"
+
+#include "archive/Features.h" // for ENABLE_ARCHIVE
+#ifdef ENABLE_ARCHIVE
+#include "archive/ArchiveList.hxx"
+#endif
 
 #include <memory>
 #include <stdexcept>
@@ -32,7 +40,87 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <string.h>
-#include <time.h>
+
+static constexpr auto usage_text = R"(Usage: run_storage [OPTIONS] COMMAND URI ...
+
+Options:
+  --verbose
+
+Available commands:
+  ls URI PATH
+  stat URI PATH
+  cat URI PATH
+)";
+
+struct CommandLine {
+	FromNarrowPath config_path;
+
+	bool verbose = false;
+
+	const char *command;
+
+	std::span<const char *const> args;
+};
+
+enum class Option {
+	CONFIG,
+	VERBOSE,
+};
+
+static constexpr OptionDef option_defs[] = {
+	{"config", 0, true, "Load a MPD configuration file"},
+	{"verbose", 'v', false, "Verbose logging"},
+};
+
+static CommandLine
+ParseCommandLine(int argc, char **argv)
+{
+	CommandLine c;
+
+	OptionParser option_parser(option_defs, argc, argv);
+	while (auto o = option_parser.Next()) {
+		switch (static_cast<Option>(o.index)) {
+		case Option::CONFIG:
+			c.config_path = o.value;
+			break;
+
+		case Option::VERBOSE:
+			c.verbose = true;
+			break;
+		}
+	}
+
+	auto args = option_parser.GetRemaining();
+	if (args.empty())
+		throw std::runtime_error{usage_text};
+
+	c.command = args.front();
+	c.args = args.subspan(1);
+	return c;
+}
+
+class GlobalInit {
+	const ConfigData config;
+	const ScopeNetInit net_init;
+	EventThread io_thread;
+
+#ifdef ENABLE_ARCHIVE
+	const ScopeArchivePluginsInit archive_plugins_init{config};
+#endif
+
+	const ScopeInputPluginsInit input_plugins_init{config, io_thread.GetEventLoop()};
+
+public:
+	GlobalInit(Path config_path)
+		:config(AutoLoadConfigFile(config_path))
+	{
+		io_thread.Start();
+	}
+
+	EventLoop &GetEventLoop() noexcept {
+		return io_thread.GetEventLoop();
+	}
+};
 
 static std::unique_ptr<Storage>
 MakeStorage(EventLoop &event_loop, const char *uri)
@@ -68,17 +156,10 @@ Ls(Storage &storage, const char *path)
 			break;
 		}
 
-		char mtime_buffer[32];
+		StringBuffer<64> mtime_buffer;
 		const char *mtime = "          ";
 		if (!IsNegative(info.mtime)) {
-			time_t t = std::chrono::system_clock::to_time_t(info.mtime);
-			strftime(mtime_buffer, sizeof(mtime_buffer),
-#ifdef _WIN32
-				 "%Y-%m-%d",
-#else
-				 "%F",
-#endif
-				 gmtime(&t));
+			mtime_buffer = FormatISO8601(info.mtime);
 			mtime = mtime_buffer;
 		}
 
@@ -113,47 +194,121 @@ Stat(Storage &storage, const char *path)
 	return EXIT_SUCCESS;
 }
 
+static void
+tag_save(FILE *file, const Tag &tag)
+{
+	StdioOutputStream sos(file);
+	WithBufferedOutputStream(sos, [&](auto &bos){
+		tag_save(bos, tag);
+	});
+}
+
+static void
+WaitReady(InputStream &is, std::unique_lock<Mutex> &lock)
+{
+	CondInputStreamHandler handler;
+	is.SetHandler(&handler);
+
+	handler.cond.wait(lock, [&is]{
+		is.Update();
+		return is.IsReady();
+	});
+
+	is.Check();
+}
+
+static void
+Cat(InputStream &is, std::unique_lock<Mutex> &lock, FileDescriptor out)
+{
+	assert(is.IsReady());
+
+	out.SetBinaryMode();
+
+	if (is.HasMimeType())
+		fprintf(stderr, "MIME type: %s\n", is.GetMimeType());
+
+	/* read data and tags from the stream */
+
+	while (!is.IsEOF()) {
+		if (const auto tag = is.ReadTag()) {
+			fprintf(stderr, "Received a tag:\n");
+			tag_save(stderr, *tag);
+		}
+
+		std::byte buffer[16384];
+		const auto nbytes = is.Read(lock, buffer);
+		if (nbytes == 0)
+			break;
+
+		out.FullWrite({buffer, nbytes});
+	}
+
+	is.Check();
+}
+
+static int
+Cat(Storage &storage, const char *path)
+{
+	Mutex mutex;
+	auto is = storage.OpenFile(path, mutex);
+	assert(is);
+
+	std::unique_lock lock{mutex};
+	WaitReady(*is, lock);
+	Cat(*is, lock, FileDescriptor{STDOUT_FILENO});
+
+	return EXIT_SUCCESS;
+}
+
 int
 main(int argc, char **argv)
 try {
-	if (argc < 3) {
-		fprintf(stderr, "Usage: run_storage COMMAND URI ...\n");
-		return EXIT_FAILURE;
-	}
+	const auto c = ParseCommandLine(argc, argv);
 
-	const char *const command = argv[1];
-	const char *const storage_uri = argv[2];
+	SetLogThreshold(c.verbose ? LogLevel::DEBUG : LogLevel::INFO);
+	GlobalInit init{c.config_path};
 
-	const ScopeNetInit net_init;
-	EventThread io_thread;
-	io_thread.Start();
-
-	if (strcmp(command, "ls") == 0) {
-		if (argc != 4) {
-			fprintf(stderr, "Usage: run_storage ls URI PATH\n");
+	if (StringIsEqual(c.command, "ls")) {
+		if (c.args.size() != 2) {
+			fputs(usage_text, stderr);
 			return EXIT_FAILURE;
 		}
 
-		const char *const path = argv[3];
+		const char *const storage_uri = c.args[0];
+		const char *const path = c.args[1];
 
-		auto storage = MakeStorage(io_thread.GetEventLoop(),
+		auto storage = MakeStorage(init.GetEventLoop(),
 					   storage_uri);
 
 		return Ls(*storage, path);
-	} else if (strcmp(command, "stat") == 0) {
-		if (argc != 4) {
-			fprintf(stderr, "Usage: run_storage stat URI PATH\n");
+	} else if (StringIsEqual(c.command, "stat")) {
+		if (c.args.size() != 2) {
+			fputs(usage_text, stderr);
 			return EXIT_FAILURE;
 		}
 
-		const char *const path = argv[3];
+		const char *const storage_uri = c.args[0];
+		const char *const path = c.args[1];
 
-		auto storage = MakeStorage(io_thread.GetEventLoop(),
+		auto storage = MakeStorage(init.GetEventLoop(),
 					   storage_uri);
 
 		return Stat(*storage, path);
+	} else if (StringIsEqual(c.command, "cat")) {
+		if (c.args.size() != 2) {
+			fputs(usage_text, stderr);
+			return EXIT_FAILURE;
+		}
+
+		const char *const storage_uri = c.args[0];
+		const char *const path = c.args[1];
+
+		auto storage = MakeStorage(init.GetEventLoop(),
+					   storage_uri);
+
+		return Cat(*storage, path);
 	} else {
-		fprintf(stderr, "Unknown command\n");
+		fprintf(stderr, "Unknown command\n\n%s", usage_text);
 		return EXIT_FAILURE;
 	}
 

@@ -1,27 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_UPNP_OBJECT_HXX
-#define MPD_UPNP_OBJECT_HXX
+#pragma once
 
 #include "tag/Tag.hxx"
 
+#include <cstdint>
 #include <string>
 
 /**
@@ -31,7 +15,7 @@
  */
 class UPnPDirObject {
 public:
-	enum class Type {
+	enum class Type : uint_least8_t {
 		UNKNOWN,
 		ITEM,
 		CONTAINER,
@@ -44,7 +28,7 @@ public:
 	// items are special to us, and so should playlists, but I've not
 	// seen one of the latter yet (servers seem to use containers for
 	// playlists).
-	enum class ItemClass {
+	enum class ItemClass : uint_least8_t {
 		UNKNOWN,
 		MUSIC,
 		PLAYLIST,
@@ -104,5 +88,3 @@ public:
 			 item_class != UPnPDirObject::ItemClass::UNKNOWN);
 	}
 };
-
-#endif /* _UPNPDIRCONTENT_H_X_INCLUDED_ */

@@ -1,15 +1,16 @@
 generate_parse_name = executable(
   'GenParseName',
   'GenParseName.cxx',
-  'Names.c',
+  'Names.cxx',
   native: true,
 )
 
 parse_name_cxx = custom_target(
   'RunGenParseName',
   output: ['ParseName2.cxx'],
+  capture: true,
   command : [
-    generate_parse_name, '@OUTPUT@',
+    generate_parse_name,
   ],
 )
 
@@ -22,7 +23,7 @@ tag_sources = [
   'Config.cxx',
   'ParseName.cxx',
   parse_name_cxx,
-  'Names.c',
+  'Names.cxx',
   'FixString.cxx',
   'Pool.cxx',
   'Table.cxx',
@@ -58,6 +59,7 @@ tag = static_library(
   tag_sources,
   include_directories: inc,
   dependencies: [
+    fmt_dep,
     libid3tag_dep,
   ],
 )

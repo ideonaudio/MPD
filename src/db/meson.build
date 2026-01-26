@@ -1,3 +1,7 @@
+db_features = configuration_data()
+db_features.set('ENABLE_DATABASE', enable_database)
+configure_file(output: 'Features.hxx', configuration: db_features)
+
 db_api = static_library(
   'db_api',
   'DatabaseLock.cxx',
@@ -53,9 +57,9 @@ db_glue = static_library(
   db_glue_sources,
   include_directories: inc,
   dependencies: [
-    boost_dep,
     fmt_dep,
     log_dep,
+    fs_glue_dep,
   ],
 )
 

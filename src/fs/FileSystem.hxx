@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_FS_FILESYSTEM_HXX
 #define MPD_FS_FILESYSTEM_HXX
@@ -39,7 +23,7 @@ static inline UniqueFileDescriptor
 OpenFile(Path file, int flags, int mode)
 {
 	UniqueFileDescriptor fd;
-	fd.Open(file.c_str(), flags, mode);
+	(void)fd.Open(file.c_str(), flags, mode);
 	return fd;
 }
 
@@ -67,6 +51,16 @@ StatFile(Path file, struct stat &buf, bool follow_symlinks = true)
 
 #endif
 
+static inline bool
+CreateDirectoryNoThrow(Path path) noexcept
+{
+#ifdef _WIN32
+	return CreateDirectory(path.c_str(), nullptr);
+#else
+	return mkdir(path.c_str(), 0777);
+#endif
+}
+
 /**
  * Truncate a file that exists already.  Throws std::system_error on
  * error.
@@ -85,12 +79,12 @@ RemoveFile(Path path);
  * Wrapper for readlink() that uses #Path names.
  */
 AllocatedPath
-ReadLink(Path path);
+ReadLink(Path path) noexcept;
 
 #ifndef _WIN32
 
 static inline bool
-MakeFifo(Path path, mode_t mode)
+MakeFifo(Path path, mode_t mode) noexcept
 {
 	return mkfifo(path.c_str(), mode) == 0;
 }
@@ -98,8 +92,9 @@ MakeFifo(Path path, mode_t mode)
 /**
  * Wrapper for access() that uses #Path names.
  */
+[[gnu::pure]]
 static inline bool
-CheckAccess(Path path, int mode)
+CheckAccess(Path path, int mode) noexcept
 {
 	return access(path.c_str(), mode) == 0;
 }
@@ -109,8 +104,9 @@ CheckAccess(Path path, int mode)
 /**
  * Checks if #Path exists and is a regular file.
  */
+[[gnu::pure]]
 static inline bool
-FileExists(Path path, bool follow_symlinks = true)
+FileExists(Path path, bool follow_symlinks = true) noexcept
 {
 #ifdef _WIN32
 	(void)follow_symlinks;
@@ -127,8 +123,9 @@ FileExists(Path path, bool follow_symlinks = true)
 /**
  * Checks if #Path exists and is a directory.
  */
+[[gnu::pure]]
 static inline bool
-DirectoryExists(Path path, bool follow_symlinks = true)
+DirectoryExists(Path path, bool follow_symlinks = true) noexcept
 {
 #ifdef _WIN32
 	(void)follow_symlinks;
@@ -144,8 +141,9 @@ DirectoryExists(Path path, bool follow_symlinks = true)
 /**
  * Checks if #Path exists.
  */
+[[gnu::pure]]
 static inline bool
-PathExists(Path path)
+PathExists(Path path) noexcept
 {
 #ifdef _WIN32
 	return GetFileAttributes(path.c_str()) != INVALID_FILE_ATTRIBUTES;

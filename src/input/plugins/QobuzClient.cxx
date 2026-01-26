@@ -1,27 +1,15 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "QobuzClient.hxx"
 #include "lib/crypto/MD5.hxx"
 
+#include <fmt/core.h>
+
 #include <cassert>
 #include <stdexcept>
+
+using std::string_view_literals::operator""sv;
 
 namespace {
 
@@ -87,7 +75,7 @@ QobuzClient::StartLogin()
 void
 QobuzClient::AddLoginHandler(QobuzSessionHandler &h) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	assert(!h.is_linked());
 
 	const bool was_empty = handlers.empty();
@@ -114,7 +102,7 @@ QobuzClient::AddLoginHandler(QobuzSessionHandler &h) noexcept
 QobuzSession
 QobuzClient::GetSession() const
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	if (error)
 		std::rethrow_exception(error);
@@ -129,7 +117,7 @@ void
 QobuzClient::OnQobuzLoginSuccess(QobuzSession &&_session) noexcept
 {
 	{
-		const std::scoped_lock<Mutex> protect(mutex);
+		const std::scoped_lock protect{mutex};
 		session = std::move(_session);
 		login_request.reset();
 	}
@@ -141,7 +129,7 @@ void
 QobuzClient::OnQobuzLoginError(std::exception_ptr _error) noexcept
 {
 	{
-		const std::scoped_lock<Mutex> protect(mutex);
+		const std::scoped_lock protect{mutex};
 		error = std::move(_error);
 		login_request.reset();
 	}
@@ -152,7 +140,7 @@ QobuzClient::OnQobuzLoginError(std::exception_ptr _error) noexcept
 void
 QobuzClient::InvokeHandlers() noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	while (!handlers.empty()) {
 		auto &h = handlers.front();
 		handlers.pop_front();
@@ -168,10 +156,7 @@ QobuzClient::MakeUrl(const char *object, const char *method,
 {
 	assert(!query.empty());
 
-	std::string uri(base_url);
-	uri += object;
-	uri.push_back('/');
-	uri += method;
+	auto uri = fmt::format("{}{}/{}"sv, base_url, object, method);
 
 	QueryStringBuilder q;
 	for (const auto &[key, url] : query)
@@ -187,10 +172,7 @@ QobuzClient::MakeSignedUrl(const char *object, const char *method,
 {
 	assert(!query.empty());
 
-	std::string uri(base_url);
-	uri += object;
-	uri.push_back('/');
-	uri += method;
+	auto uri = fmt::format("{}{}/{}"sv, base_url, object, method);
 
 	QueryStringBuilder q;
 	std::string concatenated_query(object);

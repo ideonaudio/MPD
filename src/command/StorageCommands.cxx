@@ -1,23 +1,6 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
 #include "StorageCommands.hxx"
 #include "Request.hxx"
 #include "time/ChronoUtil.hxx"
@@ -29,16 +12,17 @@
 #include "storage/Registry.hxx"
 #include "storage/CompositeStorage.hxx"
 #include "storage/FileInfo.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "db/plugins/simple/SimpleDatabasePlugin.hxx"
 #include "db/update/Service.hxx"
 #include "TimePrint.hxx"
-#include "IdleFlags.hxx"
+#include "protocol/IdleFlags.hxx"
 
 #include <fmt/format.h>
 
 #include <memory>
 
-gcc_pure
+[[gnu::pure]]
 static bool
 skip_path(const char *name_utf8) noexcept
 {
@@ -66,14 +50,14 @@ handle_listfiles_storage(Response &r, StorageDirectoryReader &reader)
 			continue;
 
 		case StorageFileInfo::Type::REGULAR:
-			r.Fmt(FMT_STRING("file: {}\n"
-					 "size: {}\n"),
+			r.Fmt("file: {}\n"
+			      "size: {}\n",
 			      name_utf8,
 			      info.size);
 			break;
 
 		case StorageFileInfo::Type::DIRECTORY:
-			r.Fmt(FMT_STRING("directory: {}\n"), name_utf8);
+			r.Fmt("directory: {}\n", name_utf8);
 			break;
 		}
 
@@ -81,10 +65,6 @@ handle_listfiles_storage(Response &r, StorageDirectoryReader &reader)
 			time_print(r, "Last-Modified", info.mtime);
 	}
 }
-
-#if defined(_WIN32) && GCC_CHECK_VERSION(4,6)
-#pragma GCC diagnostic pop
-#endif
 
 CommandResult
 handle_listfiles_storage(Response &r, Storage &storage, const char *uri)
@@ -114,7 +94,7 @@ print_storage_uri(Client &client, Response &r, const Storage &storage)
 	if (uri.empty())
 		return;
 
-	if (PathTraitsUTF8::IsAbsolute(uri.c_str())) {
+	if (PathTraitsUTF8::IsAbsolute(uri)) {
 		/* storage points to local directory */
 
 		if (!client.IsLocal())
@@ -130,7 +110,7 @@ print_storage_uri(Client &client, Response &r, const Storage &storage)
 			uri = std::move(allocated);
 	}
 
-	r.Fmt(FMT_STRING("storage: {}\n"), uri);
+	r.Fmt("storage: {}\n", uri);
 }
 
 CommandResult
@@ -146,7 +126,7 @@ handle_listmounts(Client &client, [[maybe_unused]] Request args, Response &r)
 
 	const auto visitor = [&client, &r](const char *mount_uri,
 					   const Storage &storage){
-		r.Fmt(FMT_STRING("mount: {}\n"), mount_uri);
+		r.Fmt("mount: {}\n", mount_uri);
 		print_storage_uri(client, r, storage);
 	};
 
@@ -274,4 +254,16 @@ handle_unmount(Client &client, Request args, Response &r)
 	instance.EmitIdle(IDLE_MOUNT);
 
 	return CommandResult::OK;
+}
+
+bool
+mount_commands_available(Instance &instance) noexcept
+{
+#ifdef ENABLE_DATABASE
+	if (auto *db = dynamic_cast<SimpleDatabase *>(instance.GetDatabase())) {
+		return db->HasCache();
+	}
+#endif
+
+	return false;
 }

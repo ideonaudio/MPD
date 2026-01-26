@@ -3,7 +3,7 @@ if not is_linux
   subdir_done()
 endif
 
-libasound_dep = dependency('alsa', version: '>= 0.9.0', required: get_option('alsa'))
+libasound_dep = dependency('alsa', version: '>= 1.2', required: get_option('alsa'))
 if not libasound_dep.found()
   alsa_dep = dependency('', required: false)
   subdir_done()
@@ -16,11 +16,13 @@ alsa = static_library(
   'Version.cxx',
   'Error.cxx',
   'AllowedFormat.cxx',
+  'ChannelMap.cxx',
   'HwSetup.cxx',
   'NonBlock.cxx',
   include_directories: inc,
   dependencies: [
     libasound_dep,
+    pcm_basic_dep,
     log_dep,
   ],
 )

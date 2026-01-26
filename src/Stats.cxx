@@ -1,34 +1,17 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
 #include "Stats.hxx"
 #include "player/Control.hxx"
 #include "client/Response.hxx"
 #include "Partition.hxx"
 #include "Instance.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "db/Selection.hxx"
 #include "db/Interface.hxx"
 #include "db/Stats.hxx"
 #include "Log.hxx"
 #include "time/ChronoUtil.hxx"
-#include "util/Math.hxx"
 
 #ifdef _WIN32
 #include "system/Clock.hxx"
@@ -99,10 +82,10 @@ db_stats_print(Response &r, const Database &db)
 	unsigned total_duration_s =
 		std::chrono::duration_cast<std::chrono::seconds>(stats.total_duration).count();
 
-	r.Fmt(FMT_STRING("artists: {}\n"
-			 "albums: {}\n"
-			 "songs: {}\n"
-			 "db_playtime: {}\n"),
+	r.Fmt("artists: {}\n"
+	      "albums: {}\n"
+	      "songs: {}\n"
+	      "db_playtime: {}\n",
 	      stats.artist_count,
 	      stats.album_count,
 	      stats.song_count,
@@ -110,7 +93,7 @@ db_stats_print(Response &r, const Database &db)
 
 	const auto update_stamp = db.GetUpdateStamp();
 	if (!IsNegative(update_stamp))
-		r.Fmt(FMT_STRING("db_update: {}\n"),
+		r.Fmt("db_update: {}\n",
 		      std::chrono::system_clock::to_time_t(update_stamp));
 }
 
@@ -125,10 +108,10 @@ stats_print(Response &r, const Partition &partition)
 	const auto uptime = std::chrono::steady_clock::now() - start_time;
 #endif
 
-	r.Fmt(FMT_STRING("uptime: {}\n"
-			 "playtime: {}\n"),
+	r.Fmt("uptime: {}\n"
+	      "playtime: {}\n",
 	      std::chrono::duration_cast<std::chrono::seconds>(uptime).count(),
-	      lround(partition.pc.GetTotalPlayTime().count()));
+	      std::lround(partition.pc.GetTotalPlayTime().count()));
 
 #ifdef ENABLE_DATABASE
 	const Database *db = partition.instance.GetDatabase();

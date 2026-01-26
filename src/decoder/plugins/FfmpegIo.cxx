@@ -1,29 +1,19 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /* necessary because libavutil/common.h uses UINT64_C */
 #define __STDC_CONSTANT_MACROS
 
 #include "FfmpegIo.hxx"
-#include "libavutil/mem.h"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
+
+extern "C" {
+#include <libavutil/mem.h>
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(58, 29, 100)
+#include <libavutil/error.h>
+#endif
+}
 
 AvioStream::~AvioStream()
 {
@@ -34,9 +24,9 @@ AvioStream::~AvioStream()
 }
 
 inline int
-AvioStream::Read(void *dest, int size)
+AvioStream::Read(std::span<std::byte> dest)
 {
-	const auto nbytes = decoder_read(client, input, dest, size);
+	const auto nbytes = decoder_read(client, input, dest);
 	if (nbytes == 0)
 		return AVERROR_EOF;
 
@@ -84,7 +74,7 @@ AvioStream::_Read(void *opaque, uint8_t *buf, int size)
 {
 	AvioStream &stream = *(AvioStream *)opaque;
 
-	return stream.Read(buf, size);
+	return stream.Read({reinterpret_cast<std::byte *>(buf), static_cast<std::size_t>(size)});
 }
 
 int64_t

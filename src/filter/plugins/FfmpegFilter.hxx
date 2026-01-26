@@ -1,29 +1,14 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_FFMPEG_FILTER__HXX
-#define MPD_FFMPEG_FILTER__HXX
+#pragma once
 
 #include "filter/Filter.hxx"
 #include "lib/ffmpeg/Buffer.hxx"
 #include "lib/ffmpeg/Filter.hxx"
 #include "lib/ffmpeg/Frame.hxx"
+
+#include <cstdint>
 
 /**
  * A #Filter implementation using FFmpeg's libavfilter.
@@ -35,10 +20,23 @@ class FfmpegFilter final : public Filter {
 
 	FfmpegBuffer interleave_buffer;
 
-	const int in_format, in_sample_rate, in_channels;
+	const int in_format, in_sample_rate;
+
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 25, 100)
+	AVChannelLayout in_ch_layout;
+#else
+	const int in_channels;
+#endif
 
 	const size_t in_audio_frame_size;
 	const size_t out_audio_frame_size;
+
+	/**
+	 * Presentation timestamp.  A counter for `AVFrame::pts`.
+	 */
+	int_least64_t pts = 0;
+
+	bool flushed = false;
 
 public:
 	/**
@@ -56,6 +54,9 @@ public:
 
 	/* virtual methods from class Filter */
 	std::span<const std::byte> FilterPCM(std::span<const std::byte> src) override;
-};
+	std::span<const std::byte> ReadMore() override;
+	std::span<const std::byte> Flush() override;
 
-#endif
+private:
+	std::span<const std::byte> ReadOutput();
+};

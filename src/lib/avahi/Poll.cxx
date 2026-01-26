@@ -1,21 +1,6 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #include "Poll.hxx"
 #include "event/SocketEvent.hxx"
@@ -49,8 +34,8 @@ private:
 
 public:
 	AvahiWatch(EventLoop &_loop,
-		   SocketDescriptor _fd, AvahiWatchEvent _event,
-		   AvahiWatchCallback _callback, void *_userdata) noexcept
+	      SocketDescriptor _fd, AvahiWatchEvent _event,
+	      AvahiWatchCallback _callback, void *_userdata) noexcept
 		:event(_loop, BIND_THIS_METHOD(OnSocketReady), _fd),
 		 callback(_callback), userdata(_userdata) {
 		event.Schedule(FromAvahiWatchEvent(_event));
@@ -154,7 +139,7 @@ Poll::Poll(EventLoop &_loop) noexcept
 
 AvahiWatch *
 Poll::WatchNew(const AvahiPoll *api, int fd, AvahiWatchEvent event,
-	       AvahiWatchCallback callback, void *userdata) noexcept
+		      AvahiWatchCallback callback, void *userdata) noexcept
 {
 	const Poll &poll = *(const Poll *)api;
 
@@ -164,7 +149,7 @@ Poll::WatchNew(const AvahiPoll *api, int fd, AvahiWatchEvent event,
 
 AvahiTimeout *
 Poll::TimeoutNew(const AvahiPoll *api, const struct timeval *tv,
-		 AvahiTimeoutCallback callback, void *userdata) noexcept
+			AvahiTimeoutCallback callback, void *userdata) noexcept
 {
 	const Poll &poll = *(const Poll *)api;
 

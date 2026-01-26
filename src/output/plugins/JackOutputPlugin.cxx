@@ -1,31 +1,15 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "JackOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
 #include "../Error.hxx"
 #include "output/Features.h"
+#include "lib/fmt/RuntimeError.hxx"
 #include "thread/Mutex.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/IterableSplitString.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/SpanCast.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
@@ -44,10 +28,6 @@
 static constexpr unsigned MAX_PORTS = 16;
 
 static constexpr size_t jack_sample_size = sizeof(jack_default_audio_sample_t);
-
-#ifdef DYNAMIC_JACK
-#include "lib/jack/Dynamic.hxx"
-#endif // _WIN32
 
 class JackOutput final : public AudioOutput {
 	/**
@@ -122,9 +102,9 @@ private:
 	void Disconnect() noexcept;
 
 	void Shutdown(const char *reason) noexcept {
-		const std::scoped_lock<Mutex> lock(mutex);
-		error = std::make_exception_ptr(FormatRuntimeError("JACK connection shutdown: %s",
-								   reason));
+		const std::scoped_lock lock{mutex};
+		error = std::make_exception_ptr(FmtRuntimeError("JACK connection shutdown: {}",
+								reason));
 	}
 
 	static void OnShutdown(jack_status_t, const char *reason,
@@ -144,7 +124,7 @@ private:
 	 * Determine the number of frames guaranteed to be available
 	 * on all channels.
 	 */
-	gcc_pure
+	[[gnu::pure]]
 	jack_nframes_t GetAvailable() const noexcept;
 
 	void Process(jack_nframes_t nframes);
@@ -175,7 +155,7 @@ public:
 
 	std::chrono::steady_clock::duration Delay() const noexcept override {
 		return pause && !LockWasShutdown()
-			? std::chrono::seconds(1)
+			? std::chrono::steady_clock::duration::max()
 			: std::chrono::steady_clock::duration::zero();
 	}
 
@@ -186,7 +166,7 @@ public:
 
 private:
 	bool LockWasShutdown() const noexcept {
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		return !!error;
 	}
 };
@@ -416,8 +396,8 @@ JackOutput::Connect()
 	jack_status_t status;
 	client = jack_client_open(name, options, &status, server_name);
 	if (client == nullptr)
-		throw FormatRuntimeError("Failed to connect to JACK server, status=%d",
-					 status);
+		throw FmtRuntimeError("Failed to connect to JACK server, status={}",
+				      (unsigned)status);
 
 	jack_set_process_callback(client, Process, this);
 	jack_on_info_shutdown(client, OnShutdown, this);
@@ -430,8 +410,8 @@ JackOutput::Connect()
 					      portflags, 0);
 		if (ports[i] == nullptr) {
 			Disconnect();
-			throw FormatRuntimeError("Cannot register output port \"%s\"",
-						 source_ports[i].c_str());
+			throw FmtRuntimeError("Cannot register output port {:?}",
+					      source_ports[i]);
 		}
 	}
 }
@@ -468,10 +448,6 @@ JackOutput::Disable() noexcept
 static AudioOutput *
 mpd_jack_init(EventLoop &, const ConfigBlock &block)
 {
-#ifdef DYNAMIC_JACK
-	LoadJackLibrary();
-#endif
-
 	jack_set_error_function(mpd_jack_error);
 
 #ifdef HAVE_JACK_SET_INFO_FUNCTION
@@ -545,7 +521,7 @@ JackOutput::Start()
 			     jports[num_dports] != nullptr;
 		     ++num_dports) {
 			FmtDebug(jack_output_domain,
-				 "destination_port[{}] = '{}'\n",
+				 "destination_port[{}] = {:?}\n",
 				 num_dports, jports[num_dports]);
 			dports[num_dports] = jports[num_dports];
 		}
@@ -590,8 +566,8 @@ JackOutput::Start()
 				       dports[i]);
 		if (ret != 0) {
 			Stop();
-			throw FormatRuntimeError("Not a valid JACK port: %s",
-						 dports[i]);
+			throw FmtRuntimeError("Not a valid JACK port: {}",
+					      dports[i]);
 		}
 	}
 
@@ -604,8 +580,8 @@ JackOutput::Start()
 				   duplicate_port);
 		if (ret != 0) {
 			Stop();
-			throw FormatRuntimeError("Not a valid JACK port: %s",
-						 duplicate_port);
+			throw FmtRuntimeError("Not a valid JACK port: {}",
+					      duplicate_port);
 		}
 	}
 }
@@ -642,7 +618,7 @@ JackOutput::Open(AudioFormat &new_audio_format)
 void
 JackOutput::Interrupt() noexcept
 {
-	const std::unique_lock<Mutex> lock(mutex);
+	const std::lock_guard lock{mutex};
 
 	/* the "interrupted" flag will prevent Play() from waiting,
 	   and will instead throw AudioOutputInterrupted */
@@ -693,18 +669,18 @@ JackOutput::WriteSamples(const float *src, size_t n_frames)
 std::size_t
 JackOutput::Play(std::span<const std::byte> _src)
 {
+	const size_t frame_size = audio_format.GetFrameSize();
+	assert(_src.size() % frame_size == 0);
+
 	const auto src = FromBytesStrict<const float>(_src);
 
 	pause = false;
-
-	const size_t frame_size = audio_format.GetFrameSize();
-	assert(src.size() % frame_size == 0);
 
 	const std::size_t n_frames = src.size() / audio_format.channels;
 
 	while (true) {
 		{
-			const std::scoped_lock<Mutex> lock(mutex);
+			const std::scoped_lock lock{mutex};
 			if (error)
 				std::rethrow_exception(error);
 
@@ -726,7 +702,7 @@ JackOutput::Play(std::span<const std::byte> _src)
 void
 JackOutput::Cancel() noexcept
 {
-	const std::unique_lock<Mutex> lock(mutex);
+	const std::lock_guard lock{mutex};
 	interrupted = false;
 }
 
@@ -734,7 +710,7 @@ inline bool
 JackOutput::Pause()
 {
 	{
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		interrupted = false;
 		if (error)
 			std::rethrow_exception(error);

@@ -1,29 +1,15 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "CompositeStorage.hxx"
 #include "FileInfo.hxx"
 #include "fs/AllocatedPath.hxx"
+#include "input/InputStream.hxx"
 #include "util/IterableSplitString.hxx"
 #include "util/StringCompare.hxx"
 #include "util/StringSplit.hxx"
 
+#include <exception> // for std::exception_ptr
 #include <set>
 #include <stdexcept>
 
@@ -36,8 +22,8 @@
 class CompositeDirectoryReader final : public StorageDirectoryReader {
 	std::unique_ptr<StorageDirectoryReader> other;
 
-	std::set<std::string> names;
-	std::set<std::string>::const_iterator current, next;
+	std::set<std::string, std::less<>> names;
+	std::set<std::string, std::less<>>::const_iterator current, next;
 
 public:
 	template<typename O, typename M>
@@ -194,7 +180,7 @@ CompositeStorage::~CompositeStorage() = default;
 Storage *
 CompositeStorage::GetMount(std::string_view uri) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	auto result = FindStorage(uri);
 	if (!result.uri.empty())
@@ -207,7 +193,7 @@ CompositeStorage::GetMount(std::string_view uri) noexcept
 void
 CompositeStorage::Mount(const char *uri, std::unique_ptr<Storage> storage)
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	Directory &directory = root.Make(uri);
 	assert(!directory.storage);
@@ -217,7 +203,7 @@ CompositeStorage::Mount(const char *uri, std::unique_ptr<Storage> storage)
 bool
 CompositeStorage::Unmount(const char *uri)
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	return root.Unmount(uri);
 }
@@ -246,7 +232,7 @@ CompositeStorage::FindStorage(std::string_view uri) const noexcept
 StorageFileInfo
 CompositeStorage::GetInfo(std::string_view uri, bool follow)
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	std::exception_ptr error;
 
@@ -272,7 +258,7 @@ CompositeStorage::GetInfo(std::string_view uri, bool follow)
 std::unique_ptr<StorageDirectoryReader>
 CompositeStorage::OpenDirectory(std::string_view uri)
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	auto f = FindStorage(uri);
 	const Directory *directory = f.directory->Find(f.uri);
@@ -299,7 +285,7 @@ CompositeStorage::OpenDirectory(std::string_view uri)
 std::string
 CompositeStorage::MapUTF8(std::string_view uri) const noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	auto f = FindStorage(uri);
 	if (f.directory->storage == nullptr)
@@ -311,7 +297,7 @@ CompositeStorage::MapUTF8(std::string_view uri) const noexcept
 AllocatedPath
 CompositeStorage::MapFS(std::string_view uri) const noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	auto f = FindStorage(uri);
 	if (f.directory->storage == nullptr)
@@ -323,7 +309,7 @@ CompositeStorage::MapFS(std::string_view uri) const noexcept
 std::string_view
 CompositeStorage::MapToRelativeUTF8(std::string_view uri) const noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	if (root.storage != nullptr) {
 		auto result = root.storage->MapToRelativeUTF8(uri);
@@ -335,4 +321,16 @@ CompositeStorage::MapToRelativeUTF8(std::string_view uri) const noexcept
 		return {};
 
 	return relative_buffer;
+}
+
+InputStreamPtr
+CompositeStorage::OpenFile(std::string_view uri_utf8, Mutex &_mutex)
+{
+	const std::lock_guard lock{mutex};
+
+	auto f = FindStorage(uri_utf8);
+	if (f.directory->storage == nullptr)
+		return nullptr;
+
+	return f.directory->storage->OpenFile(f.uri, _mutex);
 }

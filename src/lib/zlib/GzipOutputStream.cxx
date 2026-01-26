@@ -1,31 +1,5 @@
-/*
- * Copyright 2014-2021 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
 #include "GzipOutputStream.hxx"
 #include "Error.hxx"
@@ -39,17 +13,17 @@ GzipOutputStream::GzipOutputStream(OutputStream &_next)
 	z.zfree = Z_NULL;
 	z.opaque = Z_NULL;
 
-	constexpr int windowBits = 15;
+	constexpr int windowBits = MAX_WBITS;
 	constexpr int gzip_encoding = 16;
 
 	int result = deflateInit2(&z, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
 				  windowBits | gzip_encoding,
 				  8, Z_DEFAULT_STRATEGY);
 	if (result != Z_OK)
-		throw ZlibError(result);
+		throw MakeZlibError(result, "deflateInit2() failed");
 }
 
-GzipOutputStream::~GzipOutputStream()
+GzipOutputStream::~GzipOutputStream() noexcept
 {
 	deflateEnd(&z);
 }
@@ -68,12 +42,12 @@ GzipOutputStream::SyncFlush()
 
 		int result = deflate(&z, Z_SYNC_FLUSH);
 		if (result != Z_OK)
-			throw ZlibError(result);
+			throw MakeZlibError(result, "deflate() failed");
 
 		if (z.next_out == output)
 			break;
 
-		next.Write(output, z.next_out - output);
+		next.Write(std::as_bytes(std::span{output}.first(z.next_out - output)));
 	} while (z.avail_out == 0);
 }
 
@@ -91,23 +65,23 @@ GzipOutputStream::Finish()
 
 		int result = deflate(&z, Z_FINISH);
 		if (z.next_out > output)
-			next.Write(output, z.next_out - output);
+			next.Write(std::as_bytes(std::span{output}.first(z.next_out - output)));
 
 		if (result == Z_STREAM_END)
 			break;
 		else if (result != Z_OK)
-			throw ZlibError(result);
+			throw MakeZlibError(result, "deflate() failed");
 	}
 }
 
 void
-GzipOutputStream::Write(const void *_data, size_t size)
+GzipOutputStream::Write(std::span<const std::byte> src)
 {
 	/* zlib's API requires non-const input pointer */
-	void *data = const_cast<void *>(_data);
+	void *data = const_cast<std::byte *>(src.data());
 
 	z.next_in = reinterpret_cast<Bytef *>(data);
-	z.avail_in = size;
+	z.avail_in = src.size();
 
 	while (z.avail_in > 0) {
 		Bytef output[65536];
@@ -116,9 +90,9 @@ GzipOutputStream::Write(const void *_data, size_t size)
 
 		int result = deflate(&z, Z_NO_FLUSH);
 		if (result != Z_OK)
-			throw ZlibError(result);
+			throw MakeZlibError(result, "deflate() failed");
 
 		if (z.next_out > output)
-			next.Write(output, z.next_out - output);
+			next.Write(std::as_bytes(std::span{output}.first(z.next_out - output)));
 	}
 }

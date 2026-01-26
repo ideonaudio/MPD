@@ -1,8 +1,12 @@
-icu_dep = dependency('icu-i18n', version: '>= 50', required: get_option('icu'))
-conf.set('HAVE_ICU', icu_dep.found())
+icu_features = configuration_data()
+
+icu_i18n_dep = dependency('icu-i18n', version: '>= 50', required: get_option('icu'))
+icu_uc_dep = dependency('icu-uc', version: '>= 50', required: get_option('icu'))
+have_icu = icu_i18n_dep.found() and icu_uc_dep.found()
+icu_features.set('HAVE_ICU', have_icu)
 
 icu_sources = [
-  'CaseFold.cxx',
+  'Canonicalize.cxx',
   'Compare.cxx',
   'Collate.cxx',
   'Converter.cxx',
@@ -13,22 +17,17 @@ if is_windows
 endif
 
 iconv_dep = []
-if icu_dep.found()
+if have_icu
   icu_sources += [
-    'Util.cxx',
     'Init.cxx',
+    'Util.cxx',
+    'FoldCase.cxx',
+    'Normalize.cxx',
+    'Transliterator.cxx',
   ]
-elif not get_option('iconv').disabled()
-  # an installed iconv library will make the builtin iconv() unavailable,
-  # so search for the library first and pass it as (possible) dependency
-  iconv_dep = compiler.find_library('libiconv', required: false)
-  have_iconv = compiler.has_function('iconv', 
-    dependencies: iconv_dep, 
-    prefix : '#include <iconv.h>')
-  if not have_iconv and get_option('iconv').enabled()
-    error('iconv() not available')
-  endif
-  conf.set('HAVE_ICONV', have_iconv)
+else
+  iconv_dep = dependency('iconv', required: get_option('iconv'))
+  icu_features.set('HAVE_ICONV', iconv_dep.found())
 endif
 
 icu = static_library(
@@ -36,7 +35,8 @@ icu = static_library(
   icu_sources,
   include_directories: inc,
   dependencies: [
-    icu_dep,
+    icu_i18n_dep,
+    icu_uc_dep,
     iconv_dep,
     fmt_dep,
   ],
@@ -48,3 +48,5 @@ icu_dep = declare_dependency(
     util_dep,
   ],
 )
+
+configure_file(output: 'Features.h', configuration: icu_features)

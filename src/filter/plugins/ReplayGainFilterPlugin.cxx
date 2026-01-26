@@ -1,32 +1,17 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "ReplayGainFilterPlugin.hxx"
 #include "filter/Filter.hxx"
 #include "filter/Prepared.hxx"
 #include "tag/ReplayGainInfo.hxx"
 #include "config/ReplayGainConfig.hxx"
-#include "mixer/MixerControl.hxx"
+#include "mixer/Control.hxx"
+#include "mixer/Mixer.hxx"
+#include "mixer/Listener.hxx"
 #include "pcm/AudioFormat.hxx"
 #include "pcm/Volume.hxx"
 #include "util/Domain.hxx"
-#include "Idle.hxx"
 #include "Log.hxx"
 
 #include <cassert>
@@ -168,11 +153,13 @@ ReplayGainFilter::Update()
 			_volume = 100;
 
 		try {
-			mixer_set_volume(mixer, _volume);
+			mixer->LockSetVolume(_volume);
 
-			/* TODO: emit this idle event only for the
-			   current partition */
-			idle_add(IDLE_MIXER);
+			/* invoke the mixer's listener manually, just
+			   in case the mixer implementation didn't do
+			   that already (this depends on the
+			   implementation) */
+			mixer->listener.OnMixerVolumeChanged(*mixer, _volume);
 		} catch (...) {
 			LogError(std::current_exception(),
 				 "Failed to update hardware mixer");

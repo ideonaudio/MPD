@@ -1,35 +1,17 @@
-/*
- * Copyright 2018 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
 #include "Open.hxx"
 #include "UniqueFileDescriptor.hxx"
-#include "system/Error.hxx"
+#include "lib/fmt/SystemError.hxx"
+
+#ifdef __linux__
+#include "FileAt.hxx"
+#include "system/linux/Features.h"
+#ifdef HAVE_OPENAT2
+#include "system/linux/openat2.h"
+#endif // HAVE_OPENAT2
+#endif // __linux__
 
 #include <fcntl.h>
 
@@ -38,7 +20,7 @@ OpenReadOnly(const char *path, int flags)
 {
 	UniqueFileDescriptor fd;
 	if (!fd.Open(path, O_RDONLY|flags))
-		throw FormatErrno("Failed to open '%s'", path);
+		throw FmtErrno("Failed to open {:?}", path);
 
 	return fd;
 }
@@ -48,7 +30,7 @@ OpenWriteOnly(const char *path, int flags)
 {
 	UniqueFileDescriptor fd;
 	if (!fd.Open(path, O_WRONLY|flags))
-		throw FormatErrno("Failed to open '%s'", path);
+		throw FmtErrno("Failed to open {:?}", path);
 
 	return fd;
 }
@@ -60,7 +42,7 @@ OpenDirectory(const char *path, int flags)
 {
 	UniqueFileDescriptor fd;
 	if (!fd.Open(path, O_DIRECTORY|O_RDONLY|flags))
-		throw FormatErrno("Failed to open '%s'", path);
+		throw FmtErrno("Failed to open {:?}", path);
 
 	return fd;
 }
@@ -74,49 +56,80 @@ OpenPath(const char *path, int flags)
 {
 	UniqueFileDescriptor fd;
 	if (!fd.Open(path, O_PATH|flags))
-		throw FormatErrno("Failed to open '%s'", path);
+		throw FmtErrno("Failed to open {:?}", path);
 
 	return fd;
 }
 
 UniqueFileDescriptor
-OpenPath(FileDescriptor directory, const char *name, int flags)
+OpenPath(FileAt file, int flags)
 {
 	UniqueFileDescriptor fd;
-	if (!fd.Open(directory, name, O_PATH|flags))
-		throw FormatErrno("Failed to open '%s'", name);
+	if (!fd.Open(file, O_PATH|flags))
+		throw FmtErrno("Failed to open {:?}", file.name);
 
 	return fd;
 }
 
 UniqueFileDescriptor
-OpenReadOnly(FileDescriptor directory, const char *name, int flags)
+OpenReadOnly(FileAt file, int flags)
 {
 	UniqueFileDescriptor fd;
-	if (!fd.Open(directory, name, O_RDONLY|flags))
-		throw FormatErrno("Failed to open '%s'", name);
+	if (!fd.Open(file, O_RDONLY|flags))
+		throw FmtErrno("Failed to open {:?}", file.name);
 
 	return fd;
 }
 
 UniqueFileDescriptor
-OpenWriteOnly(FileDescriptor directory, const char *name, int flags)
+OpenWriteOnly(FileAt file, int flags)
 {
 	UniqueFileDescriptor fd;
-	if (!fd.Open(directory, name, O_WRONLY|flags))
-		throw FormatErrno("Failed to open '%s'", name);
+	if (!fd.Open(file, O_WRONLY|flags))
+		throw FmtErrno("Failed to open {:?}", file.name);
 
 	return fd;
 }
 
 UniqueFileDescriptor
-OpenDirectory(FileDescriptor directory, const char *name, int flags)
+OpenDirectory(FileAt file, int flags)
 {
 	UniqueFileDescriptor fd;
-	if (!fd.Open(directory, name, O_DIRECTORY|O_RDONLY|flags))
-		throw FormatErrno("Failed to open '%s'", name);
+	if (!fd.Open(file, O_DIRECTORY|O_RDONLY|flags))
+		throw FmtErrno("Failed to open {:?}", file.name);
 
 	return fd;
 }
 
-#endif
+UniqueFileDescriptor
+OpenDirectoryPath(FileAt file, int flags)
+{
+	UniqueFileDescriptor fd;
+	if (!fd.Open(file, O_PATH|O_DIRECTORY|flags))
+		throw FmtErrno("Failed to open {:?}", file.name);
+
+	return fd;
+}
+
+#ifdef HAVE_OPENAT2
+
+UniqueFileDescriptor
+TryOpen(FileAt file, const struct open_how &how) noexcept
+{
+	int fd = openat2(file.directory.Get(), file.name, &how, sizeof(how));
+	return UniqueFileDescriptor{AdoptTag{}, fd};
+}
+
+UniqueFileDescriptor
+Open(FileAt file, const struct open_how &how)
+{
+	auto fd = TryOpen(file, how);
+	if (!fd.IsDefined())
+		throw FmtErrno("Failed to open {:?}", file.name);
+
+	return fd;
+}
+
+#endif // HAVE_OPENAT2
+
+#endif // __linux__

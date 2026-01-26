@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef AUDIO_OUTPUT_SOURCE_HXX
 #define AUDIO_OUTPUT_SOURCE_HXX
@@ -117,6 +101,15 @@ class AudioOutputSource {
 	 */
 	std::span<const std::byte> pending_data;
 
+	/**
+	 * Has #filter been flushed?  If true, then no method calls
+	 * (other than Flush()) are allowed on this #Filter according
+	 * to the API definition.
+	 *
+	 * This field is only initialized if #filter is not nullptr.
+	 */
+	bool filter_flushed;
+
 public:
 	AudioOutputSource() noexcept;
 	~AudioOutputSource() noexcept;
@@ -207,8 +200,8 @@ private:
 	void CloseFilter() noexcept;
 
 	std::span<const std::byte> GetChunkData(const MusicChunk &chunk,
-				       Filter *replay_gain_filter,
-				       unsigned *replay_gain_serial_p);
+						Filter *replay_gain_filter,
+						unsigned *replay_gain_serial_p);
 
 	std::span<const std::byte> FilterChunk(const MusicChunk &chunk);
 

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Manager.hxx"
 #include "Config.hxx"
@@ -27,25 +11,10 @@
 
 #include <string.h>
 
-inline bool
-InputCacheManager::ItemCompare::operator()(const InputCacheItem &a,
-					   const char *b) const noexcept
+inline std::string_view
+InputCacheManager::ItemGetUri::operator()(const InputCacheItem &item) const noexcept
 {
-	return strcmp(a.GetUri(), b) < 0;
-}
-
-inline bool
-InputCacheManager::ItemCompare::operator()(const char *a,
-					   const InputCacheItem &b) const noexcept
-{
-	return strcmp(a, b.GetUri()) < 0;
-}
-
-inline bool
-InputCacheManager::ItemCompare::operator()(const InputCacheItem &a,
-					   const InputCacheItem &b) const noexcept
-{
-	return strcmp(a.GetUri(), b.GetUri()) < 0;
+	return item.GetUri();
 }
 
 InputCacheManager::InputCacheManager(const InputCacheConfig &config) noexcept
@@ -97,8 +66,7 @@ InputCacheManager::Get(const char *uri, bool create)
 	if (!PathTraitsUTF8::IsAbsolute(uri))
 		return {};
 
-	auto iter = items_by_uri.find(uri, items_by_uri.key_comp());
-	if (iter != items_by_uri.end()) {
+	if (auto iter = items_by_uri.find(uri); iter != items_by_uri.end()) {
 		auto &item = *iter;
 
 		/* refresh */

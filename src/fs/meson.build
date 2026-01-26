@@ -10,11 +10,9 @@ fs_sources = [
   'NarrowPath.cxx',
   'FileSystem.cxx',
   'List.cxx',
-  'StandardDirectory.cxx',
-  'CheckFile.cxx',
   'LookupFile.cxx',
   'DirectoryReader.cxx',
-  'io/TextFile.cxx',
+  'FileInfo.cxx',
 ]
 
 if is_windows
@@ -28,8 +26,10 @@ fs = static_library(
   fs_sources,
   include_directories: inc,
   dependencies: [
-    zlib_dep,
-    log_dep,
+    io_dep,
+    shlwapi_dep,
+    icu_dep,
+    fmt_dep,
   ],
 )
 
@@ -37,8 +37,5 @@ fs_dep = declare_dependency(
   link_with: fs,
   dependencies: [
     io_dep,
-    system_dep,
-    icu_dep,
-    shlwapi_dep,
   ],
 )

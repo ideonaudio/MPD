@@ -1,31 +1,16 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "PartitionCommands.hxx"
 #include "Request.hxx"
 #include "Instance.hxx"
 #include "Partition.hxx"
-#include "IdleFlags.hxx"
+#include "protocol/IdleFlags.hxx"
 #include "output/Filtered.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
 #include "util/CharUtil.hxx"
+#include "util/StringVerify.hxx"
 
 #include <fmt/format.h>
 
@@ -48,31 +33,25 @@ CommandResult
 handle_listpartitions(Client &client, Request, Response &r)
 {
 	for (const auto &partition : client.GetInstance().partitions) {
-		r.Fmt(FMT_STRING("partition: {}\n"), partition.name);
+		r.Fmt("partition: {}\n", partition.name);
 	}
 
 	return CommandResult::OK;
 }
 
 static constexpr bool
-IsValidPartitionChar(char ch)
+IsValidPartitionChar(char ch) noexcept
 {
 	return IsAlphaNumericASCII(ch) || ch == '-' || ch == '_';
 }
 
-gcc_pure
-static bool
+static constexpr bool
 IsValidPartitionName(const char *name) noexcept
 {
-	do {
-		if (!IsValidPartitionChar(*name))
-			return false;
-	} while (*++name != 0);
-
-	return true;
+	return CheckCharsNonEmpty(name, IsValidPartitionChar);
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
 HasPartitionNamed(Instance &instance, const char *name) noexcept
 {
@@ -166,29 +145,24 @@ handle_moveoutput(Client &client, Request request, Response &response)
 
 	/* find the partition which owns this output currently */
 	auto &instance = client.GetInstance();
-	for (auto &partition : instance.partitions) {
-		if (&partition == &dest_partition)
-			continue;
 
-		auto *output = partition.outputs.FindByName(output_name);
-		if (output == nullptr || output->IsDummy())
-			continue;
-
-		const bool was_enabled = output->IsEnabled();
-
-		if (existing_output != nullptr)
-			/* move the output back where it once was */
-			existing_output->ReplaceDummy(output->Steal(),
-						      was_enabled);
-		else
-			/* copy the AudioOutputControl and add it to the output list */
-			dest_partition.outputs.AddMoveFrom(std::move(*output),
-							   was_enabled);
-
-		instance.EmitIdle(IDLE_OUTPUT);
-		return CommandResult::OK;
+	auto *output = instance.FindOutput(output_name, dest_partition);
+	if (output == nullptr) {
+		response.Error(ACK_ERROR_NO_EXIST, "No such output");
+		return CommandResult::ERROR;
 	}
 
-	response.Error(ACK_ERROR_NO_EXIST, "No such output");
-	return CommandResult::ERROR;
+	const bool was_enabled = output->IsEnabled();
+
+	if (existing_output != nullptr)
+		/* move the output back where it once was */
+		existing_output->ReplaceDummy(output->Steal(),
+					      was_enabled);
+	else
+		/* copy the AudioOutputControl and add it to the output list */
+		dest_partition.outputs.AddMoveFrom(std::move(*output),
+						   was_enabled);
+
+	instance.EmitIdle(IDLE_OUTPUT);
+	return CommandResult::OK;
 }

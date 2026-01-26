@@ -1,21 +1,6 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #include "Loop.hxx"
 #include "DeferEvent.hxx"
@@ -27,10 +12,85 @@
 #endif
 
 #ifdef HAVE_URING
-#include "UringManager.hxx"
-#include "util/PrintException.hxx"
-#include <stdio.h>
+#include "uring/Manager.hxx"
+#include "io/uring/Operation.hxx"
+#include "io/uring/Queue.hxx"
 #endif
+
+#ifdef HAVE_URING
+
+class EventLoop::UringPoll final : Uring::Operation {
+	EventLoop &event_loop;
+
+public:
+	UringPoll(EventLoop &_event_loop) noexcept
+		:event_loop(_event_loop) {}
+
+	void Start() {
+		assert(!IsUringPending());
+		assert(event_loop.GetUring());
+
+		auto &queue = *event_loop.GetUring();
+
+		auto &s = queue.RequireSubmitEntry();
+		io_uring_prep_poll_multishot(&s, event_loop.poll_backend.GetFileDescriptor().Get(), EPOLLIN);
+		queue.Push(s, *this);
+	}
+
+private:
+	void OnUringCompletion(int res) noexcept override {
+		(void)res; // TODO
+
+		event_loop.epoll_ready = true;
+
+		if (!IsUringPending()) [[unlikely]]
+			/* for some reason, the kernel has stopped our
+			   poll operation (no IORING_CQE_F_MORE):
+			   restart the poll */
+			Start();
+	}
+};
+
+#if defined(HAVE_THREADED_EVENT_LOOP) && defined(USE_EVENTFD)
+
+#include <sys/eventfd.h>
+
+/**
+ * Read from the eventfd using io_uring and invoke
+ * EventLoop::OnWake().
+ */
+class EventLoop::UringWake final : Uring::Operation {
+	EventLoop &event_loop;
+
+	eventfd_t value;
+
+public:
+	explicit UringWake(EventLoop &_event_loop) noexcept
+		:event_loop(_event_loop) {}
+
+	void Start() {
+		assert(!IsUringPending());
+		assert(event_loop.GetUring());
+
+		auto &queue = *event_loop.GetUring();
+
+		auto &s = queue.RequireSubmitEntry();
+		io_uring_prep_read(&s, event_loop.wake_fd.GetSocket().Get(), &value, sizeof(value), 0);
+		queue.Push(s, *this);
+	}
+
+private:
+	void OnUringCompletion(int res) noexcept override {
+		if (res <= 0)
+			return;
+
+		Start();
+		event_loop.OnWake();
+	}
+};
+
+#endif // USE_EVENTFD
+#endif // HAVE_URING
 
 EventLoop::EventLoop(
 #ifdef HAVE_THREADED_EVENT_LOOP
@@ -55,11 +115,16 @@ EventLoop::~EventLoop() noexcept
 	/* if Run() was never called (maybe because startup failed and
 	   an exception is pending), we need to destruct the
 	   Uring::Manager here or else the assertions below fail */
+#if defined(HAVE_THREADED_EVENT_LOOP) && defined(USE_EVENTFD)
+	uring_wake.reset();
+#endif
+	uring_poll.reset();
 	uring.reset();
 #endif
 
 	assert(defer.empty());
 	assert(idle.empty());
+	assert(next.empty());
 #ifdef HAVE_THREADED_EVENT_LOOP
 	assert(inject.empty());
 #endif
@@ -67,36 +132,46 @@ EventLoop::~EventLoop() noexcept
 	assert(ready_sockets.empty());
 }
 
+void
+EventLoop::SetVolatile() noexcept
+{
+}
+
 #ifdef HAVE_URING
+
+void
+EventLoop::EnableUring(unsigned entries, unsigned flags)
+{
+	assert(!uring);
+
+	uring = std::make_unique<Uring::Manager>(entries, flags);
+}
+
+void
+EventLoop::EnableUring(unsigned entries, struct io_uring_params &params)
+{
+	assert(!uring);
+
+	uring = std::make_unique<Uring::Manager>(entries, params);
+}
+
+void
+EventLoop::DisableUring() noexcept
+{
+#if defined(HAVE_THREADED_EVENT_LOOP) && defined(USE_EVENTFD)
+	uring_wake.reset();
+#endif
+	uring_poll.reset();
+	uring.reset();
+}
 
 Uring::Queue *
 EventLoop::GetUring() noexcept
 {
-	if (!uring_initialized) {
-		uring_initialized = true;
-		try {
-			uring = std::make_unique<Uring::Manager>(*this);
-		} catch (...) {
-			fprintf(stderr, "Failed to initialize io_uring: ");
-			PrintException(std::current_exception());
-		}
-	}
-
 	return uring.get();
 }
 
-#endif
-
-void
-EventLoop::Break() noexcept
-{
-	if (quit.exchange(true))
-		return;
-
-#ifdef HAVE_THREADED_EVENT_LOOP
-	wake_fd.Write();
-#endif
-}
+#endif // HAVE_URING
 
 bool
 EventLoop::AddFD(int fd, unsigned events, SocketEvent &event) noexcept
@@ -151,9 +226,13 @@ EventLoop::AbandonFD(SocketEvent &event)  noexcept
 void
 EventLoop::Insert(CoarseTimerEvent &t) noexcept
 {
+	assert(IsInside());
+
 	coarse_timers.Insert(t, SteadyNow());
 	again = true;
 }
+
+#ifndef NO_FINE_TIMER_EVENT
 
 void
 EventLoop::Insert(FineTimerEvent &t) noexcept
@@ -164,36 +243,71 @@ EventLoop::Insert(FineTimerEvent &t) noexcept
 	again = true;
 }
 
+#endif // NO_FINE_TIMER_EVENT
+
+/**
+ * Determines which timeout will happen earlier; either one may be
+ * negative to specify "no timeout at all".
+ */
+static constexpr Event::Duration
+GetEarlierTimeout(Event::Duration a, Event::Duration b) noexcept
+{
+	return b.count() < 0 || (a.count() >= 0 && a < b)
+		? a
+		: b;
+}
+
 inline Event::Duration
 EventLoop::HandleTimers() noexcept
 {
 	const auto now = SteadyNow();
 
+#ifndef NO_FINE_TIMER_EVENT
 	auto fine_timeout = timers.Run(now);
+#else
+	const Event::Duration fine_timeout{-1};
+#endif // NO_FINE_TIMER_EVENT
 	auto coarse_timeout = coarse_timers.Run(now);
 
-	return fine_timeout.count() < 0 ||
-		(coarse_timeout.count() >= 0 && coarse_timeout < fine_timeout)
-		? coarse_timeout
-		: fine_timeout;
+	return GetEarlierTimeout(coarse_timeout, fine_timeout);
 }
 
 void
-EventLoop::AddDefer(DeferEvent &d) noexcept
+EventLoop::AddDefer(DeferEvent &e) noexcept
 {
 #ifdef HAVE_THREADED_EVENT_LOOP
 	assert(!IsAlive() || IsInside());
 #endif
 
-	defer.push_back(d);
+	defer.push_back(e);
+
+#ifdef HAVE_THREADED_EVENT_LOOP
+	/* setting this flag here is only relevant if we've been
+	   called by a DeferEvent */
 	again = true;
+#endif
 }
 
 void
 EventLoop::AddIdle(DeferEvent &e) noexcept
 {
-	idle.push_front(e);
+	assert(IsInside());
+
+	idle.push_back(e);
+
+#ifdef HAVE_THREADED_EVENT_LOOP
+	/* setting this flag here is only relevant if we've been
+	   called by a DeferEvent */
 	again = true;
+#endif
+}
+
+void
+EventLoop::AddNext(DeferEvent &e) noexcept
+{
+	assert(IsInside());
+
+	next.push_back(e);
 }
 
 void
@@ -219,18 +333,6 @@ EventLoop::RunOneIdle() noexcept
 	return true;
 }
 
-template<class ToDuration, class Rep, class Period>
-static constexpr ToDuration
-duration_cast_round_up(std::chrono::duration<Rep, Period> d) noexcept
-{
-	using FromDuration = decltype(d);
-	constexpr auto one = std::chrono::duration_cast<FromDuration>(ToDuration(1));
-	constexpr auto round_add = one > one.zero()
-		? one - FromDuration(1)
-		: one.zero();
-	return std::chrono::duration_cast<ToDuration>(d + round_add);
-}
-
 /**
  * Convert the given timeout specification to a milliseconds integer,
  * to be used by functions like poll() and epoll_wait().  Any negative
@@ -240,12 +342,38 @@ static constexpr int
 ExportTimeoutMS(Event::Duration timeout) noexcept
 {
 	return timeout >= timeout.zero()
-		? int(duration_cast_round_up<std::chrono::milliseconds>(timeout).count())
+		? static_cast<int>(std::chrono::ceil<std::chrono::milliseconds>(timeout).count())
 		: -1;
 }
 
+#ifdef HAVE_URING
+
+static struct __kernel_timespec *
+ExportTimeoutKernelTimespec(Event::Duration timeout, struct __kernel_timespec &buffer) noexcept
+{
+	if (timeout < timeout.zero())
+		return nullptr;
+
+	if (timeout >= std::chrono::duration_cast<Event::Duration>(std::chrono::hours{24})) [[unlikely]] {
+		using tv_sec_t = std::decay_t<decltype(buffer.tv_sec)>;
+		buffer = {
+			.tv_sec = std::chrono::ceil<std::chrono::duration<tv_sec_t>>(timeout).count(),
+		};
+		return &buffer;
+	}
+
+	const auto nsec = std::chrono::ceil<std::chrono::nanoseconds>(timeout);
+	buffer = {
+		.tv_sec = nsec.count() / 1000000000,
+		.tv_nsec = nsec.count() % 1000000000,
+	};
+	return &buffer;
+}
+
+#endif
+
 inline bool
-EventLoop::Wait(Event::Duration timeout) noexcept
+EventLoop::Poll(Event::Duration timeout) noexcept
 {
 	const auto poll_result =
 		poll_backend.ReadEvents(ExportTimeoutMS(timeout));
@@ -262,32 +390,79 @@ EventLoop::Wait(Event::Duration timeout) noexcept
 	return poll_result.GetSize() > 0;
 }
 
+#ifdef HAVE_URING
+
+inline void
+EventLoop::UringWait(Event::Duration timeout) noexcept
+{
+	assert(uring);
+
+	/* use io_uring_enter() and invoke epoll_wait() only if it's
+           reported to be ready */
+
+	if (!uring_poll) [[unlikely]] {
+		/* start polling on the epoll file descriptor */
+		uring_poll = std::make_unique<UringPoll>(*this);
+		uring_poll->Start();
+	}
+
+	/* repeat epoll_wait() until it returns no more events; this
+           is a temporary workaround because
+           io_uring_prep_poll_multishot() is edge-triggered, so we
+           have to consume all events to rearm it */
+
+	if (epoll_ready)
+		/* don't wait for io_uring completions if epoll is
+		   still ready */
+		timeout = Event::Duration{0};
+
+	{
+		struct __kernel_timespec timeout_buffer;
+		auto *kernel_timeout = ExportTimeoutKernelTimespec(timeout, timeout_buffer);
+		Uring::Queue &uring_queue = *uring;
+		uring_queue.SubmitAndWaitDispatchCompletions(kernel_timeout);
+	}
+
+	if (epoll_ready) {
+		/* invoke epoll_wait() */
+		epoll_ready = Poll(Event::Duration{0});
+	}
+}
+
+#endif // HAVE_URING
+
+inline void
+EventLoop::Wait(Event::Duration timeout) noexcept
+{
+#ifdef HAVE_URING
+	if (uring)
+		return UringWait(timeout);
+#endif
+
+	Poll(timeout);
+}
+
 void
 EventLoop::Run() noexcept
 {
 #ifdef HAVE_THREADED_EVENT_LOOP
-	if (thread.IsNull())
-		thread = ThreadId::GetCurrent();
+	assert(!thread.IsNull());
 #endif
 
 	assert(IsInside());
-	assert(!quit);
 #ifdef HAVE_THREADED_EVENT_LOOP
-	assert(alive);
+	assert(alive || quit_injected);
 	assert(busy);
 
-	wake_event.Schedule(SocketEvent::READ);
+#if defined(USE_EVENTFD) && defined(HAVE_URING)
+	if (uring) {
+		if (!uring_wake) {
+			uring_wake = std::make_unique<UringWake>(*this);
+			uring_wake->Start();
+		}
+	} else
 #endif
-
-#ifdef HAVE_URING
-	AtScopeExit(this) {
-		/* make sure that the Uring::Manager gets destructed
-		   from within the EventThread, or else its
-		   destruction in another thread will cause assertion
-		   failures */
-		uring.reset();
-		uring_initialized = false;
-	};
+		wake_event.Schedule(SocketEvent::READ);
 #endif
 
 #ifdef HAVE_THREADED_EVENT_LOOP
@@ -296,14 +471,14 @@ EventLoop::Run() noexcept
 	};
 #endif
 
-	steady_clock_cache.flush();
+	FlushClockCaches();
 
-	do {
+	while (!quit) {
 		again = false;
 
 		/* invoke timers */
 
-		const auto timeout = HandleTimers();
+		Event::Duration timeout = HandleTimers();
 		if (quit)
 			break;
 
@@ -322,7 +497,7 @@ EventLoop::Run() noexcept
 		/* try to handle DeferEvents without WakeFD
 		   overhead */
 		{
-			const std::scoped_lock<Mutex> lock(mutex);
+			const std::scoped_lock lock{mutex};
 			HandleInject();
 #endif
 
@@ -339,13 +514,18 @@ EventLoop::Run() noexcept
 
 		/* wait for new event */
 
+		if (!next.empty())
+			timeout = Event::Duration{0};
+
 		Wait(timeout);
 
-		steady_clock_cache.flush();
+		idle.splice(std::next(idle.begin()), next);
+
+		FlushClockCaches();
 
 #ifdef HAVE_THREADED_EVENT_LOOP
 		{
-			const std::scoped_lock<Mutex> lock(mutex);
+			const std::scoped_lock lock{mutex};
 			busy = true;
 		}
 #endif
@@ -360,7 +540,7 @@ EventLoop::Run() noexcept
 
 			socket_event.Dispatch();
 		}
-	} while (!quit);
+	}
 
 #ifdef HAVE_THREADED_EVENT_LOOP
 #ifndef NDEBUG
@@ -377,7 +557,7 @@ EventLoop::AddInject(InjectEvent &d) noexcept
 	bool must_wake;
 
 	{
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		if (d.IsPending())
 			return;
 
@@ -396,7 +576,7 @@ EventLoop::AddInject(InjectEvent &d) noexcept
 void
 EventLoop::RemoveInject(InjectEvent &d) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	if (d.IsPending())
 		inject.erase(inject.iterator_to(d));
@@ -416,6 +596,18 @@ EventLoop::HandleInject() noexcept
 	}
 }
 
+inline void
+EventLoop::OnWake() noexcept
+{
+	if (quit_injected) {
+		Break();
+		return;
+	}
+
+	const std::scoped_lock lock{mutex};
+	HandleInject();
+}
+
 void
 EventLoop::OnSocketReady([[maybe_unused]] unsigned flags) noexcept
 {
@@ -423,8 +615,7 @@ EventLoop::OnSocketReady([[maybe_unused]] unsigned flags) noexcept
 
 	wake_fd.Read();
 
-	const std::scoped_lock<Mutex> lock(mutex);
-	HandleInject();
+	OnWake();
 }
 
 #endif

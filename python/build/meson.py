@@ -1,9 +1,18 @@
-import os.path, subprocess, sys
+import os
+import shutil
+import subprocess
 import platform
 
-from build.project import Project
+from .toolchain import AnyToolchain
 
-def make_cross_file(toolchain):
+def format_meson_cross_file_command(command: str) -> str:
+    splitted = command.split()
+    if len(splitted) == 1:
+        return repr(command)
+
+    return repr(splitted)
+
+def make_cross_file(toolchain: AnyToolchain) -> str:
     if toolchain.is_windows:
         system = 'windows'
         windres = "windres = '%s'" % toolchain.windres
@@ -22,7 +31,7 @@ def make_cross_file(toolchain):
         cpu = 'arm64-v8a'
     else:
         cpu_family = 'x86'
-        if 'x86_64' in toolchain.arch:
+        if 'x86_64' in toolchain.host_triplet:
             cpu = 'x86_64'
         else:
             cpu = 'i686'
@@ -37,25 +46,26 @@ def make_cross_file(toolchain):
     with open(path, 'w') as f:
         f.write(f"""
 [binaries]
-c = '{toolchain.cc}'
-cpp = '{toolchain.cxx}'
-ar = '{toolchain.ar}'
-strip = '{toolchain.strip}'
-pkgconfig = '{toolchain.pkg_config}'
+c = {format_meson_cross_file_command(toolchain.cc)}
+cpp = {format_meson_cross_file_command(toolchain.cxx)}
+ar = {format_meson_cross_file_command(toolchain.ar)}
+strip = {format_meson_cross_file_command(toolchain.strip)}
+pkgconfig = {format_meson_cross_file_command(toolchain.pkg_config)}
 """)
 
         if toolchain.is_windows and platform.system() != 'Windows':
-            f.write(f"windres = '{toolchain.windres}'\n")
+            f.write(f"windres = {format_meson_cross_file_command(toolchain.windres)}\n")
 
-            # Run unit tests with WINE when cross-building for Windows
-            print("exe_wrapper = 'wine'", file=f)
+            if shutil.which('wine') is not None:
+                # Run unit tests with WINE when cross-building for Windows
+                print("exe_wrapper = 'wine'", file=f)
 
         f.write(f"""
 [properties]
 root = '{toolchain.install_prefix}'
 """)
 
-        if 'android' in toolchain.arch:
+        if toolchain.is_android:
             f.write("""
 # Keep Meson from executing Android-x86 test binariees
 needs_exe_wrapper = true
@@ -79,41 +89,23 @@ endian = '{endian}'
 """)
     return path
 
-def configure(toolchain, src, build, args=()):
-    cross_file = make_cross_file(toolchain)
+def configure(toolchain: AnyToolchain, src: str, build: str, args: list[str]=[]) -> None:
     configure = [
-        'meson',
-        src, build,
+        'meson', 'setup',
+        build, src,
 
         '--prefix', toolchain.install_prefix,
 
         '--buildtype', 'plain',
 
         '--default-library=static',
-
-        '--cross-file', cross_file,
     ] + args
+
+    if toolchain.host_triplet is not None:
+        # cross-compiling: write a cross-file
+        cross_file = make_cross_file(toolchain)
+        configure.append(f'--cross-file={cross_file}')
 
     env = toolchain.env.copy()
 
-    # Meson 0.54 requires the BOOST_ROOT environment variable
-    env['BOOST_ROOT'] = toolchain.install_prefix
-
     subprocess.check_call(configure, env=env)
-
-class MesonProject(Project):
-    def __init__(self, url, md5, installed, configure_args=[],
-                 **kwargs):
-        Project.__init__(self, url, md5, installed, **kwargs)
-        self.configure_args = configure_args
-
-    def configure(self, toolchain):
-        src = self.unpack(toolchain)
-        build = self.make_build_path(toolchain)
-        configure(toolchain, src, build, self.configure_args)
-        return build
-
-    def _build(self, toolchain):
-        build = self.configure(toolchain)
-        subprocess.check_call(['ninja', 'install'],
-                              cwd=build, env=toolchain.env)

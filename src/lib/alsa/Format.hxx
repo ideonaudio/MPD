@@ -1,42 +1,14 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_ALSA_FORMAT_HXX
-#define MPD_ALSA_FORMAT_HXX
+#pragma once
 
 #include "pcm/SampleFormat.hxx"
-#include "util/Compiler.h"
-#include "config.h"
 
 #include <alsa/asoundlib.h>
 
 #include <cassert>
-
-#if SND_LIB_VERSION >= 0x1001c
-/* alsa-lib supports DSD since version 1.0.27.1 */
-#define HAVE_ALSA_DSD
-#endif
-
-#if SND_LIB_VERSION >= 0x1001d
-/* alsa-lib supports DSD_U32 since version 1.0.29 */
-#define HAVE_ALSA_DSD_U32
-#endif
+#include <utility> // for std::unreachable()
 
 /**
  * Convert MPD's #SampleFormat enum to libasound's snd_pcm_format_t
@@ -52,11 +24,7 @@ ToAlsaPcmFormat(SampleFormat sample_format) noexcept
 		return SND_PCM_FORMAT_UNKNOWN;
 
 	case SampleFormat::DSD:
-#ifdef HAVE_ALSA_DSD
 		return SND_PCM_FORMAT_DSD_U8;
-#else
-		return SND_PCM_FORMAT_UNKNOWN;
-#endif
 
 	case SampleFormat::S8:
 		return SND_PCM_FORMAT_S8;
@@ -74,8 +42,7 @@ ToAlsaPcmFormat(SampleFormat sample_format) noexcept
 		return SND_PCM_FORMAT_FLOAT;
 	}
 
-	assert(false);
-	gcc_unreachable();
+	std::unreachable();
 }
 
 /**
@@ -101,7 +68,6 @@ ByteSwapAlsaPcmFormat(snd_pcm_format_t fmt) noexcept
 
 	case SND_PCM_FORMAT_S32_BE: return SND_PCM_FORMAT_S32_LE;
 
-#ifdef HAVE_ALSA_DSD_U32
 	case SND_PCM_FORMAT_DSD_U16_LE:
 		return SND_PCM_FORMAT_DSD_U16_BE;
 
@@ -113,7 +79,6 @@ ByteSwapAlsaPcmFormat(snd_pcm_format_t fmt) noexcept
 
 	case SND_PCM_FORMAT_DSD_U32_BE:
 		return SND_PCM_FORMAT_DSD_U32_LE;
-#endif
 
 	default: return SND_PCM_FORMAT_UNKNOWN;
 	}
@@ -137,5 +102,3 @@ PackAlsaPcmFormat(snd_pcm_format_t fmt) noexcept
 		return SND_PCM_FORMAT_UNKNOWN;
 	}
 }
-
-#endif

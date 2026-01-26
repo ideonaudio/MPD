@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "ConfigGlue.hxx"
 #include "pcm/Convert.hxx"
@@ -26,10 +10,11 @@
 #include "decoder/DecoderAPI.hxx" /* for class StopDecoder */
 #include "input/Init.hxx"
 #include "input/InputStream.hxx"
+#include "fs/NarrowPath.hxx"
 #include "fs/Path.hxx"
 #include "pcm/AudioFormat.hxx"
-#include "util/OptionDef.hxx"
-#include "util/OptionParser.hxx"
+#include "cmdline/OptionDef.hxx"
+#include "cmdline/OptionParser.hxx"
 #include "util/PrintException.hxx"
 #include "Log.hxx"
 #include "LogBackend.hxx"
@@ -45,7 +30,7 @@ struct CommandLine {
 	const char *decoder = nullptr;
 	const char *uri = nullptr;
 
-	Path config_path = nullptr;
+	FromNarrowPath config_path = nullptr;
 
 	bool verbose = false;
 };
@@ -69,7 +54,7 @@ ParseCommandLine(int argc, char **argv)
 	while (auto o = option_parser.Next()) {
 		switch (Option(o.index)) {
 		case OPTION_CONFIG:
-			c.config_path = Path::FromFS(o.value);
+			c.config_path = o.value;
 			break;
 
 		case OPTION_VERBOSE:
@@ -107,7 +92,7 @@ public:
 
 class MyChromaprintDecoderClient final : public ChromaprintDecoderClient {
 public:
-	InputStreamPtr OpenUri(const char *) override {
+	InputStreamPtr OpenUri(std::string_view) override {
 		throw std::runtime_error("Not implemented");
 	}
 };
@@ -128,7 +113,7 @@ try {
 	MyChromaprintDecoderClient client;
 	if (plugin->file_decode != nullptr) {
 		try {
-			plugin->FileDecode(client, Path::FromFS(c.uri));
+			plugin->FileDecode(client, FromNarrowPath(c.uri));
 		} catch (StopDecoder) {
 		}
 	} else if (plugin->stream_decode != nullptr) {

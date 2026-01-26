@@ -1,32 +1,16 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "CrossFade.hxx"
 #include "Chrono.hxx"
 #include "MusicChunk.hxx"
 #include "pcm/AudioFormat.hxx"
-#include "util/NumberParser.hxx"
+#include "util/CNumberParser.hxx"
 #include "util/Domain.hxx"
-#include "util/Math.hxx"
 #include "Log.hxx"
 
 #include <cassert>
+#include <cmath>
 
 static constexpr Domain cross_fade_domain("cross_fade");
 
@@ -38,7 +22,7 @@ CrossFadeSettings::CanCrossFadeSong(SignedSongTime total_time) const noexcept
 		duration < std::chrono::duration_cast<FloatDuration>(total_time);
 }
 
-gcc_pure
+[[gnu::pure]]
 static FloatDuration
 mixramp_interpolate(const char *ramp_list, float required_db) noexcept
 {
@@ -125,7 +109,7 @@ CrossFadeSettings::Calculate(float replay_gain_db, float replay_gain_prev_db,
 
 	if (!IsMixRampEnabled() ||
 	    !mixramp_start || !mixramp_prev_end) {
-		chunks = lround(duration / chunk_duration);
+		chunks = std::lround(duration / chunk_duration);
 	} else {
 		/* Calculate mixramp overlap. */
 		const auto mixramp_overlap_current =
@@ -140,7 +124,7 @@ CrossFadeSettings::Calculate(float replay_gain_db, float replay_gain_prev_db,
 		if (mixramp_overlap_current >= FloatDuration::zero() &&
 		    mixramp_overlap_prev >= FloatDuration::zero() &&
 		    mixramp_delay <= mixramp_overlap) {
-			chunks = lround((mixramp_overlap - mixramp_delay)
+			chunks = std::lround((mixramp_overlap - mixramp_delay)
 					/ chunk_duration);
 			FmtDebug(cross_fade_domain,
 				 "will overlap {} chunks, {}s", chunks,

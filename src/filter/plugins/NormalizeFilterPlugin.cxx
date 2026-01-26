@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "NormalizeFilterPlugin.hxx"
 #include "filter/FilterPlugin.hxx"
@@ -23,29 +7,27 @@
 #include "filter/Prepared.hxx"
 #include "pcm/Buffer.hxx"
 #include "pcm/AudioFormat.hxx"
-#include "pcm/AudioCompress/compress.h"
-
-#include <string.h>
+#include "pcm/Normalizer.hxx"
+#include "util/SpanCast.hxx"
 
 class NormalizeFilter final : public Filter {
-	Compressor *const compressor;
+	PcmNormalizer normalizer;
 
 	PcmBuffer buffer;
 
 public:
 	explicit NormalizeFilter(const AudioFormat &audio_format)
-		:Filter(audio_format), compressor(Compressor_new(0)) {
+		:Filter(audio_format) {
 	}
-
-	~NormalizeFilter() override {
-		Compressor_delete(compressor);
-	}
-
 
 	NormalizeFilter(const NormalizeFilter &) = delete;
 	NormalizeFilter &operator=(const NormalizeFilter &) = delete;
 
 	/* virtual methods from class Filter */
+	void Reset() noexcept override {
+		normalizer.Reset();
+	}
+
 	std::span<const std::byte> FilterPCM(std::span<const std::byte> src) override;
 };
 
@@ -70,13 +52,13 @@ PreparedNormalizeFilter::Open(AudioFormat &audio_format)
 }
 
 std::span<const std::byte>
-NormalizeFilter::FilterPCM(std::span<const std::byte> src)
+NormalizeFilter::FilterPCM(std::span<const std::byte> _src)
 {
-	auto *dest = (int16_t *)buffer.Get(src.size());
-	memcpy(dest, src.data(), src.size());
+	const auto src = FromBytesStrict<const int16_t>(_src);
+	auto *dest = (int16_t *)buffer.GetT<int16_t>(src.size());
 
-	Compressor_Process_int16(compressor, dest, src.size() / 2);
-	return { (const std::byte *)dest, src.size() };
+	normalizer.ProcessS16(dest, src);
+	return std::as_bytes(std::span{dest, src.size()});
 }
 
 const FilterPlugin normalize_filter_plugin = {

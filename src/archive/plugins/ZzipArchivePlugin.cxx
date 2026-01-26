@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /**
   * zip archive handling (requires zziplib)
@@ -26,25 +10,25 @@
 #include "../ArchiveFile.hxx"
 #include "../ArchiveVisitor.hxx"
 #include "input/InputStream.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
+#include "fs/NarrowPath.hxx"
 #include "fs/Path.hxx"
-#include "system/Error.hxx"
-#include "util/RuntimeError.hxx"
+#include "lib/fmt/SystemError.hxx"
 #include "util/UTF8.hxx"
 
 #include <zzip/zzip.h>
 
 #include <utility>
 
-#include <cinttypes> /* for PRIoffset (PRIu64) */
-
 struct ZzipDir {
 	ZZIP_DIR *const dir;
 
 	explicit ZzipDir(Path path)
-		:dir(zzip_dir_open(path.c_str(), nullptr)) {
+		:dir(zzip_dir_open(NarrowPath(path), nullptr)) {
 		if (dir == nullptr)
-			throw FormatRuntimeError("Failed to open ZIP file %s",
-						 path.c_str());
+			throw FmtRuntimeError("Failed to open ZIP file {:?}",
+					      path);
 	}
 
 	~ZzipDir() noexcept {
@@ -123,7 +107,7 @@ public:
 	/* virtual methods from InputStream */
 	[[nodiscard]] bool IsEOF() const noexcept override;
 	size_t Read(std::unique_lock<Mutex> &lock,
-		    void *ptr, size_t size) override;
+		    std::span<std::byte> dest) override;
 	void Seek(std::unique_lock<Mutex> &lock, offset_type offset) override;
 };
 
@@ -136,13 +120,13 @@ ZzipArchiveFile::OpenStream(const char *pathname,
 		const auto error = (zzip_error_t)zzip_error(dir->dir);
 		switch (error) {
 		case ZZIP_ENOENT:
-			throw FormatFileNotFound("Failed to open '%s' in ZIP file",
-						 pathname);
+			throw FmtFileNotFound("Failed to open {:?} in ZIP file",
+					      pathname);
 
 		default:
-			throw FormatRuntimeError("Failed to open '%s' in ZIP file: %s",
-						 pathname,
-						 zzip_strerror(error));
+			throw FmtRuntimeError("Failed to open {:?} in ZIP file: {}",
+					      pathname,
+					      zzip_strerror(error));
 		}
 	}
 
@@ -152,18 +136,17 @@ ZzipArchiveFile::OpenStream(const char *pathname,
 }
 
 size_t
-ZzipInputStream::Read(std::unique_lock<Mutex> &, void *ptr, size_t read_size)
+ZzipInputStream::Read(std::unique_lock<Mutex> &, std::span<std::byte> dest)
 {
 	const ScopeUnlock unlock(mutex);
 
-	zzip_ssize_t nbytes = zzip_file_read(file, ptr, read_size);
+	zzip_ssize_t nbytes = zzip_file_read(file, dest.data(), dest.size());
 	if (nbytes < 0)
 		throw std::runtime_error("zzip_file_read() has failed");
 
 	if (nbytes == 0 && !IsEOF())
-		throw FormatRuntimeError("Unexpected end of file %s"
-					 " at %" PRIoffset " of %" PRIoffset,
-					 GetURI(), GetOffset(), GetSize());
+		throw FmtRuntimeError("Unexpected end of file {:?} at {} of {}",
+				      GetURI(), GetOffset(), GetSize());
 
 	offset = zzip_tell(file);
 	return nbytes;

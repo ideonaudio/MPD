@@ -1,29 +1,14 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Config.hxx"
 #include "Settings.hxx"
 #include "ParseName.hxx"
+#include "Type.hxx"
 #include "config/Data.hxx"
 #include "config/Option.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "util/ASCII.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/IterableSplitString.hxx"
 #include "util/StringCompare.hxx"
 #include "util/StringStrip.hxx"
@@ -59,8 +44,8 @@ TagLoadConfig(const ConfigData &config)
 
 		const auto type = tag_name_parse_i(name);
 		if (type == TAG_NUM_OF_ITEM_TYPES)
-			throw FormatRuntimeError("error parsing metadata item \"%s\"",
-						 name);
+			throw FmtRuntimeError("error parsing metadata item {:?}",
+					      name);
 
 		if (plus)
 			global_tag_mask.Set(type);

@@ -1,28 +1,10 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Helper.hxx"
 #include "lib/avahi/Client.hxx"
 #include "lib/avahi/ErrorHandler.hxx"
-#include "lib/avahi/Publisher.hxx"
-#include "lib/avahi/Service.hxx"
-#include "util/RuntimeError.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "Log.hxx"
 
 #include <avahi-common/domain.h>
@@ -45,35 +27,34 @@ static std::weak_ptr<SharedAvahiClient> shared_avahi_client;
 
 inline
 AvahiHelper::AvahiHelper(std::shared_ptr<SharedAvahiClient> _client,
-			 std::unique_ptr<Avahi::Publisher> _publisher)
+			 const char *service_name,
+			 const char *service_type, unsigned port)
 	:client(std::move(_client)),
-	 publisher(std::move(_publisher)) {}
+	 publisher(client->client, service_name, *client),
+	 service(AVAHI_IF_UNSPEC, AVAHI_PROTO_UNSPEC,
+		 service_type, port)
+{
+	publisher.AddService(service);
+}
 
-AvahiHelper::~AvahiHelper() noexcept = default;
+AvahiHelper::~AvahiHelper() noexcept
+{
+	publisher.RemoveService(service);
+}
 
 std::unique_ptr<AvahiHelper>
 AvahiInit(EventLoop &event_loop, const char *service_name,
 	  const char *service_type, unsigned port)
 {
 	if (!avahi_is_valid_service_name(service_name))
-		throw FormatRuntimeError("Invalid zeroconf_name \"%s\"",
-					 service_name);
+		throw FmtRuntimeError("Invalid zeroconf_name {:?}",
+				      service_name);
 
 	auto client = shared_avahi_client.lock();
 	if (!client)
 		shared_avahi_client = client =
 			std::make_shared<SharedAvahiClient>(event_loop);
 
-	std::forward_list<Avahi::Service> services;
-	services.emplace_front(AVAHI_IF_UNSPEC,
-			       AVAHI_PROTO_UNSPEC,
-			       service_type, port);
-
-	auto publisher = std::make_unique<Avahi::Publisher>(client->client,
-							    service_name,
-							    std::move(services),
-							    *client);
-
-	return std::make_unique<AvahiHelper>(std::move(client),
-					     std::move(publisher));
+	return std::make_unique<AvahiHelper>(std::move(client), service_name,
+					     service_type, port);
 }

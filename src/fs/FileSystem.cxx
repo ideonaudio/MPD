@@ -1,26 +1,17 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "FileSystem.hxx"
 #include "AllocatedPath.hxx"
 #include "Limits.hxx"
-#include "system/Error.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/SystemError.hxx"
+
+#ifdef _WIN32
+#include <handleapi.h> // for CloseHandle()
+#include <windef.h> // for HWND (needed by winbase.h)
+#include <winbase.h> // for MoveFileEx()
+#endif
 
 #include <cerrno>
 
@@ -40,7 +31,7 @@ RenameFile(Path oldpath, Path newpath)
 }
 
 AllocatedPath
-ReadLink(Path path)
+ReadLink(Path path) noexcept
 {
 #ifdef _WIN32
 	(void)path;
@@ -67,13 +58,13 @@ TruncateFile(Path path)
 			      TRUNCATE_EXISTING, FILE_ATTRIBUTE_NORMAL,
 			      nullptr);
 	if (h == INVALID_HANDLE_VALUE)
-		throw FormatLastError("Failed to truncate %s", path.c_str());
+		throw FmtLastError("Failed to truncate {}", path);
 
 	CloseHandle(h);
 #else
 	UniqueFileDescriptor fd;
 	if (!fd.Open(path.c_str(), O_WRONLY|O_TRUNC))
-		throw FormatErrno("Failed to truncate %s", path.c_str());
+		throw FmtErrno("Failed to truncate {}", path);
 #endif
 }
 
@@ -82,9 +73,9 @@ RemoveFile(Path path)
 {
 #ifdef _WIN32
 	if (!DeleteFile(path.c_str()))
-		throw FormatLastError("Failed to delete %s", path.c_str());
+		throw FmtLastError("Failed to delete {}", path);
 #else
 	if (unlink(path.c_str()) < 0)
-		throw FormatErrno("Failed to delete %s", path.c_str());
+		throw FmtErrno("Failed to delete {}", path);
 #endif
 }

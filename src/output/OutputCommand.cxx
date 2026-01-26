@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /*
  * Glue functions for controlling the audio outputs over the MPD
@@ -25,17 +9,20 @@
  */
 
 #include "OutputCommand.hxx"
-#include "MultipleOutputs.hxx"
 #include "Client.hxx"
-#include "mixer/MixerControl.hxx"
-#include "mixer/Volume.hxx"
-#include "Idle.hxx"
+#include "mixer/Mixer.hxx"
+#include "mixer/Memento.hxx"
+#include "mixer/Listener.hxx"
+#include "protocol/IdleFlags.hxx"
+#include "Partition.hxx"
 
 extern unsigned audio_output_state_version;
 
 bool
-audio_output_enable_index(MultipleOutputs &outputs, unsigned idx)
+audio_output_enable_index(Partition &partition,
+			  unsigned idx)
 {
+	auto &outputs = partition.outputs;
 	if (idx >= outputs.Size())
 		return false;
 
@@ -43,11 +30,12 @@ audio_output_enable_index(MultipleOutputs &outputs, unsigned idx)
 	if (!ao.LockSetEnabled(true))
 		return true;
 
-	idle_add(IDLE_OUTPUT);
+	partition.EmitIdle(IDLE_OUTPUT);
 
-	if (ao.GetMixer() != nullptr) {
-		InvalidateHardwareVolume();
-		idle_add(IDLE_MIXER);
+	auto *mixer = ao.GetMixer();
+	if (mixer != nullptr) {
+		partition.mixer_memento.InvalidateHardwareVolume();
+		mixer->listener.OnMixerChanged();
 	}
 
 	ao.GetClient().ApplyEnabled();
@@ -58,8 +46,10 @@ audio_output_enable_index(MultipleOutputs &outputs, unsigned idx)
 }
 
 bool
-audio_output_disable_index(MultipleOutputs &outputs, unsigned idx)
+audio_output_disable_index(Partition &partition,
+			   unsigned idx)
 {
+	auto &outputs = partition.outputs;
 	if (idx >= outputs.Size())
 		return false;
 
@@ -67,13 +57,13 @@ audio_output_disable_index(MultipleOutputs &outputs, unsigned idx)
 	if (!ao.LockSetEnabled(false))
 		return true;
 
-	idle_add(IDLE_OUTPUT);
+	partition.EmitIdle(IDLE_OUTPUT);
 
 	auto *mixer = ao.GetMixer();
 	if (mixer != nullptr) {
-		mixer_close(mixer);
-		InvalidateHardwareVolume();
-		idle_add(IDLE_MIXER);
+		mixer->LockClose();
+		partition.mixer_memento.InvalidateHardwareVolume();
+		mixer->listener.OnMixerChanged();
 	}
 
 	ao.GetClient().ApplyEnabled();
@@ -84,21 +74,23 @@ audio_output_disable_index(MultipleOutputs &outputs, unsigned idx)
 }
 
 bool
-audio_output_toggle_index(MultipleOutputs &outputs, unsigned idx)
+audio_output_toggle_index(Partition &partition,
+			  unsigned idx)
 {
+	auto &outputs = partition.outputs;
 	if (idx >= outputs.Size())
 		return false;
 
 	auto &ao = outputs.Get(idx);
 	const bool enabled = ao.LockToggleEnabled();
-	idle_add(IDLE_OUTPUT);
+	partition.EmitIdle(IDLE_OUTPUT);
 
 	if (!enabled) {
 		auto *mixer = ao.GetMixer();
 		if (mixer != nullptr) {
-			mixer_close(mixer);
-			InvalidateHardwareVolume();
-			idle_add(IDLE_MIXER);
+			mixer->LockClose();
+			partition.mixer_memento.InvalidateHardwareVolume();
+			mixer->listener.OnMixerChanged();
 		}
 	}
 

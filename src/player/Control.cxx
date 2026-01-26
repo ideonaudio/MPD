@@ -1,26 +1,9 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Control.hxx"
 #include "Outputs.hxx"
 #include "Listener.hxx"
-#include "Idle.hxx"
 #include "song/DetachedSong.hxx"
 
 #include <algorithm>
@@ -64,7 +47,7 @@ PlayerControl::Play(std::unique_ptr<DetachedSong> song)
 
 	assert(song != nullptr);
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 	SeekLocked(lock, std::move(song), SongTime::zero());
 
 	if (state == PlayerState::PAUSE)
@@ -91,7 +74,7 @@ PlayerControl::LockStop() noexcept
 	LockSynchronousCommand(PlayerCommand::CLOSE_AUDIO);
 	assert(next_song == nullptr);
 
-	idle_add(IDLE_PLAYER);
+	listener.OnPlayerStateChanged();
 }
 
 void
@@ -112,22 +95,22 @@ PlayerControl::Kill() noexcept
 	LockSynchronousCommand(PlayerCommand::EXIT);
 	thread.Join();
 
-	idle_add(IDLE_PLAYER);
+	listener.OnPlayerStateChanged();
 }
 
-void
+inline void
 PlayerControl::PauseLocked(std::unique_lock<Mutex> &lock) noexcept
 {
 	if (state != PlayerState::STOP) {
 		SynchronousCommand(lock, PlayerCommand::PAUSE);
-		idle_add(IDLE_PLAYER);
+		listener.OnPlayerStateChanged();
 	}
 }
 
 void
 PlayerControl::LockPause() noexcept
 {
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 	PauseLocked(lock);
 }
 
@@ -137,7 +120,7 @@ PlayerControl::LockSetPause(bool pause_flag) noexcept
 	if (!thread.IsDefined())
 		return;
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 
 	switch (state) {
 	case PlayerState::STOP:
@@ -158,7 +141,7 @@ PlayerControl::LockSetPause(bool pause_flag) noexcept
 void
 PlayerControl::LockSetBorderPause(bool _border_pause) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	border_pause = _border_pause;
 }
 
@@ -167,7 +150,7 @@ PlayerControl::LockGetStatus() noexcept
 {
 	PlayerStatus status;
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 	if (!occupied && thread.IsDefined())
 		SynchronousCommand(lock, PlayerCommand::REFRESH);
 
@@ -199,14 +182,14 @@ PlayerControl::SetError(PlayerError type, std::exception_ptr &&_error) noexcept
 void
 PlayerControl::LockClearError() noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	ClearError();
 }
 
 void
 PlayerControl::LockSetTaggedSong(const DetachedSong &song) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	tagged_song.reset();
 	tagged_song = std::make_unique<DetachedSong>(song);
 }
@@ -226,7 +209,7 @@ PlayerControl::ReadTaggedSong() noexcept
 std::unique_ptr<DetachedSong>
 PlayerControl::LockReadTaggedSong() noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	return ReadTaggedSong();
 }
 
@@ -236,13 +219,13 @@ PlayerControl::LockEnqueueSong(std::unique_ptr<DetachedSong> song) noexcept
 	assert(thread.IsDefined());
 	assert(song != nullptr);
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 	EnqueueSongLocked(lock, std::move(song));
 }
 
-void
+inline void
 PlayerControl::EnqueueSongLocked(std::unique_lock<Mutex> &lock,
-				 std::unique_ptr<DetachedSong> song) noexcept
+				 std::unique_ptr<DetachedSong> &&song) noexcept
 {
 	assert(song != nullptr);
 	assert(next_song == nullptr);
@@ -252,9 +235,9 @@ PlayerControl::EnqueueSongLocked(std::unique_lock<Mutex> &lock,
 	SynchronousCommand(lock, PlayerCommand::QUEUE);
 }
 
-void
+inline void
 PlayerControl::SeekLocked(std::unique_lock<Mutex> &lock,
-			  std::unique_ptr<DetachedSong> song, SongTime t)
+			  std::unique_ptr<DetachedSong> &&song, SongTime t)
 {
 	assert(song != nullptr);
 
@@ -295,7 +278,7 @@ PlayerControl::LockSeek(std::unique_ptr<DetachedSong> song, SongTime t)
 
 	assert(song != nullptr);
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 	SeekLocked(lock, std::move(song), t);
 }
 
@@ -304,7 +287,7 @@ PlayerControl::SetCrossFade(FloatDuration duration) noexcept
 {
 	cross_fade.duration = std::max(duration, FloatDuration::zero());
 
-	idle_add(IDLE_OPTIONS);
+	listener.OnPlayerOptionsChanged();
 }
 
 void
@@ -312,7 +295,7 @@ PlayerControl::SetMixRampDb(float _mixramp_db) noexcept
 {
 	cross_fade.mixramp_db = _mixramp_db;
 
-	idle_add(IDLE_OPTIONS);
+	listener.OnPlayerOptionsChanged();
 }
 
 void
@@ -320,5 +303,5 @@ PlayerControl::SetMixRampDelay(FloatDuration _mixramp_delay) noexcept
 {
 	cross_fade.mixramp_delay = _mixramp_delay;
 
-	idle_add(IDLE_OPTIONS);
+	listener.OnPlayerOptionsChanged();
 }

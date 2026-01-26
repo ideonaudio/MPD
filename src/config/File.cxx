@@ -1,36 +1,21 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "File.hxx"
 #include "Data.hxx"
 #include "Param.hxx"
 #include "Block.hxx"
 #include "Templates.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "system/Error.hxx"
 #include "util/Tokenizer.hxx"
 #include "util/StringStrip.hxx"
 #include "util/StringAPI.hxx"
 #include "util/Domain.hxx"
-#include "util/RuntimeError.hxx"
 #include "fs/FileSystem.hxx"
 #include "fs/List.hxx"
-#include "fs/Path.hxx"
+#include "fs/AllocatedPath.hxx"
 #include "io/FileReader.hxx"
 #include "io/BufferedReader.hxx"
 #include "Log.hxx"
@@ -45,10 +30,10 @@ static constexpr Domain config_file_domain("config_file");
  * Read a string value as the last token of a line.  Throws on error.
  */
 static auto
-ExpectValueAndEnd(Tokenizer &tokenizer)
+ExpectValueAndEnd(Tokenizer &tokenizer, bool repeatable)
 {
 	auto value = tokenizer.NextString();
-	if (!value)
+	if (!repeatable && !value)
 		throw std::runtime_error("Value missing");
 
 	if (!tokenizer.IsEnd() && tokenizer.CurrentChar() != CONF_COMMENT)
@@ -65,12 +50,12 @@ config_read_name_value(ConfigBlock &block, char *input, unsigned line)
 	const char *name = tokenizer.NextWord();
 	assert(name != nullptr);
 
-	auto value = ExpectValueAndEnd(tokenizer);
+	auto value = ExpectValueAndEnd(tokenizer, false);
 
 	const BlockParam *bp = block.GetBlockParam(name);
 	if (bp != nullptr)
-		throw FormatRuntimeError("\"%s\" is duplicate, first defined on line %i",
-					 name, bp->line);
+		throw FmtRuntimeError("{:?} is duplicate, first defined on line {}",
+				      name, bp->line);
 
 	block.AddBlockParam(name, value, line);
 }
@@ -117,15 +102,15 @@ ReadConfigBlock(ConfigData &config_data, BufferedReader &reader,
 
 	if (option.deprecated)
 		FmtWarning(config_file_domain,
-			   "config parameter \"{}\" on line {} is deprecated",
+			   "config parameter {:?} on line {} is deprecated",
 			   name, reader.GetLineNumber());
 
 	if (!option.repeatable)
 		if (const auto *block = config_data.GetBlock(o))
-			throw FormatRuntimeError("config parameter \"%s\" is first defined "
-						 "on line %d and redefined on line %u\n",
-						 name, block->line,
-						 reader.GetLineNumber());
+			throw FmtRuntimeError("config parameter {:?} is first defined "
+					      "on line {} and redefined on line {}",
+					      name, block->line,
+					      reader.GetLineNumber());
 
 	/* now parse the block or the value */
 
@@ -149,17 +134,26 @@ ReadConfigParam(ConfigData &config_data, BufferedReader &reader,
 
 	if (option.deprecated)
 		FmtWarning(config_file_domain,
-			   "config parameter \"{}\" on line {} is deprecated",
+			   "config parameter {:?} on line {} is deprecated",
 			   name, reader.GetLineNumber());
+
+	auto value = ExpectValueAndEnd(tokenizer, option.repeatable);
 
 	if (!option.repeatable)
 		/* if the option is not repeatable, override the old
 		   value by removing it first */
 		config_data.GetParamList(o).clear();
+	else if(!value)
+	{
+		/* if it is a repeatable param and the value is empty
+		   clear the old values to allow resetting it */
+		config_data.GetParamList(o).clear();
+		return;
+	}
 
 	/* now parse the block or the value */
 
-	config_data.AddParam(o, ConfigParam(ExpectValueAndEnd(tokenizer),
+	config_data.AddParam(o, ConfigParam(value,
 					    reader.GetLineNumber()));
 }
 
@@ -189,7 +183,7 @@ ReadConfigFile(ConfigData &config_data, BufferedReader &reader, Path directory)
 			// TODO: detect recursion
 			// TODO: Config{Block,Param} have only line number but no file name
 			const auto pattern = AllocatedPath::Apply(directory,
-								  AllocatedPath::FromUTF8Throw(ExpectValueAndEnd(tokenizer)));
+								  AllocatedPath::FromUTF8Throw(ExpectValueAndEnd(tokenizer, false)));
 			for (const auto &path : ListWildcard(pattern))
 				ReadConfigFile(config_data, path);
 			continue;
@@ -197,7 +191,7 @@ ReadConfigFile(ConfigData &config_data, BufferedReader &reader, Path directory)
 
 		if (StringIsEqual(name, "include_optional")) {
 			const auto pattern = AllocatedPath::Apply(directory,
-								  AllocatedPath::FromUTF8Throw(ExpectValueAndEnd(tokenizer)));
+								  AllocatedPath::FromUTF8Throw(ExpectValueAndEnd(tokenizer, false)));
 
 			std::forward_list<AllocatedPath> l;
 			try {
@@ -226,8 +220,8 @@ ReadConfigFile(ConfigData &config_data, BufferedReader &reader, Path directory)
 			ReadConfigBlock(config_data, reader, name, bo,
 					tokenizer);
 		} else {
-			throw FormatRuntimeError("unrecognized parameter: %s\n",
-						 name);
+			throw FmtRuntimeError("unrecognized parameter: {:?}",
+					      name);
 		}
 	}
 }
@@ -236,9 +230,8 @@ void
 ReadConfigFile(ConfigData &config_data, Path path)
 {
 	assert(!path.IsNull());
-	const std::string path_utf8 = path.ToUTF8();
 
-	FmtDebug(config_file_domain, "loading file {}", path_utf8);
+	FmtDebug(config_file_domain, "loading file {:?}", path);
 
 	FileReader file(path);
 
@@ -247,8 +240,8 @@ ReadConfigFile(ConfigData &config_data, Path path)
 	try {
 		ReadConfigFile(config_data, reader, path.GetDirectoryName());
 	} catch (...) {
-		std::throw_with_nested(FormatRuntimeError("Error in %s line %u",
-							  path_utf8.c_str(),
-							  reader.GetLineNumber()));
+		std::throw_with_nested(FmtRuntimeError("Error in {:?} line {}",
+						       path,
+						       reader.GetLineNumber()));
 	}
 }

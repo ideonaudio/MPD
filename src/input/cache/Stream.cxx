@@ -1,27 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Stream.hxx"
 
 CacheInputStream::CacheInputStream(InputCacheLease _lease,
 				   Mutex &_mutex) noexcept
-	:InputStream(_lease->GetUri(), _mutex),
+	:InputStream(_lease->GetUri().c_str(), _mutex),
 	 InputCacheLease(std::move(_lease))
 {
 	const auto &i = GetCacheItem();
@@ -36,7 +20,7 @@ CacheInputStream::Check()
 	const ScopeUnlock unlock(mutex);
 
 	auto &i = GetCacheItem();
-	const std::scoped_lock<Mutex> protect(i.mutex);
+	const std::scoped_lock protect{i.mutex};
 
 	i.Check();
 }
@@ -60,14 +44,14 @@ CacheInputStream::IsAvailable() const noexcept
 	const ScopeUnlock unlock(mutex);
 
 	auto &i = GetCacheItem();
-	const std::scoped_lock<Mutex> protect(i.mutex);
+	const std::scoped_lock protect{i.mutex};
 
 	return i.IsAvailable(_offset);
 }
 
 size_t
 CacheInputStream::Read(std::unique_lock<Mutex> &lock,
-		       void *ptr, size_t read_size)
+		       std::span<std::byte> dest)
 {
 	const auto _offset = offset;
 	auto &i = GetCacheItem();
@@ -76,9 +60,9 @@ CacheInputStream::Read(std::unique_lock<Mutex> &lock,
 
 	{
 		const ScopeUnlock unlock(mutex);
-		const std::scoped_lock<Mutex> protect(i.mutex);
+		const std::scoped_lock protect{i.mutex};
 
-		nbytes = i.Read(lock, _offset, ptr, read_size);
+		nbytes = i.Read(lock, _offset, dest);
 	}
 
 	offset += nbytes;
@@ -91,6 +75,6 @@ CacheInputStream::OnInputCacheAvailable() noexcept
 	auto &i = GetCacheItem();
 	const ScopeUnlock unlock(i.mutex);
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	InvokeOnAvailable();
 }

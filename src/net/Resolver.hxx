@@ -1,43 +1,30 @@
-/*
- * Copyright 2007-2022 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
-#ifndef NET_RESOLVER_HXX
-#define NET_RESOLVER_HXX
+#pragma once
+
+#include <system_error>
 
 class AddressInfoList;
+
+class ResolverErrorCategory final : public std::error_category {
+public:
+	const char *name() const noexcept override {
+		return "gai";
+	}
+
+	std::string message(int condition) const override;
+};
+
+extern ResolverErrorCategory resolver_error_category;
 
 /**
  * Thin wrapper for getaddrinfo() which throws on error and returns a
  * RAII object.
+ *
+ * getaddrinfo() errors are thrown as std::system_error with
+ * #resolver_error_category.
  */
 AddressInfoList
 Resolve(const char *node, const char *service,
@@ -50,7 +37,8 @@ Resolve(const char *node, const char *service,
  * This is a wrapper for getaddrinfo() and it does not support local
  * sockets.
  *
- * Throws on error.
+ * Throws on error.  Resolver errors are thrown as std::system_error
+ * with #resolver_error_category.
  */
 AddressInfoList
 Resolve(const char *host_and_port, int default_port,
@@ -58,5 +46,3 @@ Resolve(const char *host_and_port, int default_port,
 
 AddressInfoList
 Resolve(const char *host_port, unsigned default_port, int flags, int socktype);
-
-#endif

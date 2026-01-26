@@ -1,35 +1,20 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_CLIENT_H
-#define MPD_CLIENT_H
+#pragma once
 
+#include "IClient.hxx"
 #include "Message.hxx"
+#include "ProtocolFeature.hxx"
+#include "client/StringNormalization.hxx"
 #include "command/CommandResult.hxx"
 #include "command/CommandListBuilder.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "input/LastInputStream.hxx"
 #include "tag/Mask.hxx"
 #include "event/FullyBufferedSocket.hxx"
 #include "event/CoarseTimerEvent.hxx"
-
-#include <boost/intrusive/link_mode.hpp>
-#include <boost/intrusive/list_hook.hpp>
+#include "util/IntrusiveList.hxx"
 
 #include <cstddef>
 #include <list>
@@ -38,6 +23,7 @@
 #include <string>
 
 class SocketAddress;
+class SocketPeerCredentials;
 class UniqueSocketDescriptor;
 class EventLoop;
 class Path;
@@ -50,10 +36,15 @@ class Storage;
 class BackgroundCommand;
 
 class Client final
-	: FullyBufferedSocket,
-	  public boost::intrusive::list_base_hook<boost::intrusive::tag<Partition>,
-						  boost::intrusive::link_mode<boost::intrusive::normal_link>>,
-	  public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::normal_link>> {
+	: public IClient, FullyBufferedSocket
+{
+	friend struct ClientPerPartitionListHook;
+	friend class ClientList;
+
+	const std::string name;
+
+	IntrusiveListHook<> list_siblings, partition_siblings;
+
 	CoarseTimerEvent timeout_event;
 
 	Partition *partition;
@@ -64,8 +55,6 @@ class Client final
 	const int uid;
 
 	CommandListBuilder cmd_list;
-
-	const unsigned int num;	/* client number */
 
 	/** is this client waiting for an "idle" response? */
 	bool idle_waiting = false;
@@ -103,7 +92,7 @@ private:
 	/**
 	 * A list of channel names this client is subscribed to.
 	 */
-	std::set<std::string> subscriptions;
+	std::set<std::string, std::less<>> subscriptions;
 
 	/**
 	 * The number of subscriptions in #subscriptions.  Used to
@@ -126,11 +115,21 @@ private:
 	 */
 	std::unique_ptr<BackgroundCommand> background_command;
 
+	/**
+	 * Bitmask of protocol features.
+	 */
+	ProtocolFeature protocol_feature = ProtocolFeature::None();
+
+	/**
+	 * Bitmask of string normalizations
+	 */
+	StringNormalization string_normalization = StringNormalization::None();
+
 public:
 	Client(EventLoop &loop, Partition &partition,
 	       UniqueSocketDescriptor fd, int uid,
 	       unsigned _permission,
-	       int num) noexcept;
+	       std::string &&_name) noexcept;
 
 	~Client() noexcept;
 
@@ -159,14 +158,6 @@ public:
 	}
 
 	/**
-	 * returns the uid of the client process, or a negative value
-	 * if the uid is unknown
-	 */
-	int GetUID() const noexcept {
-		return uid;
-	}
-
-	/**
 	 * Is this client running on the same machine, connected with
 	 * a local (UNIX domain) socket?
 	 */
@@ -180,6 +171,52 @@ public:
 
 	void SetPermission(unsigned _permission) noexcept {
 		permission = _permission;
+	}
+
+	ProtocolFeature GetProtocolFeatures() const noexcept {
+		return protocol_feature;
+	}
+
+	void SetProtocolFeatures(ProtocolFeature features, bool enable) noexcept {
+		if (enable)
+			protocol_feature.Set(features);
+		else
+			protocol_feature.Unset(features);
+	}
+
+	void AllProtocolFeatures() noexcept {
+		protocol_feature.SetAll();
+	}
+
+	void ClearProtocolFeatures() noexcept {
+		protocol_feature.Clear();
+	}
+
+	bool ProtocolFeatureEnabled(enum ProtocolFeatureType value) noexcept {
+		return protocol_feature.Test(value);
+	}
+
+	StringNormalization GetStringNormalizations() const noexcept {
+		return string_normalization;
+	}
+
+	void SetStringNormalizations(StringNormalization features, bool enable) noexcept {
+		if (enable)
+			string_normalization.Set(features);
+		else
+			string_normalization.Unset(features);
+	}
+
+	void AllStringNormalizations() noexcept {
+		string_normalization.SetAll();
+	}
+
+	void ClearStringNormalizations() noexcept {
+		string_normalization.Clear();
+	}
+
+	bool StringNormalizationEnabled(enum StringNormalizationType value) noexcept {
+		return string_normalization.Test(value);
 	}
 
 	/**
@@ -238,19 +275,6 @@ public:
 		}
 	}
 
-	/**
-	 * Is this client allowed to use the specified local file?
-	 *
-	 * Note that this function is vulnerable to timing/symlink attacks.
-	 * We cannot fix this as long as there are plugins that open a file by
-	 * its name, and not by file descriptor / callbacks.
-	 *
-	 * Throws #std::runtime_error on error.
-	 *
-	 * @param path_fs the absolute path name in filesystem encoding
-	 */
-	void AllowFile(Path path_fs) const;
-
 	Partition &GetPartition() const noexcept {
 		return *partition;
 	}
@@ -267,18 +291,17 @@ public:
 	PlayerControl &GetPlayerControl() const noexcept;
 
 	/**
-	 * Wrapper for Instance::GetDatabase().
-	 */
-	[[gnu::pure]]
-	const Database *GetDatabase() const noexcept;
-
-	/**
 	 * Wrapper for Instance::GetDatabaseOrThrow().
 	 */
 	const Database &GetDatabaseOrThrow() const;
 
-	[[gnu::pure]]
-	const Storage *GetStorage() const noexcept;
+	// virtual methods from class IClient
+	void AllowFile(Path path_fs) const override;
+
+#ifdef ENABLE_DATABASE
+	const Database *GetDatabase() const noexcept override;
+	Storage *GetStorage() const noexcept override;
+#endif // ENABLE_DATABASE
 
 private:
 	CommandResult ProcessCommandList(bool list_ok,
@@ -287,7 +310,7 @@ private:
 	CommandResult ProcessLine(char *line) noexcept;
 
 	/* virtual methods from class BufferedSocket */
-	InputResult OnSocketInput(void *data, size_t length) noexcept override;
+	InputResult OnSocketInput(std::span<std::byte> src) noexcept override;
 	void OnSocketError(std::exception_ptr ep) noexcept override;
 	void OnSocketClosed() noexcept override;
 
@@ -295,9 +318,11 @@ private:
 	void OnTimeout() noexcept;
 };
 
+struct ClientPerPartitionListHook
+	: IntrusiveListMemberHookTraits<&Client::partition_siblings> {};
+
 void
 client_new(EventLoop &loop, Partition &partition,
-	   UniqueSocketDescriptor fd, SocketAddress address, int uid,
+	   UniqueSocketDescriptor fd, SocketAddress address,
+	   SocketPeerCredentials cred,
 	   unsigned permission) noexcept;
-
-#endif

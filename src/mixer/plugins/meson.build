@@ -6,7 +6,7 @@ mixer_plugins_sources = [
 if alsa_dep.found()
   mixer_plugins_sources += [
     'AlsaMixerPlugin.cxx',
-    'volume_mapping.c',
+    'VolumeMapping.cxx',
   ]
 endif
 
@@ -46,6 +46,7 @@ mixer_plugins = static_library(
   mixer_plugins_sources,
   include_directories: inc,
   dependencies: [
+    mixer_api_dep,
     alsa_dep,
     pulse_dep,
     libsndio_dep,

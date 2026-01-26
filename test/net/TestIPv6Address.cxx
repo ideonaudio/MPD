@@ -1,34 +1,10 @@
-/*
- * Copyright 2012-2020 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
+#include "net/Init.hxx"
 #include "net/IPv6Address.hxx"
 #include "net/ToString.hxx"
+#include "util/Compiler.h"
 
 #include <gtest/gtest.h>
 
@@ -37,6 +13,67 @@
 #ifndef _WIN32
 #include <arpa/inet.h>
 #endif
+
+#if GCC_CHECK_VERSION(11,0)
+/* suppress warning for calling GetSize() on uninitialized object */
+#pragma GCC diagnostic ignored "-Wmaybe-uninitialized"
+#endif
+
+TEST(IPv6AddressTest, Basic)
+{
+	IPv6Address dummy;
+	EXPECT_EQ(dummy.GetSize(), sizeof(struct sockaddr_in6));
+}
+
+TEST(IPv6AddressTest, Port)
+{
+	IPv6Address a(12345);
+	EXPECT_EQ(a.GetPort(), 12345u);
+
+	a.SetPort(42);
+	EXPECT_EQ(a.GetPort(), 42u);
+}
+
+static bool
+operator==(const struct in6_addr &a, const struct in6_addr &b)
+{
+	return memcmp(&a, &b, sizeof(a)) == 0;
+}
+
+TEST(IPv6AddressTest, Mask)
+{
+	EXPECT_EQ(IPv6Address::MaskFromPrefix(0).GetAddress(),
+		  IPv6Address(0, 0, 0, 0, 0, 0, 0, 0, 0).GetAddress());
+	EXPECT_EQ(IPv6Address::MaskFromPrefix(128).GetAddress(),
+		  IPv6Address(0xffff, 0xffff, 0xffff, 0xffff,
+			      0xffff, 0xffff, 0xffff, 0xffff, 0).GetAddress());
+	EXPECT_EQ(IPv6Address::MaskFromPrefix(127).GetAddress(),
+		  IPv6Address(0xffff, 0xffff, 0xffff, 0xffff,
+			      0xffff, 0xffff, 0xffff, 0xfffe, 0).GetAddress());
+	EXPECT_EQ(IPv6Address::MaskFromPrefix(64).GetAddress(),
+		  IPv6Address(0xffff, 0xffff, 0xffff, 0xffff,
+			      0, 0, 0, 0, 0).GetAddress());
+	EXPECT_EQ(IPv6Address::MaskFromPrefix(56).GetAddress(),
+		  IPv6Address(0xffff, 0xffff, 0xffff, 0xff00,
+			      0, 0, 0, 0, 0).GetAddress());
+}
+
+TEST(IPv6AddressTest, And)
+{
+	EXPECT_EQ((IPv6Address::MaskFromPrefix(128) &
+		   IPv6Address::MaskFromPrefix(56)).GetAddress(),
+		  IPv6Address::MaskFromPrefix(56).GetAddress());
+	EXPECT_EQ((IPv6Address::MaskFromPrefix(48) &
+		   IPv6Address(0x2a00, 0x1450, 0x4001, 0x816,
+			       0, 0, 0, 0x200e, 0)).GetAddress(),
+		  IPv6Address(0x2a00, 0x1450, 0x4001, 0,
+			      0, 0, 0, 0, 0).GetAddress());
+	EXPECT_EQ((IPv6Address::MaskFromPrefix(24) &
+		   IPv6Address(0x2a00, 0x1450, 0x4001, 0x816,
+			       0, 0, 0, 0x200e, 0)).GetAddress(),
+		  IPv6Address(0x2a00, 0x1400, 0, 0,
+			      0, 0, 0, 0, 0).GetAddress());
+}
 
 static std::string
 ToString(const struct in6_addr &a)
@@ -57,6 +94,8 @@ ToString(const struct in6_addr &a)
 
 TEST(IPv6Address, Octets)
 {
+	const ScopeNetInit net_init;
+
 	static constexpr auto a = IPv6Address(0x1110, 0x2220, 0x3330, 0x4440,
 					      0x5550, 0x6660, 0x7770, 0x8880,
 					      1234);
@@ -65,12 +104,16 @@ TEST(IPv6Address, Octets)
 
 TEST(IPv6Address, Any)
 {
+	const ScopeNetInit net_init;
+
 	EXPECT_EQ(ToString(IPv6Address(1234).GetAddress()), "::");
 	EXPECT_EQ(ToString(IPv6Address(1234)), "[::]:1234");
 }
 
 TEST(IPv6Address, Port)
 {
+	const ScopeNetInit net_init;
+
 	EXPECT_EQ(IPv6Address(0).GetPort(), 0);
 	EXPECT_EQ(IPv6Address(1).GetPort(), 1);
 	EXPECT_EQ(IPv6Address(1234).GetPort(), 1234);
@@ -79,6 +122,8 @@ TEST(IPv6Address, Port)
 
 TEST(IPv6Address, MaskFromPrefix)
 {
+	const ScopeNetInit net_init;
+
 	EXPECT_EQ(ToString(IPv6Address::MaskFromPrefix(0).GetAddress()), "::");
 	EXPECT_EQ(ToString(IPv6Address::MaskFromPrefix(1).GetAddress()), "8000::");
 	EXPECT_EQ(ToString(IPv6Address::MaskFromPrefix(8).GetAddress()), "ff00::");

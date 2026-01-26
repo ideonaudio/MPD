@@ -1,44 +1,30 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
 #include "AlsaOutputPlugin.hxx"
 #include "lib/alsa/AllowedFormat.hxx"
+#include "lib/alsa/ChannelMap.hxx"
 #include "lib/alsa/Error.hxx"
 #include "lib/alsa/HwSetup.hxx"
 #include "lib/alsa/NonBlock.hxx"
 #include "lib/alsa/PeriodBuffer.hxx"
-#include "lib/alsa/Version.hxx"
+#include "lib/fmt/RuntimeError.hxx"
+#include "lib/fmt/ToBuffer.hxx"
 #include "../OutputAPI.hxx"
 #include "../Error.hxx"
-#include "mixer/MixerList.hxx"
+#include "mixer/plugins/AlsaMixerPlugin.hxx"
 #include "pcm/Export.hxx"
-#include "system/PeriodClock.hxx"
+#include "pcm/Features.h" // for ENABLE_DSD
+#include "time/PeriodClock.hxx"
 #include "thread/Mutex.hxx"
 #include "thread/Cond.hxx"
 #include "util/Manual.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/Domain.hxx"
 #include "event/MultiSocketMonitor.hxx"
 #include "event/InjectEvent.hxx"
 #include "event/FineTimerEvent.hxx"
 #include "event/Call.hxx"
+#include "util/RingBuffer.hxx"
 #include "Log.hxx"
 
 #ifdef ENABLE_DSD
@@ -47,8 +33,7 @@
 
 #include <alsa/asoundlib.h>
 
-#include <boost/lockfree/spsc_queue.hpp>
-
+#include <atomic>
 #include <string>
 #include <forward_list>
 
@@ -57,8 +42,8 @@ static const char default_device[] = "default";
 static constexpr unsigned MPD_ALSA_BUFFER_TIME_US = 500000;
 
 class AlsaOutput final
-	: AudioOutput, MultiSocketMonitor {
-
+	: AudioOutput, MultiSocketMonitor
+{
 	InjectEvent defer_invalidate_sockets;
 
 	/**
@@ -79,6 +64,80 @@ class AlsaOutput final
 	 * default device
 	 */
 	const std::string device;
+
+	std::forward_list<Alsa::AllowedFormat> allowed_formats;
+
+	/**
+	 * Protects #dop_setting and #allowed_formats.
+	 */
+	mutable Mutex attributes_mutex;
+
+	/** the libasound PCM device handle */
+	snd_pcm_t *pcm;
+
+	/**
+	 * The size of one audio frame passed to method play().
+	 */
+	size_t in_frame_size;
+
+	/**
+	 * The size of one audio frame passed to libasound.
+	 */
+	size_t out_frame_size;
+
+	Event::Duration effective_period_duration;
+
+	/**
+	 * This buffer gets allocated after opening the ALSA device.
+	 * It contains silence samples, enough to fill one period (see
+	 * #period_frames).
+	 */
+	std::byte *silence;
+
+	Alsa::NonBlockPcm non_block;
+
+	/**
+	 * For copying data from OutputThread to IOThread.
+	 */
+	using RingBuffer = ::RingBuffer<std::byte>;
+	RingBuffer ring_buffer;
+
+	Alsa::PeriodBuffer period_buffer;
+
+	/**
+	 * Protects #cond, #error, #active, #waiting, #drain.
+	 */
+	mutable Mutex mutex;
+
+	/**
+	 * Used to wait when #ring_buffer is full.  It will be
+	 * signalled each time data is popped from the #ring_buffer,
+	 * making space for more data.
+	 */
+	Cond cond;
+
+	std::exception_ptr error;
+
+	/**
+	 * The size of one period, in number of frames.
+	 */
+	snd_pcm_uframes_t period_frames;
+
+	/**
+	 * If snd_pcm_avail() goes above this value and no more data
+	 * is available in the #ring_buffer, we need to play some
+	 * silence.
+	 */
+	snd_pcm_sframes_t max_avail_frames;
+
+	/** libasound's buffer_time setting (in microseconds) */
+	const unsigned buffer_time;
+
+	/** libasound's period_time setting (in microseconds) */
+	const unsigned period_time;
+
+	/** the mode flags passed to snd_pcm_open */
+	const int mode;
 
 #ifdef ENABLE_DSD
 	/**
@@ -115,60 +174,6 @@ class AlsaOutput final
 
 	bool need_thesycon_dsd_workaround = thesycon_dsd_workaround;
 #endif
-
-	/** libasound's buffer_time setting (in microseconds) */
-	const unsigned buffer_time;
-
-	/** libasound's period_time setting (in microseconds) */
-	const unsigned period_time;
-
-	/** the mode flags passed to snd_pcm_open */
-	const int mode;
-
-	std::forward_list<Alsa::AllowedFormat> allowed_formats;
-
-	/**
-	 * Protects #dop_setting and #allowed_formats.
-	 */
-	mutable Mutex attributes_mutex;
-
-	/** the libasound PCM device handle */
-	snd_pcm_t *pcm;
-
-	/**
-	 * The size of one audio frame passed to method play().
-	 */
-	size_t in_frame_size;
-
-	/**
-	 * The size of one audio frame passed to libasound.
-	 */
-	size_t out_frame_size;
-
-	/**
-	 * The size of one period, in number of frames.
-	 */
-	snd_pcm_uframes_t period_frames;
-
-	Event::Duration effective_period_duration;
-
-	/**
-	 * If snd_pcm_avail() goes above this value and no more data
-	 * is available in the #ring_buffer, we need to play some
-	 * silence.
-	 */
-	snd_pcm_sframes_t max_avail_frames;
-
-	/**
-	 * Is this a buggy alsa-lib version, which needs a workaround
-	 * for the snd_pcm_drain() bug always returning -EAGAIN?  See
-	 * alsa-lib commits fdc898d41135 and e4377b16454f for details.
-	 * This bug was fixed in alsa-lib version 1.1.4.
-	 *
-	 * The workaround is to re-enable blocking mode for the
-	 * snd_pcm_drain() call.
-	 */
-	bool work_around_drain_bug;
 
 	/**
 	 * After Open() or Cancel(), has this output been activated by
@@ -219,34 +224,13 @@ class AlsaOutput final
 	bool interrupted;
 
 	/**
-	 * This buffer gets allocated after opening the ALSA device.
-	 * It contains silence samples, enough to fill one period (see
-	 * #period_frames).
+	 * Close the ALSA PCM while playback is paused?  This defaults
+         * to true because this allows other applications to use the
+         * PCM while MPD is paused.
 	 */
-	std::byte *silence;
+	const bool close_on_pause;
 
-	AlsaNonBlockPcm non_block;
-
-	/**
-	 * For copying data from OutputThread to IOThread.
-	 */
-	boost::lockfree::spsc_queue<std::byte> *ring_buffer;
-
-	Alsa::PeriodBuffer period_buffer;
-
-	/**
-	 * Protects #cond, #error, #active, #waiting, #drain.
-	 */
-	mutable Mutex mutex;
-
-	/**
-	 * Used to wait when #ring_buffer is full.  It will be
-	 * signalled each time data is popped from the #ring_buffer,
-	 * making space for more data.
-	 */
-	Cond cond;
-
-	std::exception_ptr error;
+	std::atomic_bool paused;
 
 public:
 	AlsaOutput(EventLoop &loop, const ConfigBlock &block);
@@ -261,7 +245,7 @@ public:
 
 	using MultiSocketMonitor::GetEventLoop;
 
-	gcc_pure
+	[[gnu::pure]]
 	const char *GetDevice() const noexcept {
 		return device.empty() ? default_device : device.c_str();
 	}
@@ -272,7 +256,12 @@ public:
 	}
 
 private:
-	std::map<std::string, std::string> GetAttributes() const noexcept override;
+	void UnregisterSockets() noexcept {
+		MultiSocketMonitor::Reset();
+		defer_invalidate_sockets.Cancel();
+	}
+
+	std::map<std::string, std::string, std::less<>> GetAttributes() const noexcept override;
 	void SetAttribute(std::string &&name, std::string &&value) override;
 
 	void Enable() override;
@@ -282,6 +271,7 @@ private:
 	void Close() noexcept override;
 
 	void Interrupt() noexcept override;
+	std::chrono::steady_clock::duration Delay() const noexcept override;
 
 	std::size_t Play(std::span<const std::byte> src) override;
 	void Drain() override;
@@ -307,15 +297,15 @@ private:
 #endif
 			);
 
-	gcc_pure
+	[[gnu::pure]]
 	bool LockIsActive() const noexcept {
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		return active;
 	}
 
-	gcc_pure
+	[[gnu::pure]]
 	bool LockIsActiveAndNotWaiting() const noexcept {
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		return active && !waiting;
 	}
 
@@ -381,7 +371,7 @@ private:
 	void LockCaughtError() noexcept {
 		period_buffer.Clear();
 
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		error = std::current_exception();
 		active = false;
 		waiting = false;
@@ -396,7 +386,7 @@ private:
 	 */
 	void OnSilenceTimer() noexcept {
 		{
-			const std::scoped_lock<Mutex> lock(mutex);
+			const std::scoped_lock lock{mutex};
 			assert(active);
 			waiting = false;
 		}
@@ -435,11 +425,15 @@ GetAlsaOpenMode(const ConfigBlock &block)
 }
 
 AlsaOutput::AlsaOutput(EventLoop &_loop, const ConfigBlock &block)
-	:AudioOutput(FLAG_ENABLE_DISABLE),
+	:AudioOutput(FLAG_ENABLE_DISABLE|FLAG_PAUSE),
 	 MultiSocketMonitor(_loop),
 	 defer_invalidate_sockets(_loop, BIND_THIS_METHOD(InvalidateSockets)),
 	 silence_timer(_loop, BIND_THIS_METHOD(OnSilenceTimer)),
 	 device(block.GetBlockValue("device", "")),
+	 buffer_time(block.GetPositiveValue("buffer_time",
+					    MPD_ALSA_BUFFER_TIME_US)),
+	 period_time(block.GetPositiveValue("period_time", 0U)),
+	 mode(GetAlsaOpenMode(block)),
 #ifdef ENABLE_DSD
 	 dop_setting(block.GetBlockValue("dop", false) ||
 		     /* legacy name from MPD 0.18 and older: */
@@ -448,10 +442,7 @@ AlsaOutput::AlsaOutput(EventLoop &_loop, const ConfigBlock &block)
 	 thesycon_dsd_workaround(block.GetBlockValue("thesycon_dsd_workaround",
 						     false)),
 #endif
-	 buffer_time(block.GetPositiveValue("buffer_time",
-					    MPD_ALSA_BUFFER_TIME_US)),
-	 period_time(block.GetPositiveValue("period_time", 0U)),
-	 mode(GetAlsaOpenMode(block))
+	close_on_pause(block.GetBlockValue("close_on_pause", true))
 {
 	const char *allowed_formats_string =
 		block.GetBlockValue("allowed_formats", nullptr);
@@ -459,10 +450,10 @@ AlsaOutput::AlsaOutput(EventLoop &_loop, const ConfigBlock &block)
 		allowed_formats = Alsa::AllowedFormat::ParseList(allowed_formats_string);
 }
 
-std::map<std::string, std::string>
+std::map<std::string, std::string, std::less<>>
 AlsaOutput::GetAttributes() const noexcept
 {
-	const std::scoped_lock<Mutex> lock(attributes_mutex);
+	const std::scoped_lock lock{attributes_mutex};
 
 	return {
 		{"allowed_formats", Alsa::ToString(allowed_formats)},
@@ -476,11 +467,11 @@ void
 AlsaOutput::SetAttribute(std::string &&name, std::string &&value)
 {
 	if (name == "allowed_formats") {
-		const std::scoped_lock<Mutex> lock(attributes_mutex);
+		const std::scoped_lock lock{attributes_mutex};
 		allowed_formats = Alsa::AllowedFormat::ParseList(value);
 #ifdef ENABLE_DSD
 	} else if (name == "dop") {
-		const std::scoped_lock<Mutex> lock(attributes_mutex);
+		const std::scoped_lock lock{attributes_mutex};
 		if (value == "0")
 			dop_setting = false;
 		else if (value == "1")
@@ -565,6 +556,8 @@ AlsaOutput::Setup(AudioFormat &audio_format,
 	FmtDebug(alsa_output_domain, "buffer_size={} period_size={}",
 		 hw_result.buffer_size,
 		 hw_result.period_size);
+
+	Alsa::SetupChannelMap(pcm, audio_format.channels, params);
 
 	AlsaSetupSw(pcm, hw_result.buffer_size - hw_result.period_size,
 		    hw_result.period_size);
@@ -661,19 +654,6 @@ AlsaOutput::SetupOrDop(AudioFormat &audio_format, PcmExport::Params &params
 			throw;
 	}
 #endif
-}
-
-static constexpr bool
-MaybeDmix(snd_pcm_type_t type)
-{
-	return type == SND_PCM_TYPE_DMIX || type == SND_PCM_TYPE_PLUG;
-}
-
-gcc_pure
-static bool
-MaybeDmix(snd_pcm_t *pcm) noexcept
-{
-	return MaybeDmix(snd_pcm_type(pcm));
 }
 
 static const Alsa::AllowedFormat &
@@ -783,12 +763,14 @@ Play_44_1_Silence(snd_pcm_t *pcm)
 void
 AlsaOutput::Open(AudioFormat &audio_format)
 {
+	paused = false;
+
 #ifdef ENABLE_DSD
 	bool dop;
 #endif
 
 	{
-		const std::scoped_lock<Mutex> lock(attributes_mutex);
+		const std::scoped_lock lock{attributes_mutex};
 #ifdef ENABLE_DSD
 		dop = dop_setting;
 #endif
@@ -807,11 +789,15 @@ AlsaOutput::Open(AudioFormat &audio_format)
 			       SND_PCM_STREAM_PLAYBACK, mode);
 	if (err < 0)
 		throw Alsa::MakeError(err,
-				      fmt::format("Failed to open ALSA device \"{}\"",
-						  GetDevice()).c_str());
+				      FmtBuffer<256>("Failed to open ALSA device {:?}",
+						     GetDevice()));
 
-	FmtDebug(alsa_output_domain, "opened {} type={}",
-		 snd_pcm_name(pcm),
+	const char *pcm_name = snd_pcm_name(pcm);
+	if (pcm_name == nullptr)
+		pcm_name = "?";
+
+	FmtDebug(alsa_output_domain, "opened {:?} type={}",
+		 pcm_name,
 		 snd_pcm_type_name(snd_pcm_type(pcm)));
 
 #ifdef ENABLE_DSD
@@ -831,7 +817,6 @@ AlsaOutput::Open(AudioFormat &audio_format)
 #endif
 
 	PcmExport::Params params;
-	params.alsa_channel_order = true;
 
 	try {
 		SetupOrDop(audio_format, params
@@ -841,12 +826,9 @@ AlsaOutput::Open(AudioFormat &audio_format)
 			   );
 	} catch (...) {
 		snd_pcm_close(pcm);
-		std::throw_with_nested(FormatRuntimeError("Error opening ALSA device \"%s\"",
-							  GetDevice()));
+		std::throw_with_nested(FmtRuntimeError("Error opening ALSA device {:?}",
+						       GetDevice()));
 	}
-
-	work_around_drain_bug = MaybeDmix(pcm) &&
-		GetRuntimeAlsaVersion() < MakeAlsaVersion(1, 1, 4);
 
 	snd_pcm_nonblock(pcm, 1);
 
@@ -874,7 +856,7 @@ AlsaOutput::Open(AudioFormat &audio_format)
 	interrupted = false;
 
 	size_t period_size = period_frames * out_frame_size;
-	ring_buffer = new boost::lockfree::spsc_queue<std::byte>(period_size * 4);
+	ring_buffer = RingBuffer{period_size * 4};
 
 	period_buffer.Allocate(period_frames, out_frame_size);
 
@@ -888,7 +870,7 @@ AlsaOutput::Open(AudioFormat &audio_format)
 void
 AlsaOutput::Interrupt() noexcept
 {
-	std::unique_lock<Mutex> lock(mutex);
+	std::scoped_lock lock{mutex};
 
 	/* the "interrupted" flag will prevent
 	   LockWaitWriteAvailable() from actually waiting, and will
@@ -897,16 +879,25 @@ AlsaOutput::Interrupt() noexcept
 	cond.notify_one();
 }
 
+std::chrono::steady_clock::duration
+AlsaOutput::Delay() const noexcept
+{
+	if (paused)
+		return std::chrono::steady_clock::duration::max();
+
+	return AudioOutput::Delay();
+}
+
 inline int
 AlsaOutput::Recover(int err) noexcept
 {
 	if (err == -EPIPE) {
 		FmtDebug(alsa_output_domain,
-			 "Underrun on ALSA device \"{}\"",
+			 "Underrun on ALSA device {:?}",
 			 GetDevice());
 	} else if (err == -ESTRPIPE) {
 		FmtDebug(alsa_output_domain,
-			 "ALSA device \"{}\" was suspended",
+			 "ALSA device {:?} was suspended",
 			 GetDevice());
 	}
 
@@ -919,10 +910,8 @@ AlsaOutput::Recover(int err) noexcept
 		if (err == -EAGAIN)
 			return 0;
 		/* fall-through to snd_pcm_prepare: */
-#if CLANG_OR_GCC_VERSION(7,0)
 		[[fallthrough]];
-#endif
-	case SND_PCM_STATE_OPEN:
+
 	case SND_PCM_STATE_SETUP:
 	case SND_PCM_STATE_XRUN:
 		period_buffer.Rewind();
@@ -930,6 +919,7 @@ AlsaOutput::Recover(int err) noexcept
 		err = snd_pcm_prepare(pcm);
 		break;
 
+	case SND_PCM_STATE_OPEN:
 	case SND_PCM_STATE_DISCONNECTED:
 	case SND_PCM_STATE_DRAINING:
 		/* can't play in this state; throw the error */
@@ -957,14 +947,13 @@ AlsaOutput::CopyRingToPeriodBuffer() noexcept
 	if (period_buffer.IsFull())
 		return false;
 
-	size_t nbytes = ring_buffer->pop(period_buffer.GetTail(),
-					 period_buffer.GetSpaceBytes());
+	size_t nbytes = ring_buffer.ReadTo({period_buffer.GetTail(), period_buffer.GetSpaceBytes()});
 	if (nbytes == 0)
 		return false;
 
 	period_buffer.AppendBytes(nbytes);
 
-	const std::scoped_lock<Mutex> lock(mutex);
+	const std::scoped_lock lock{mutex};
 	/* notify the OutputThread that there is now
 	   room in ring_buffer */
 	cond.notify_one();
@@ -998,7 +987,7 @@ AlsaOutput::DrainInternal()
 		   buffers and instead, fill the period buffer with
 		   silence */
 		in_stop_dsd_silence = false;
-		ring_buffer->reset();
+		ring_buffer.Clear();
 		period_buffer.Clear();
 		period_buffer.FillWithSilence(silence, out_frame_size);
 	}
@@ -1015,14 +1004,19 @@ AlsaOutput::DrainInternal()
 			period_buffer.FillWithSilence(silence, out_frame_size);
 
 		/* drain period_buffer */
-		if (!period_buffer.IsDrained()) {
+		unsigned int retry_count = 0;
+		while (!period_buffer.IsDrained() && retry_count <= 1) {
 			auto frames_written = WriteFromPeriodBuffer();
 			if (frames_written < 0) {
-				if (frames_written == -EAGAIN)
+				if (frames_written == -EAGAIN || frames_written == -EINTR)
 					return false;
 
-				throw Alsa::MakeError(frames_written,
-						      "snd_pcm_writei() failed");
+				if (Recover(frames_written) < 0)
+					throw Alsa::MakeError(frames_written,
+							      "snd_pcm_writei() failed");
+
+				retry_count++;
+				continue;
 			}
 
 			/* need to call CopyRingToPeriodBuffer() and
@@ -1058,14 +1052,7 @@ AlsaOutput::DrainInternal()
 
 	/* .. and finally drain the ALSA hardware buffer */
 
-	int result;
-	if (work_around_drain_bug) {
-		snd_pcm_nonblock(pcm, 0);
-		result = snd_pcm_drain(pcm);
-		snd_pcm_nonblock(pcm, 1);
-	} else
-		result = snd_pcm_drain(pcm);
-
+	const int result = snd_pcm_drain(pcm);
 	if (result == 0)
 		return true;
 	else if (result == -EAGAIN)
@@ -1077,7 +1064,7 @@ AlsaOutput::DrainInternal()
 void
 AlsaOutput::Drain()
 {
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 
 	if (error)
 		std::rethrow_exception(error);
@@ -1104,13 +1091,12 @@ AlsaOutput::CancelInternal() noexcept
 
 	pcm_export->Reset();
 	period_buffer.Clear();
-	ring_buffer->reset();
+	ring_buffer.Clear();
 
 	active = false;
 	waiting = false;
 
-	MultiSocketMonitor::Reset();
-	defer_invalidate_sockets.Cancel();
+	UnregisterSockets();
 	silence_timer.Cancel();
 }
 
@@ -1118,7 +1104,7 @@ void
 AlsaOutput::Cancel() noexcept
 {
 	{
-		std::unique_lock<Mutex> lock(mutex);
+		std::lock_guard lock{mutex};
 		interrupted = false;
 	}
 
@@ -1128,7 +1114,7 @@ AlsaOutput::Cancel() noexcept
 
 		pcm_export->Reset();
 		assert(period_buffer.IsCleared());
-		ring_buffer->reset();
+		ring_buffer.Clear();
 
 		return;
 	}
@@ -1136,7 +1122,7 @@ AlsaOutput::Cancel() noexcept
 #ifdef ENABLE_DSD
 	if (stop_dsd_silence && use_dsd) {
 		/* play some DSD silence instead of snd_pcm_drop() */
-		std::unique_lock<Mutex> lock(mutex);
+		std::unique_lock lock{mutex};
 		in_stop_dsd_silence = true;
 		drain = true;
 		cond.wait(lock, [this]{ return !drain || !active; });
@@ -1145,19 +1131,23 @@ AlsaOutput::Cancel() noexcept
 #endif
 
 	BlockingCall(GetEventLoop(), [this](){
-			CancelInternal();
-		});
+		CancelInternal();
+	});
 }
 
 bool
 AlsaOutput::Pause() noexcept
 {
-	std::unique_lock<Mutex> lock(mutex);
+	std::lock_guard lock{mutex};
 	interrupted = false;
 
-	/* not implemented - this override exists only to reset the
-	   "interrupted" flag */
-	return false;
+	if (close_on_pause)
+		return false;
+
+	// TODO use snd_pcm_pause()?
+
+	paused = true;
+	return true;
 }
 
 void
@@ -1165,13 +1155,12 @@ AlsaOutput::Close() noexcept
 {
 	/* make sure the I/O thread isn't inside DispatchSockets() */
 	BlockingCall(GetEventLoop(), [this](){
-			MultiSocketMonitor::Reset();
-			defer_invalidate_sockets.Cancel();
-			silence_timer.Cancel();
-		});
+		UnregisterSockets();
+		silence_timer.Cancel();
+	});
 
 	period_buffer.Free();
-	delete ring_buffer;
+	ring_buffer = {};
 	snd_pcm_close(pcm);
 	delete[] silence;
 }
@@ -1182,7 +1171,7 @@ AlsaOutput::LockWaitWriteAvailable()
 	const size_t out_block_size = pcm_export->GetOutputBlockSize();
 	const size_t min_available = 2 * out_block_size;
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 
 	while (true) {
 		if (error)
@@ -1193,7 +1182,7 @@ AlsaOutput::LockWaitWriteAvailable()
 			   here */
 			throw AudioOutputInterrupted{};
 
-		size_t write_available = ring_buffer->write_available();
+		size_t write_available = ring_buffer.WriteAvailable();
 		if (write_available >= min_available) {
 			/* reserve room for one extra block, just in
 			   case PcmExport::Export() has some partial
@@ -1225,6 +1214,8 @@ AlsaOutput::Play(std::span<const std::byte> src)
 	assert(!src.empty());
 	assert(src.size() % in_frame_size == 0);
 
+	paused = false;
+
 	const size_t max_frames = LockWaitWriteAvailable();
 	const size_t max_size = max_frames * in_frame_size;
 	if (src.size() > max_size)
@@ -1234,7 +1225,7 @@ AlsaOutput::Play(std::span<const std::byte> src)
 	if (e.empty())
 		return src.size();
 
-	size_t bytes_written = ring_buffer->push(e.data(), e.size());
+	size_t bytes_written = ring_buffer.WriteFrom(e);
 	assert(bytes_written == e.size());
 	(void)bytes_written;
 
@@ -1273,7 +1264,7 @@ try {
 	}
 
 	{
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 
 		assert(active);
 
@@ -1313,7 +1304,7 @@ try {
 			   smaller than the ALSA-PCM buffer */
 
 			{
-				const std::scoped_lock<Mutex> lock(mutex);
+				const std::scoped_lock lock{mutex};
 				waiting = true;
 				cond.notify_one();
 			}
@@ -1323,8 +1314,7 @@ try {
 			   event (but after setting the "waiting"
 			   flag) */
 			if (!CopyRingToPeriodBuffer()) {
-				MultiSocketMonitor::Reset();
-				defer_invalidate_sockets.Cancel();
+				UnregisterSockets();
 
 				/* just in case Play() doesn't get
 				   called soon enough, schedule a

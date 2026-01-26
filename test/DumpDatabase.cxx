@@ -1,25 +1,9 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "db/Registry.hxx"
-#include "db/DatabasePlugin.hxx"
+#include "db/Configured.hxx"
 #include "db/Interface.hxx"
 #include "db/Selection.hxx"
 #include "db/DatabaseListener.hxx"
@@ -34,11 +18,9 @@
 #include "util/ScopeExit.hxx"
 #include "util/PrintException.hxx"
 
+#include <fmt/core.h>
+
 #include <stdexcept>
-#include <iostream>
-using std::cout;
-using std::cerr;
-using std::endl;
 
 #include <stdlib.h>
 
@@ -60,7 +42,7 @@ public:
 #ifdef ENABLE_UPNP
 #include "input/InputStream.hxx"
 size_t
-InputStream::LockRead(void *, size_t)
+InputStream::LockRead(std::span<std::byte>)
 {
 	return 0;
 }
@@ -69,52 +51,46 @@ InputStream::LockRead(void *, size_t)
 class MyDatabaseListener final : public DatabaseListener {
 public:
 	void OnDatabaseModified() noexcept override {
-		cout << "DatabaseModified" << endl;
+		fmt::print("DatabaseModified\n");
 	}
 
 	void OnDatabaseSongRemoved(const char *uri) noexcept override {
-		cout << "SongRemoved " << uri << endl;
+		fmt::print("SongRemoved {:?}\n", uri);
 	}
 };
 
 static void
 DumpDirectory(const LightDirectory &directory)
 {
-	cout << "D " << directory.GetPath() << endl;
+	fmt::print("D {}\n", directory.GetPath());
 }
 
 static void
 DumpSong(const LightSong &song)
 {
-	cout << "S ";
 	if (song.directory != nullptr)
-		cout << song.directory << "/";
-	cout << song.uri << endl;
+		fmt::print("S {}/{}\n", song.directory, song.uri);
+	else
+		fmt::print("S {}\n", song.uri);
 }
 
 static void
 DumpPlaylist(const PlaylistInfo &playlist, const LightDirectory &directory)
 {
-	cout << "P " << directory.GetPath()
-	     << "/" << playlist.name.c_str() << endl;
+	fmt::print("P {}/{}\n", directory.GetPath(), playlist.name);
 }
 
 int
 main(int argc, char **argv)
 try {
-	if (argc != 3) {
-		cerr << "Usage: DumpDatabase CONFIG PLUGIN" << endl;
-		return 1;
+	if (argc < 2 || argc > 3) {
+		fmt::print(stderr, "Usage: DumpDatabase CONFIG [URI]\n");
+		return EXIT_FAILURE;
 	}
 
 	const FromNarrowPath config_path = argv[1];
-	const char *const plugin_name = argv[2];
 
-	const DatabasePlugin *plugin = GetDatabasePluginByName(plugin_name);
-	if (plugin == nullptr) {
-		cerr << "No such database plugin: " << plugin_name << endl;
-		return EXIT_FAILURE;
-	}
+	const char *uri = argc >= 3 ? argv[2] : "";
 
 	/* initialize MPD */
 
@@ -128,20 +104,16 @@ try {
 
 	/* do it */
 
-	const auto *path = config.GetParam(ConfigOption::DB_FILE);
-	ConfigBlock block(path != nullptr ? path->line : -1);
-	if (path != nullptr)
-		block.AddBlockParam("path", path->value, path->line);
-
-	auto db = plugin->create(init.GetEventLoop(),
-				 init.GetEventLoop(),
-				 database_listener, block);
+	auto db = CreateConfiguredDatabase(config,
+					   init.GetEventLoop(),
+					   init.GetEventLoop(),
+					   database_listener);
 
 	db->Open();
 
 	AtScopeExit(&db) { db->Close(); };
 
-	const DatabaseSelection selection("", true);
+	const DatabaseSelection selection(uri, true);
 
 	db->Visit(selection, DumpDirectory, DumpSong, DumpPlaylist);
 

@@ -1,33 +1,17 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
 #include "PlaylistFile.hxx"
 #include "PlaylistSave.hxx"
 #include "PlaylistError.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "db/PlaylistInfo.hxx"
 #include "db/PlaylistVector.hxx"
 #include "song/DetachedSong.hxx"
 #include "SongLoader.hxx"
 #include "Mapper.hxx"
 #include "protocol/RangeArg.hxx"
-#include "fs/io/TextFile.hxx"
+#include "io/FileLineReader.hxx"
 #include "io/FileOutputStream.hxx"
 #include "io/BufferedOutputStream.hxx"
 #include "config/Data.hxx"
@@ -40,6 +24,7 @@
 #include "fs/FileSystem.hxx"
 #include "fs/FileInfo.hxx"
 #include "fs/DirectoryReader.hxx"
+#include "system/Error.hxx"
 #include "util/StringCompare.hxx"
 #include "util/UriExtract.hxx"
 
@@ -82,6 +67,9 @@ spl_valid_name(const char *name_utf8)
 	 */
 
 	return std::strchr(name_utf8, '/') == nullptr &&
+#ifdef _WIN32
+		std::strchr(name_utf8, '\\') == nullptr &&
+#endif
 		std::strchr(name_utf8, '\n') == nullptr &&
 		std::strchr(name_utf8, '\r') == nullptr;
 }
@@ -196,7 +184,7 @@ try {
 
 	assert(!path_fs.IsNull());
 
-	TextFile file(path_fs);
+	FileLineReader file{path_fs};
 
 	char *s;
 	while ((s = file.ReadLine()) != nullptr) {
@@ -293,18 +281,41 @@ PlaylistFileEditor::Insert(std::size_t i, const DetachedSong &song)
 	Insert(i, uri);
 }
 
-void
-PlaylistFileEditor::MoveIndex(unsigned src, unsigned dest)
+static PlaylistFileContents
+CutRange(PlaylistFileContents &src, RangeArg range) noexcept
 {
-	if (src >= contents.size() || dest >= contents.size())
+	PlaylistFileContents dest;
+	dest.reserve(range.Count());
+
+	const auto begin = std::next(src.begin(), range.start);
+	const auto end = std::next(src.begin(), range.end);
+
+	for (auto i = begin;  i != end; ++i)
+		dest.emplace_back(std::move(*i));
+
+	src.erase(begin, end);
+
+	return dest;
+}
+
+static void
+InsertRange(PlaylistFileContents &dest, PlaylistFileContents::iterator pos,
+	    PlaylistFileContents &&src) noexcept
+{
+	dest.reserve(dest.size() + src.size());
+
+	for (auto &i : src)
+		pos = std::next(dest.emplace(pos, std::move(i)));
+}
+
+void
+PlaylistFileEditor::MoveIndex(RangeArg src, unsigned dest)
+{
+	if (src.end > contents.size() || dest > contents.size() - src.Count())
 		throw PlaylistError(PlaylistResult::BAD_RANGE, "Bad range");
 
-	const auto src_i = std::next(contents.begin(), src);
-	auto value = std::move(*src_i);
-	contents.erase(src_i);
-
-	const auto dest_i = std::next(contents.begin(), dest);
-	contents.insert(dest_i, std::move(value));
+	auto tmp = CutRange(contents, src);
+	InsertRange(contents, std::next(contents.begin(), dest), std::move(tmp));
 }
 
 void

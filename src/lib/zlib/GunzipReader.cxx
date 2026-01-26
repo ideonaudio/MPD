@@ -1,31 +1,5 @@
-/*
- * Copyright 2014-2019 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
 #include "GunzipReader.hxx"
 #include "Error.hxx"
@@ -41,7 +15,7 @@ GunzipReader::GunzipReader(Reader &_next)
 
 	int result = inflateInit2(&z, 16 + MAX_WBITS);
 	if (result != Z_OK)
-		throw ZlibError(result);
+		throw MakeZlibError(result, "inflateInit2() failed");
 }
 
 inline bool
@@ -50,7 +24,7 @@ GunzipReader::FillBuffer()
 	auto w = buffer.Write();
 	assert(!w.empty());
 
-	std::size_t nbytes = next.Read(w.data(), w.size());
+	std::size_t nbytes = next.Read(w);
 	if (nbytes == 0)
 		return false;
 
@@ -59,13 +33,13 @@ GunzipReader::FillBuffer()
 }
 
 std::size_t
-GunzipReader::Read(void *data, std::size_t size)
+GunzipReader::Read(std::span<std::byte> dest)
 {
 	if (eof)
 		return 0;
 
-	z.next_out = (Bytef *)data;
-	z.avail_out = size;
+	z.next_out = (Bytef *)dest.data();
+	z.avail_out = dest.size();
 
 	while (true) {
 		int flush = Z_NO_FLUSH;
@@ -78,19 +52,19 @@ GunzipReader::Read(void *data, std::size_t size)
 				flush = Z_FINISH;
 		}
 
-		z.next_in = r.data();
+		z.next_in = reinterpret_cast<Bytef *>(r.data());
 		z.avail_in = r.size();
 
 		int result = inflate(&z, flush);
 		if (result == Z_STREAM_END) {
 			eof = true;
-			return size - z.avail_out;
+			return dest.size() - z.avail_out;
 		} else if (result != Z_OK)
-			throw ZlibError(result);
+			throw MakeZlibError(result, "inflate() failed");
 
 		buffer.Consume(r.size() - z.avail_in);
 
-		if (z.avail_out < size)
-			return size - z.avail_out;
+		if (z.avail_out < dest.size())
+			return dest.size() - z.avail_out;
 	}
 }

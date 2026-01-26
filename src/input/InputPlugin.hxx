@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_INPUT_PLUGIN_HXX
 #define MPD_INPUT_PLUGIN_HXX
@@ -63,12 +47,12 @@ struct InputPlugin {
 	 *
 	 * Throws std::runtime_error on error.
 	 */
-	InputStreamPtr (*open)(const char *uri, Mutex &mutex);
+	InputStreamPtr (*open)(std::string_view uri, Mutex &mutex);
 
 	/**
 	 * return a set of supported protocols
 	 */
-	std::set<std::string> (*protocols)() noexcept;
+	std::set<std::string, std::less<>> (*protocols)() noexcept;
 
 	/**
 	 * Prepare a #RemoteTagScanner.  The operation must be started
@@ -79,11 +63,11 @@ struct InputPlugin {
 	 *
 	 * @return nullptr if the given URI is not supported.
 	 */
-	std::unique_ptr<RemoteTagScanner> (*scan_tags)(const char *uri,
+	std::unique_ptr<RemoteTagScanner> (*scan_tags)(std::string_view uri,
 						       RemoteTagHandler &handler) = nullptr;
 
 	[[gnu::pure]]
-	bool SupportsUri(const char *uri) const noexcept;
+	bool SupportsUri(std::string_view uri) const noexcept;
 
 	template<typename F>
 	void ForeachSupportedUri(F lambda) const noexcept {

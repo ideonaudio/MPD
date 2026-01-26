@@ -1,33 +1,25 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Filtered.hxx"
 #include "Interface.hxx"
 #include "Domain.hxx"
 #include "lib/fmt/AudioFormatFormatter.hxx"
 #include "lib/fmt/ExceptionFormatter.hxx"
-#include "mixer/MixerInternal.hxx"
+#include "lib/fmt/RuntimeError.hxx"
+#include "mixer/Control.hxx"
+#include "mixer/Mixer.hxx"
 #include "mixer/plugins/SoftwareMixerPlugin.hxx"
+#include "filter/Prepared.hxx"
 #include "filter/plugins/ConvertFilterPlugin.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/StringBuffer.hxx"
 #include "Log.hxx"
+
+FilteredAudioOutput::~FilteredAudioOutput()
+{
+	if (mixer != nullptr)
+		mixer_free(mixer);
+}
 
 bool
 FilteredAudioOutput::SupportsEnableDisable() const noexcept
@@ -41,7 +33,7 @@ FilteredAudioOutput::SupportsPause() const noexcept
 	return output->SupportsPause();
 }
 
-std::map<std::string, std::string>
+std::map<std::string, std::string, std::less<>>
 FilteredAudioOutput::GetAttributes() const noexcept
 {
 	return output->GetAttributes();
@@ -59,8 +51,8 @@ FilteredAudioOutput::Enable()
 	try {
 		output->Enable();
 	} catch (...) {
-		std::throw_with_nested(FormatRuntimeError("Failed to enable output %s",
-							  GetLogName()));
+		std::throw_with_nested(FmtRuntimeError("Failed to enable output {}",
+						       GetLogName()));
 	}
 }
 
@@ -76,8 +68,8 @@ FilteredAudioOutput::ConfigureConvertFilter()
 	try {
 		convert_filter_set(convert_filter.Get(), out_audio_format);
 	} catch (...) {
-		std::throw_with_nested(FormatRuntimeError("Failed to convert for %s",
-							  GetLogName()));
+		std::throw_with_nested(FmtRuntimeError("Failed to convert for {}",
+						       GetLogName()));
 	}
 }
 
@@ -89,8 +81,8 @@ FilteredAudioOutput::OpenOutputAndConvert(AudioFormat desired_audio_format)
 	try {
 		output->Open(out_audio_format);
 	} catch (...) {
-		std::throw_with_nested(FormatRuntimeError("Failed to open %s",
-							  GetLogName()));
+		std::throw_with_nested(FmtRuntimeError("Failed to open {}",
+						       GetLogName()));
 	}
 
 	FmtDebug(output_domain,

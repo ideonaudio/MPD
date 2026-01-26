@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 
@@ -28,7 +12,7 @@
 #include "util/Domain.hxx"
 #include "util/ByteReverse.hxx"
 #include "util/StaticFifoBuffer.hxx"
-#include "util/NumberParser.hxx"
+#include "util/CNumberParser.hxx"
 #include "util/MimeType.hxx"
 #include "Log.hxx"
 
@@ -51,7 +35,7 @@ FillBuffer(DecoderClient &client, InputStream &is, B &buffer)
 	if (w.empty())
 		return true;
 
-	size_t nbytes = decoder_read(client, is, w.data(), w.size());
+	size_t nbytes = decoder_read(client, is, w);
 	if (nbytes == 0 && is.LockIsEOF())
 		return false;
 
@@ -173,7 +157,7 @@ pcm_stream_decode(DecoderClient &client, InputStream &is)
 
 	client.Ready(audio_format, is.IsSeekable(), total_time);
 
-	StaticFifoBuffer<uint8_t, 4096> buffer;
+	StaticFifoBuffer<std::byte, 4096> buffer;
 
 	/* a buffer for pcm_unpack_24be() large enough to hold the
 	   results for a full source buffer */
@@ -201,9 +185,10 @@ pcm_stream_decode(DecoderClient &client, InputStream &is)
 			   (audio/L24) to native-endian 24 bit (in 32
 			   bit integers) */
 			pcm_unpack_24be(unpack_buffer,
-					r.data(), r.data() + r.size());
+					reinterpret_cast<const uint8_t *>(r.data()),
+					reinterpret_cast<const uint8_t *>(r.data() + r.size()));
 			r = {
-				(uint8_t *)&unpack_buffer[0],
+				(std::byte *)&unpack_buffer[0],
 				(r.size() / 3) * 4,
 			};
 		}
@@ -220,8 +205,7 @@ pcm_stream_decode(DecoderClient &client, InputStream &is)
 				buffer.Clear();
 				client.CommandFinished();
 			} catch (...) {
-				LogError(std::current_exception());
-				client.SeekError();
+				client.SeekError(std::current_exception());
 			}
 
 			cmd = DecoderCommand::NONE;

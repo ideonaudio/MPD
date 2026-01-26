@@ -1,26 +1,289 @@
-ver 0.24 (not yet released)
+ver 0.25 (not yet released)
 * protocol
+  - implement "window" parameter for command "list"
+  - new command "stringnormalization"
+  - show detailed seek errors
+* decoder
+  - faad: implement seeking
+  - faad: output 32 bit floating point samples instead of 16 bit integer
+  - vgmstream: new plugin
+* output
+  - pipewire: add option "reconnect_stream"
+* player
+  - support replay gain parameter in stream URI
+* switch to C++23
+* require Meson 1.2
+
+ver 0.24.8 (2026/01/26)
+* input
+  - cdio_paranoia: fix parsing of absolute device paths (0.24 regression)
+* Linux:
+  - fix build with glibc 2.43
+  - fix build with liburing < 2.4
+
+ver 0.24.7 (2026/01/16)
+* decoder
+  - ffmpeg: allow seeking only if both AVFormatContext and InputStream allow it
+* playlist
+  - cue: strip UTF-8 byte order marker
+* Linux: disable the iowait state for io_uring
+* fix GCC 16 compiler warning
+* fix spurious linker failures
+
+ver 0.24.6 (2025/10/20)
+* decoder
+  - ffmpeg: handle "*.opus" files
+  - mpg123: another workaround for libmpg123 ID3 corruption bug
+  - opus: fix seeking in files with large OpusTags
+  - opus, vorbis: remove METADATA_BLOCK_PICTURE size limit
+
+ver 0.24.5 (2025/07/31)
+* database
+  - fix disappearing playlist files
+* decoder
+  - ffmpeg: handle "*.aif" files
+  - mpg123: add option "full_scan"
+  - mpg123: support seeking on remote files
+  - mpg123: work around libmpg123 ID3 corruption bug
+  - sidplay: add support for PSID files
+* output
+  - pipewire: fix resuming playback after it was paused by "single" mode
+* Windows
+  - fix libfmt error "what(): invalid utf8"
+
+ver 0.24.4 (2025/05/20)
+* protocol
+  - fix stuck "getfingerprint" with io_uring
+* decoder
+  - mpg123: support Icy stream tags
+  - mpg123: use libid3tag to parse stream tags
+* tags
+  - id3: fix assertion failure with broken AIFF/RIFF ID3 chunks
+* output
+  - fix resuming playback after it was paused by "single" mode
+  - alsa: fix compiler warning with alsa-lib 1.2.14
+
+ver 0.24.3 (2025/04/09)
+* input
+  - qobuz: use nlohmann_json instead of yajl
+* playlist
+  - soundcloud: remove defunct plugin
+* decoder
+  - ffmpeg: support WMA
+  - mpg123: fix trailing space in tag values
+* tags
+  - libid3tag: fix Meson subproject configure error
+  - libid3tag: add missing zlib dependency to Meson subproject
+* output
+  - oss: fix error "Resource temporarily unavailable"
+  - shout: fix hang on activating shout output
+  - snapcast: use nlohmann_json instead of yajl to generate JSON tags
+* Linux
+  - allow using io_uring on Linux kernels older than 6.0
+* Windows
+  - fix cross build on Linux when WINE is not installed
+* DSD: support channel conversion
+
+ver 0.24.2 (2025/03/26)
+* input
+  - io_uring: fix stuck seek after I/O error
+* decoder
+  - flac: enable chained Ogg decoding
+* player
+  - fix stalled playback after queue modification
+  - fix deadlock with "single" mode
+* Linux: fix build failure with ancient kernel headers
+
+ver 0.24.1 (2025/03/21)
+* input
+  - curl: fix malformed "Range" header
+* output
+  - sndio: fix rounding error in volume calculation
+* log: include year in time stamp
+* Linux
+  - add configure-time check for openat2()
+  - fix use-after-free bug on io_uring shutdown
+* macOS
+  - implement standard directories
+  - fix command-line parser errors
+* fix build failure in the "id3tag" Meson subproject
+* doc: use "sphinx_rtd_theme" only if it is installed
+
+ver 0.24 (2025/03/11)
+* protocol
+  - new command "searchcount" (case-insensitive "count")
   - "playlistfind"/"playlistsearch" have "sort" and "window" parameters
+  - allow range in "playlistmove"
+  - "save" can append to or replace an existing playlist
   - filter "prio" (for "playlistfind"/"playlistsearch")
   - limit "player" idle events to the current partition
+  - operator "starts_with"
+  - show PCRE support in "config" response
+  - apply Unicode normalization to case-insensitive filter expressions
+  - stickers on playlists and some tag types
+  - new commands "stickernames", "stickertypes", "stickernamestypes", "playlistlength", "searchplaylist", "protocol"
+  - new "search"/"find" filter "added-since"
+  - allow range in listplaylist and listplaylistinfo
+  - "sticker find" supports sort and window parameter and new sticker compare operators "eq", "lt", "gt", "contains" and "starts_with"
+  - consume only idle flags that were subscribed to
+  - volume command is no longer deprecated
+  - new "available" and "reset" subcommands for tagtypes
+  - searching stored playlists respond now with song position
+  - new sticker subcommand "inc" and "dec"
+* database
+  - attribute "added" shows when each song was added to the database
+  - proxy: require MPD 0.21 or later
+  - proxy: require libmpdclient 2.15 or later
 * archive
   - add option to disable archive plugins in mpd.conf
+* storage
+  - curl: optimize database update
+  - nfs: require libnfs 4.0 or later
+  - nfs: support libnfs 6 (API version 2)
+  - nfs: support libnfs URL arguments
+* input
+  - alsa: limit ALSA buffer time to 2 seconds
+  - alsa: set up a channel map
+  - alsa: support the alsa-lib 1.2.11 API
+  - alsa: add option "close_on_pause"
+  - curl: add "connect_timeout" configuration
 * decoder
+  - ffmpeg: require FFmpeg 4.0 or later
+  - ffmpeg: query supported demuxers at runtime
   - hybrid_dsd: remove
+  - mpg123: prefer over "mad"
+  - mpg123: support streaming
   - opus: implement bitrate calculation
+  - sidplay: require libsidplayfp (drop support for the original sidplay)
   - wavpack: require libwavpack version 5
+  - fix MixRamp bug
+* resampler
+  - soxr: require libsoxr 0.1.2 or later
 * player
   - add option "mixramp_analyzer" to scan MixRamp tags on-the-fly
+  - "one-shot" consume mode
 * tags
-  - new tag "Mood"
+  - new tags "TitleSort", "Mood", "ShowMovement"
+* output
+  - add option "always_off"
+  - alsa: require alsa-lib 1.1 or later
+  - pipewire: map tags "Date" and "Comment"
 * switch to C++20
-  - GCC 10 or clang 11 (or newer) recommended
+  - GCC 12 or clang 14 (or newer) recommended
 * static partition configuration
+* Windows
+  - build with libsamplerate
+  - remove JACK DLL support
 * remove Haiku support
+* remove Boost dependency
+* require libfmt 9 or later
+* documentation: switch to sphinx-rtd-theme
+* require Meson 1.0
 
-ver 0.23.9 (not yet released)
+ver 0.23.17 (2025/01/29)
+* protocol
+  - "albumart" tries to send larger chunks if available
+  - explicitly disallow "idle" and "noidle" in command lists
+* storage
+  - nfs: require libnfs 4.0 or later
+* database
+  - inotify: trigger update after symlink was created
+* decoder
+  - ffmpeg: prefer over sndfile and audiofile for its DTS-WAV support
+* support libfmt 11.1
+
+ver 0.23.16 (2024/12/03)
+* database
+  - fix integer overflows with 64-bit inode numbers
+* filter
+  - ffmpeg: fix for filters producing no output
+* support libfmt 11
+* support ICU 76
+
+ver 0.23.15 (2023/12/20)
+* decoder
+  - ffmpeg: fix build failure with FFmpeg 6.1
+* output
+  - alsa: limit buffer time to 2 seconds
+
+ver 0.23.14 (2023/10/08)
+* decoder
+  - flac: fix scanning files with non-ASCII names on Windows
+  - mad: fix calculation of LAME peak values
+* mixer
+  - wasapi: fix problem setting volume
+* more libfmt 10 fixes
+* fix auto-detected systemd unit directory
+* Android
+  - require Android 7 or newer
+
+ver 0.23.13 (2023/05/22)
+* input
+  - curl: fix busy loop after connection failed
+  - curl: hide "404" log messages for non-existent ".mpdignore" files
+* archive
+  - zzip: fix crash bug
+* database
+  - simple: reveal hidden songs after deleting containing CUE
+* decoder
+  - ffmpeg: reorder to a lower priority than "gme"
+  - gme: require GME 0.6 or later
+* output
+  - pipewire: fix corruption bug due to missing lock
+* Linux
+  - shut down if parent process dies in --no-daemon mode
+  - determine systemd unit directories via pkg-config
+* support libfmt 10
+
+ver 0.23.12 (2023/01/17)
+* input
+  - curl: require CURL 7.55.0 or later
+* decoder
+  - mad: fix integer underflow with very small files
+* tags
+  - fix crash bug due to race condition
+* output
+  - pipewire: adjust to PipeWire 0.3.64 API change
+* fix build failures with GCC 13
+
+ver 0.23.11 (2022/11/28)
+* database
+  - simple: move default database to ~/.cache/mpd/db from ~/.cache/mpd.db
+  - simple: default "cache_directory" to ~/.cache/mpd/mounts
+* macOS: fix build failure "no archive members specified"
+* Windows
+  - fix crash bug (stack buffer overflow) after I/O errors
+  - fix path traversal bug because backslash was allowed in playlist names
+* Android/Windows
+  - update OpenSSL to 3.0.7
+  - re-enable CURL's verbose error strings
+
+ver 0.23.10 (2022/10/14)
+* storage
+  - curl: fix file time stamps
+* decoder
+  - ffmpeg: fix libfmt 9 compiler warning
+* encoder
+  - flac: fix failure when libFLAC is built without Ogg support
+* output
+  - alsa: fix crash bug
+* Windows
+  - log to stdout by default, don't require "log_file" setting
+
+ver 0.23.9 (2022/08/18)
+* input
+  - cdio_paranoia: add options "mode" and "skip"
+* decoder
+  - ffmpeg: support FFmpeg 5.1
+* filter
+  - replay gain: fix delayed volume display with handler=mixer
 * output
   - pipewire: set app icon
+* fix bogus volume levels with multiple partitions
+* improve iconv detection
+* macOS: fix macOS 10 build problem (0.23.8 regression)
+* Android
+  - load mpd.conf from app data directory
 
 ver 0.23.8 (2022/07/09)
 * storage
@@ -889,7 +1152,7 @@ ver 0.20.10 (2017/08/24)
 * decoder
   - ffmpeg: support MusicBrainz ID3v2 tags
 * tags
-  - aiff: fix FORM chunk size endianess (is big-endian)
+  - aiff: fix FORM chunk size endianness (is big-endian)
 * mixer
   - osx: add a mixer for OSX.
 * fix crash when resuming playback before decoder is ready

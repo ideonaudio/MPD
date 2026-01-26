@@ -1,46 +1,15 @@
-/*
- * Copyright 2007-2022 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #pragma once
 
 #include "Chrono.hxx"
 #include "event/Features.h"
 #include "util/BindMethod.hxx"
+#include "util/IntrusiveTreeSet.hxx"
 
-#ifdef NO_BOOST
-#include "util/IntrusiveList.hxx"
-#else
-#include <boost/intrusive/set_hook.hpp>
-#endif
+#include <cassert>
 
 class EventLoop;
 
@@ -56,16 +25,9 @@ class EventLoop;
  * as thread-safe.
  */
 class FineTimerEvent final :
-#ifdef NO_BOOST
-	AutoUnlinkIntrusiveListHook
-#else
-	public boost::intrusive::set_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>>
-#endif
+	public IntrusiveTreeSetHook<IntrusiveHookMode::AUTO_UNLINK>
 {
 	friend class TimerList;
-#ifdef NO_BOOST
-	friend struct IntrusiveListBaseHookTraits<FineTimerEvent>;
-#endif
 
 	EventLoop &loop;
 
@@ -90,9 +52,37 @@ public:
 		return due;
 	}
 
+	/**
+	 * Set the due time as an absolute time point.  This can be
+	 * done to prepare an eventual ScheduleCurrent() call.  Must
+	 * not be called while the timer is already scheduled.
+	 */
+	void SetDue(Event::TimePoint _due) noexcept {
+		assert(!IsPending());
+
+		due = _due;
+	}
+
+	/**
+	 * Set the due time as a duration relative to now.  This can
+	 * done to prepare an eventual ScheduleCurrent() call.  Must
+	 * not be called while the timer is already scheduled.
+	 */
+	void SetDue(Event::Duration d) noexcept;
+
+	/**
+	 * Was this timer scheduled?
+	 */
 	bool IsPending() const noexcept {
 		return is_linked();
 	}
+
+	/**
+	 * Schedule the timer at the due time that was already set;
+	 * either by SetDue() or by a Schedule() call that was already
+	 * canceled.
+	 */
+	void ScheduleCurrent() noexcept;
 
 	void Schedule(Event::Duration d) noexcept;
 
@@ -103,9 +93,7 @@ public:
 	void ScheduleEarlier(Event::Duration d) noexcept;
 
 	void Cancel() noexcept {
-#ifdef NO_BOOST
 		if (IsPending())
-#endif
 			unlink();
 	}
 

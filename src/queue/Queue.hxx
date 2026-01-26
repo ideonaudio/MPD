@@ -1,28 +1,12 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_QUEUE_HXX
 #define MPD_QUEUE_HXX
 
-#include "util/Compiler.h"
 #include "IdTable.hxx"
 #include "SingleMode.hxx"
+#include "ConsumeMode.hxx"
 #include "util/LazyRandomEngine.hxx"
 
 #include <cassert>
@@ -96,10 +80,13 @@ struct Queue {
 	SingleMode single = SingleMode::OFF;
 
 	/** remove each played files. */
-	bool consume = false;
+	ConsumeMode consume = ConsumeMode::OFF;
 
 	/** play back songs in random order? */
 	bool random = false;
+
+	/** Last loaded playlist */
+	std::string last_loaded_playlist;
 
 	/** random number generator for shuffle and random mode */
 	LazyRandomEngine rand;
@@ -156,14 +143,14 @@ struct Queue {
 		return items[position].id;
 	}
 
-	gcc_pure
+	[[gnu::pure]]
 	unsigned OrderToPosition(unsigned _order) const noexcept {
 		assert(_order < length);
 
 		return order[_order];
 	}
 
-	gcc_pure
+	[[gnu::pure]]
 	unsigned PositionToOrder(unsigned position) const noexcept {
 		assert(position < length);
 
@@ -175,7 +162,7 @@ struct Queue {
 		}
 	}
 
-	gcc_pure
+	[[gnu::pure]]
 	uint8_t GetPriorityAtPosition(unsigned position) const noexcept {
 		assert(position < length);
 
@@ -232,7 +219,7 @@ struct Queue {
 	 *
 	 * @return the next order number, or -1 to stop playback
 	 */
-	gcc_pure
+	[[gnu::pure]]
 	int GetNextOrder(unsigned order) const noexcept;
 
 	/**
@@ -390,11 +377,11 @@ private:
 	 * Find the first item that has this specified priority or
 	 * higher.
 	 */
-	gcc_pure
+	[[gnu::pure]]
 	unsigned FindPriorityOrder(unsigned start_order, uint8_t priority,
 				   unsigned exclude_order) const noexcept;
 
-	gcc_pure
+	[[gnu::pure]]
 	unsigned CountSamePriority(unsigned start_order,
 				   uint8_t priority) const noexcept;
 };

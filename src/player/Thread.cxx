@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /* \file
  *
@@ -46,7 +30,6 @@
 #include "CrossFade.hxx"
 #include "pcm/MixRampGlue.hxx"
 #include "tag/Tag.hxx"
-#include "util/Compiler.h"
 #include "util/Domain.hxx"
 #include "thread/Name.hxx"
 #include "Log.hxx"
@@ -253,7 +236,7 @@ private:
 	 * Note: this function does not check if the decoder is already
 	 * finished.
 	 */
-	[[nodiscard]] gcc_pure
+	[[nodiscard]] [[gnu::pure]]
 	bool IsDecoderAtCurrentSong() const noexcept {
 		assert(pipe != nullptr);
 
@@ -265,7 +248,7 @@ private:
 	 * decoding it, or has finished doing it), and the player hasn't
 	 * switched to that song yet.
 	 */
-	[[nodiscard]] gcc_pure
+	[[nodiscard]] [[gnu::pure]]
 	bool IsDecoderAtNextSong() const noexcept {
 		return dc.pipe != nullptr && !IsDecoderAtCurrentSong();
 	}
@@ -384,6 +367,7 @@ Player::StartDecoder(std::unique_lock<Mutex> &lock,
 		     std::shared_ptr<MusicPipe> _pipe,
 		     bool initial_seek_essential) noexcept
 {
+	assert(!decoder_starting);
 	assert(queued || pc.command == PlayerCommand::SEEK);
 	assert(pc.next_song != nullptr);
 
@@ -416,6 +400,8 @@ Player::StopDecoder(std::unique_lock<Mutex> &lock) noexcept
 		   pipe */
 		ResetCrossFade();
 	}
+
+	decoder_starting = false;
 }
 
 bool
@@ -639,7 +625,7 @@ Player::CheckDecoderStartup(std::unique_lock<Mutex> &lock) noexcept
 		if (!paused && !OpenOutput()) {
 			FmtError(player_domain,
 				 "problems opening audio device "
-				 "while playing \"{}\"",
+				 "while playing {:?}",
 				 dc.song->GetURI());
 			return true;
 		}
@@ -801,7 +787,7 @@ Player::ProcessCommand(std::unique_lock<Mutex> &lock) noexcept
 		queued = true;
 		pc.CommandFinished();
 
-		if (dc.IsIdle())
+		if (!decoder_starting && dc.IsIdle())
 			StartDecoder(lock, std::make_shared<MusicPipe>(),
 				     false);
 
@@ -876,9 +862,12 @@ Player::CheckCrossFade() noexcept
 		return;
 	}
 
-	if (!IsDecoderAtNextSong() || dc.IsStarting())
+	if (!IsDecoderAtNextSong() || dc.IsStarting() || dc.pipe->IsEmpty())
 		/* we need information about the next song before we
 		   can decide */
+		/* the "pipe.empty" check is here so we wait for all
+                   (ReplayGain/MixRamp) metadata to appear, which some
+                   decoders parse only after reporting readiness */
 		return;
 
 	if (!pc.cross_fade.CanCrossFade(pc.total_time, dc.total_time,
@@ -920,13 +909,15 @@ PlayerControl::LockUpdateSongTag(DetachedSong &song,
 		   streams may change tags dynamically */
 		return;
 
-	song.SetTag(new_tag);
+	if (new_tag != song.GetTag()) {
+		song.SetTag(new_tag);
 
-	LockSetTaggedSong(song);
+		LockSetTaggedSong(song);
 
-	/* the main thread will update the playlist version when he
-	   receives this event */
-	listener.OnPlayerTagModified();
+		/* the main thread will update the playlist version when he
+		   receives this event */
+		listener.OnPlayerTagModified();
+	}
 }
 
 inline void
@@ -942,7 +933,7 @@ PlayerControl::PlayChunk(DetachedSong &song, MusicChunkPtr chunk,
 		return;
 
 	{
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		bit_rate = chunk->bit_rate;
 	}
 
@@ -1016,7 +1007,7 @@ Player::PlayNextChunk() noexcept
 		} else {
 			/* there are not enough decoded chunks yet */
 
-			std::unique_lock<Mutex> lock(pc.mutex);
+			std::unique_lock lock{pc.mutex};
 
 			if (dc.IsIdle()) {
 				/* the decoder isn't running, abort
@@ -1064,7 +1055,7 @@ Player::PlayNextChunk() noexcept
 		return false;
 	}
 
-	const std::scoped_lock<Mutex> lock(pc.mutex);
+	const std::scoped_lock lock{pc.mutex};
 
 	/* this formula should prevent that the decoder gets woken up
 	   with each chunk; it is more efficient to make it decode a
@@ -1086,7 +1077,7 @@ Player::SongBorder() noexcept
 	{
 		const ScopeUnlock unlock(pc.mutex);
 
-		FmtNotice(player_domain, "played \"{}\"", song->GetURI());
+		FmtNotice(player_domain, "played {:?}", song->GetURI());
 
 		ReplacePipe(dc.pipe);
 
@@ -1097,7 +1088,10 @@ Player::SongBorder() noexcept
 
 	const bool border_pause = pc.ApplyBorderPause();
 	if (border_pause) {
+		const ScopeUnlock unlock(pc.mutex);
+
 		paused = true;
+
 		pc.listener.OnBorderPause();
 
 		/* drain all outputs to guarantee the current song is
@@ -1115,7 +1109,7 @@ Player::Run() noexcept
 {
 	pipe = std::make_shared<MusicPipe>();
 
-	std::unique_lock<Mutex> lock(pc.mutex);
+	std::unique_lock lock{pc.mutex};
 
 	StartDecoder(lock, pipe, true);
 	ActivateDecoder();
@@ -1232,7 +1226,7 @@ Player::Run() noexcept
 	cross_fade_tag.reset();
 
 	if (song != nullptr) {
-		FmtNotice(player_domain, "played \"{}\"", song->GetURI());
+		FmtNotice(player_domain, "played {:?}", song->GetURI());
 		song.reset();
 	}
 
@@ -1267,7 +1261,7 @@ try {
 
 	MusicBuffer buffer{config.buffer_chunks};
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 
 	while (true) {
 		switch (command) {
@@ -1295,9 +1289,7 @@ try {
 			}
 
 			/* fall through */
-#if CLANG_OR_GCC_VERSION(7,0)
 			[[fallthrough]];
-#endif
 
 		case PlayerCommand::PAUSE:
 			next_song.reset();

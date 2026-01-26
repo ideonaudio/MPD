@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /* necessary because libavutil/common.h uses UINT64_C */
 #define __STDC_CONSTANT_MACROS
@@ -31,6 +15,7 @@
 #include "lib/ffmpeg/Format.hxx"
 #include "lib/ffmpeg/Codec.hxx"
 #include "lib/ffmpeg/SampleFormat.hxx"
+#include "lib/ffmpeg/LibFmt.hxx"
 #include "../DecoderAPI.hxx"
 #include "FfmpegMetaData.hxx"
 #include "FfmpegIo.hxx"
@@ -41,8 +26,10 @@
 #include "tag/MixRampParser.hxx"
 #include "input/InputStream.hxx"
 #include "pcm/CheckAudioFormat.hxx"
+#include "util/IterableSplitString.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/StringAPI.hxx"
+#include "util/StringCompare.hxx"
 #include "Log.hxx"
 
 extern "C" {
@@ -56,6 +43,8 @@ extern "C" {
 #include <cassert>
 
 #include <string.h>
+
+using std::string_view_literals::operator""sv;
 
 /**
  * Muxer options to be passed to avformat_open_input().
@@ -103,14 +92,14 @@ ffmpeg_finish() noexcept
 	av_dict_free(&avformat_options);
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
 IsAudio(const AVStream &stream) noexcept
 {
 	return stream.codecpar->codec_type == AVMEDIA_TYPE_AUDIO;
 }
 
-gcc_pure
+[[gnu::pure]]
 static int
 ffmpeg_find_audio_stream(const AVFormatContext &format_context) noexcept
 {
@@ -121,7 +110,7 @@ ffmpeg_find_audio_stream(const AVFormatContext &format_context) noexcept
 	return -1;
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
 IsPicture(const AVStream &stream) noexcept
 {
@@ -180,7 +169,7 @@ start_time_fallback(const AVStream &stream)
  * Convert AVPacket::pts to a stream-relative time stamp (still in
  * AVStream::time_base units).  Returns a negative value on error.
  */
-gcc_pure
+[[gnu::pure]]
 static int64_t
 StreamRelativePts(const AVPacket &packet, const AVStream &stream) noexcept
 {
@@ -196,7 +185,7 @@ StreamRelativePts(const AVPacket &packet, const AVStream &stream) noexcept
  * Convert a non-negative stream-relative time stamp in
  * AVStream::time_base units to a PCM frame number.
  */
-gcc_pure
+[[gnu::pure]]
 static uint64_t
 PtsToPcmFrame(uint64_t pts, const AVStream &stream,
 	      const AVCodecContext &codec_context) noexcept
@@ -338,7 +327,7 @@ ffmpeg_send_packet(DecoderClient &client, InputStream *is,
 	return cmd;
 }
 
-gcc_const
+[[gnu::const]]
 static SampleFormat
 ffmpeg_sample_format(enum AVSampleFormat sample_fmt) noexcept
 {
@@ -467,12 +456,7 @@ FfmpegCheckTag(DecoderClient &client, InputStream *is,
 static bool
 IsSeekable(const AVFormatContext &format_context) noexcept
 {
-#if LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT(58, 6, 100)
 	return (format_context.ctx_flags & AVFMTCTX_UNSEEKABLE) == 0;
-#else
-	(void)format_context;
-	return false;
-#endif
 }
 
 static void
@@ -499,7 +483,7 @@ FfmpegDecode(DecoderClient &client, InputStream *input,
 	const AVCodecDescriptor *codec_descriptor =
 		avcodec_descriptor_get(codec_params.codec_id);
 	if (codec_descriptor != nullptr)
-		FmtDebug(ffmpeg_domain, "codec '{}'",
+		FmtDebug(ffmpeg_domain, "codec {:?}",
 			 codec_descriptor->name);
 
 	const AVCodec *codec = avcodec_find_decoder(codec_params.codec_id);
@@ -520,9 +504,15 @@ FfmpegDecode(DecoderClient &client, InputStream *input,
 		return;
 	}
 
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 25, 100)
+	const unsigned channels = codec_context->ch_layout.nb_channels;
+#else
+	const unsigned channels = codec_context->channels;
+#endif
+
 	const auto audio_format = CheckAudioFormat(codec_context->sample_rate,
 						   sample_format,
-						   codec_context->channels);
+						   channels);
 
 	const SignedSongTime total_time =
 		av_stream.duration != (int64_t)AV_NOPTS_VALUE
@@ -530,8 +520,8 @@ FfmpegDecode(DecoderClient &client, InputStream *input,
 		: FromFfmpegTimeChecked(format_context.duration, AV_TIME_BASE_Q);
 
 	client.Ready(audio_format,
-		     (input ? input->IsSeekable() : false)
-		     || IsSeekable(format_context),
+		     IsSeekable(format_context) &&
+		     (!input || input->IsSeekable()),
 		     total_time);
 
 	FfmpegParseMetaData(client, format_context, audio_stream);
@@ -553,9 +543,10 @@ FfmpegDecode(DecoderClient &client, InputStream *input,
 			/* AVSEEK_FLAG_BACKWARD asks FFmpeg to seek to
 			   the packet boundary before the seek time
 			   stamp, not after */
-			if (av_seek_frame(&format_context, audio_stream, where,
-					  AVSEEK_FLAG_ANY|AVSEEK_FLAG_BACKWARD) < 0)
-				client.SeekError();
+			if (int error = av_seek_frame(&format_context, audio_stream, where,
+						      AVSEEK_FLAG_ANY|AVSEEK_FLAG_BACKWARD);
+			    error < 0)
+				client.SeekError(std::make_exception_ptr(MakeFfmpegError(error, "av_seek_frame() failed")));
 			else {
 				codec_context.FlushBuffers();
 				min_frame = client.GetSeekFrame();
@@ -602,10 +593,10 @@ ffmpeg_decode(DecoderClient &client, InputStream &input)
 
 	const auto *input_format = format_context->iformat;
 	if (input_format->long_name == nullptr)
-		FmtDebug(ffmpeg_domain, "detected input format '{}'",
+		FmtDebug(ffmpeg_domain, "detected input format {:?}",
 			 input_format->name);
 	else
-		FmtDebug(ffmpeg_domain, "detected input format '{}' ({})",
+		FmtDebug(ffmpeg_domain, "detected input format {:?} ({:?})",
 			 input_format->name, input_format->long_name);
 
 	FfmpegDecode(client, &input, *format_context);
@@ -632,10 +623,17 @@ FfmpegScanStream(AVFormatContext &format_context, TagHandler &handler)
 						  AV_TIME_BASE_Q));
 
 	const auto &codec_params = *stream.codecpar;
+
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 25, 100)
+	const unsigned channels = codec_params.ch_layout.nb_channels;
+#else
+	const unsigned channels = codec_params.channels;
+#endif
+
 	try {
 		handler.OnAudioFormat(CheckAudioFormat(codec_params.sample_rate,
 						       ffmpeg_sample_format(AVSampleFormat(codec_params.format)),
-						       codec_params.channels));
+						       channels));
 	} catch (...) {
 	}
 
@@ -662,8 +660,6 @@ ffmpeg_scan_stream(InputStream &is, TagHandler &handler)
 	return FfmpegScanStream(*f, handler);
 }
 
-#if LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT(58, 9, 100)
-
 static void
 ffmpeg_uri_decode(DecoderClient &client, const char *uri)
 {
@@ -672,62 +668,90 @@ ffmpeg_uri_decode(DecoderClient &client, const char *uri)
 
 	const auto *input_format = format_context->iformat;
 	if (input_format->long_name == nullptr)
-		FmtDebug(ffmpeg_domain, "detected input format '{}'",
+		FmtDebug(ffmpeg_domain, "detected input format {:?}",
 			 input_format->name);
 	else
-		FmtDebug(ffmpeg_domain, "detected input format '{}' ({})",
+		FmtDebug(ffmpeg_domain, "detected input format {:?} ({:?})",
 			 input_format->name, input_format->long_name);
 
 	FfmpegDecode(client, nullptr, *format_context);
 }
 
-static std::set<std::string>
+static std::set<std::string, std::less<>>
 ffmpeg_protocols() noexcept
 {
-	std::set<std::string> protocols;
+	std::set<std::string, std::less<>> protocols;
 
 	const AVInputFormat *format = nullptr;
 	void *opaque = nullptr;
 	while ((format = av_demuxer_iterate(&opaque)) != nullptr) {
 		if (StringIsEqual(format->name, "rtsp")) {
-			protocols.emplace("rtsp://");
-			protocols.emplace("rtsps://");
+			protocols.emplace("rtsp://"sv);
+			protocols.emplace("rtsps://"sv);
 		} else if (StringIsEqual(format->name, "rtp"))
-			protocols.emplace("rtp://");
+			protocols.emplace("rtp://"sv);
 	}
 
 	return protocols;
 }
 
-#endif
+/* The list of supported suffixes is computed at most once because
+   it is assumed to remain unchanged during the execution. The suffixes
+   are saved in this set. An empty set encodes that the suffixes
+   have not been computed yet.
+   So in the rare cornercase where ffmpeg supports nothing, the caching
+   does not help (but also does not harm).
+*/
+static std::set<std::string, std::less<>> ffmpeg_suffixes_cache = {};
 
-/**
- * A list of extensions found for the formats supported by ffmpeg.
- * This list is current as of 02-23-09; To find out if there are more
- * supported formats, check the ffmpeg changelog since this date for
- * more formats.
- */
-static const char *const ffmpeg_suffixes[] = {
-	"16sv", "3g2", "3gp", "4xm", "8svx",
-	"aa3", "aac", "ac3", "adx", "afc", "aif",
-	"aifc", "aiff", "al", "alaw", "amr", "anim", "apc", "ape", "asf",
-	"atrac", "au", "aud", "avi", "avm2", "avs", "bap", "bfi", "c93", "cak",
-	"cin", "cmv", "cpk", "daud", "dct", "divx", "dts", "dv", "dvd", "dxa",
-	"eac3", "film", "flac", "flc", "fli", "fll", "flx", "flv", "g726",
-	"gsm", "gxf", "iss", "m1v", "m2v", "m2t", "m2ts",
-	"m4a", "m4b", "m4v",
-	"mad",
-	"mj2", "mjpeg", "mjpg", "mka", "mkv", "mlp", "mm", "mmf", "mov", "mp+",
-	"mp1", "mp2", "mp3", "mp4", "mpc", "mpeg", "mpg", "mpga", "mpp", "mpu",
-	"mve", "mvi", "mxf", "nc", "nsv", "nut", "nuv", "oga", "ogm", "ogv",
-	"ogx", "oma", "ogg", "omg", "opus", "psp", "pva", "qcp", "qt", "r3d", "ra",
-	"ram", "rl2", "rm", "rmvb", "roq", "rpl", "rvc", "shn", "smk", "snd",
-	"sol", "son", "spx", "str", "swf", "tak", "tgi", "tgq", "tgv", "thp", "ts",
-	"tsp", "tta", "xa", "xvid", "uv", "uv2", "vb", "vid", "vob", "voc",
-	"vp6", "vmd", "wav", "webm", "wma", "wmv", "wsaud", "wsvga", "wv",
-	"wve",
-	nullptr
-};
+static std::set<std::string, std::less<>>
+ffmpeg_suffixes() noexcept
+{
+	if (!ffmpeg_suffixes_cache.empty()) {
+		return ffmpeg_suffixes_cache;
+	}
+	std::set<std::string, std::less<>> suffixes;
+
+	void *demuxer_opaque = nullptr;
+	while (const auto input_format = av_demuxer_iterate(&demuxer_opaque)) {
+		if (input_format->extensions != nullptr) {
+			for (const auto i : IterableSplitString(input_format->extensions, ','))
+				suffixes.emplace(i);
+		} else {
+			if (StringIsEqual(input_format->name, "aiff"))
+				/* the "aiff" demuxer has no extension
+				   list, but we should treat "*.aif"
+				   just like "*.aiff" */
+				suffixes.emplace("aif"sv);
+
+			suffixes.emplace(input_format->name);
+		}
+	}
+
+	void *codec_opaque = nullptr;
+	while (const auto codec = av_codec_iterate(&codec_opaque)) {
+		if (codec->type != AVMEDIA_TYPE_AUDIO)
+			continue;
+
+		if (StringStartsWith(codec->name, "dsd_"sv)) {
+			/* FFmpeg was compiled with DSD support */
+			suffixes.emplace("dff"sv);
+			suffixes.emplace("dsf"sv);
+		} else if (StringIsEqual(codec->name, "dst")) {
+			suffixes.emplace("dst"sv);
+		} else if (StringIsEqual(codec->name, "opus") ||
+			   StringIsEqual(codec->name, "libopus")) {
+			suffixes.emplace("opus"sv);
+		} else if (StringStartsWith(codec->name, "wma"sv)) {
+			/* there are codecs "wmav1", "wmav2" etc. and
+			   they usually come in "*.wma" files */
+			suffixes.emplace("wma"sv);
+		}
+	}
+
+	ffmpeg_suffixes_cache = suffixes;
+	return suffixes;
+}
 
 static const char *const ffmpeg_mime_types[] = {
 	"application/flv",
@@ -824,8 +848,6 @@ static const char *const ffmpeg_mime_types[] = {
 constexpr DecoderPlugin ffmpeg_decoder_plugin =
 	DecoderPlugin("ffmpeg", ffmpeg_decode, ffmpeg_scan_stream)
 	.WithInit(ffmpeg_init, ffmpeg_finish)
-#if LIBAVFORMAT_VERSION_INT >= AV_VERSION_INT(58, 9, 100)
 	.WithProtocols(ffmpeg_protocols, ffmpeg_uri_decode)
-#endif
 	.WithSuffixes(ffmpeg_suffixes)
 	.WithMimeTypes(ffmpeg_mime_types);

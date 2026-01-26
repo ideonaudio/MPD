@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "TextInputStream.hxx"
 #include "InputStream.hxx"
@@ -31,6 +15,26 @@ TextInputStream::~TextInputStream() noexcept = default;
 char *
 TextInputStream::ReadLine()
 {
+	if (!bom_checked) {
+		bom_checked = true;
+
+		/* try to strip a UTF-8 BOM;
+		   keep all bytes if it's not a BOM */
+		auto dest = buffer.Write();
+		assert(dest.size() >= 3);
+		dest = dest.first(3);
+		size_t nbytes = is->LockRead(std::as_writable_bytes(dest));
+		buffer.Append(nbytes);
+
+		auto r = buffer.Read();
+		if (r.size() >= 3 &&
+		    static_cast<unsigned char>(r[0]) == 0xEF &&
+		    static_cast<unsigned char>(r[1]) == 0xBB &&
+		    static_cast<unsigned char>(r[2]) == 0xBF) {
+			buffer.Consume(3);
+		}
+	}
+
 	char *line = ReadBufferedLine(buffer);
 	if (line != nullptr)
 		return line;
@@ -55,7 +59,7 @@ TextInputStream::ReadLine()
 		   character */
 		dest = dest.first(dest.size() - 1);
 
-		size_t nbytes = is->LockRead(dest.data(), dest.size());
+		size_t nbytes = is->LockRead(std::as_writable_bytes(dest));
 
 		buffer.Append(nbytes);
 

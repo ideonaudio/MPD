@@ -1,27 +1,12 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "PcmFormat.hxx"
 #include "Buffer.hxx"
 #include "Traits.hxx"
 #include "FloatConvert.hxx"
 #include "ShiftConvert.hxx"
+#include "util/Compiler.h"
 #include "util/SpanCast.hxx"
 #include "util/TransformN.hxx"
 
@@ -73,11 +58,11 @@ struct Convert32To16 {
 	}
 };
 
-template<SampleFormat F, class Traits=SampleTraits<F>>
+template<SampleFormat F, IntegerSampleTraits Traits=SampleTraits<F>>
 struct PortableFloatToInteger
 	: PerSampleConvert<FloatToIntegerSampleConvert<F, Traits>> {};
 
-template<SampleFormat F, class Traits=SampleTraits<F>>
+template<SampleFormat F, IntegerSampleTraits Traits=SampleTraits<F>>
 struct FloatToInteger : PortableFloatToInteger<F, Traits> {};
 
 /**
@@ -124,7 +109,7 @@ AllocateConvert(PcmBuffer &buffer, C convert,
 	return { dest, src.size() };
 }
 
-template<SampleFormat F, class Traits=SampleTraits<F>>
+template<SampleFormat F, IntegerSampleTraits Traits=SampleTraits<F>>
 static std::span<const typename Traits::value_type>
 AllocateFromFloat(PcmBuffer &buffer, std::span<const float> src)
 {

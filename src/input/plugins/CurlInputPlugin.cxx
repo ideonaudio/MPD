@@ -1,24 +1,8 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "CurlInputPlugin.hxx"
-#include "lib/curl/Error.hxx"
+#include "lib/curl/HttpStatusError.hxx"
 #include "lib/curl/Global.hxx"
 #include "lib/curl/Init.hxx"
 #include "lib/curl/Request.hxx"
@@ -32,12 +16,12 @@
 #include "config/Block.hxx"
 #include "tag/Builder.hxx"
 #include "tag/Tag.hxx"
+#include "lib/fmt/ToBuffer.hxx"
 #include "event/Call.hxx"
 #include "event/Loop.hxx"
-#include "util/ASCII.hxx"
-#include "util/StringFormat.hxx"
-#include "util/NumberParser.hxx"
+#include "util/CNumberParser.hxx"
 #include "util/Domain.hxx"
+#include "util/StringCompare.hxx"
 #include "Log.hxx"
 #include "PluginUnavailable.hxx"
 #include "config.h"
@@ -49,12 +33,16 @@
 #include "util/UriQueryParser.hxx"
 #endif
 
+#include <fmt/format.h>
+
 #include <cassert>
 #include <cinttypes>
 
 #include <string.h>
 
 #include <curl/curl.h>
+
+using std::string_view_literals::operator""sv;
 
 /**
  * Do not buffer more than this number of bytes.  It should be a
@@ -80,7 +68,7 @@ class CurlInputStream final : public AsyncInputStream, CurlResponseHandler {
 
 public:
 	template<typename I>
-	CurlInputStream(EventLoop &event_loop, const char *_url,
+	CurlInputStream(EventLoop &event_loop, std::string_view _url,
 			const Curl::Headers &headers,
 			I &&_icy,
 			Mutex &_mutex);
@@ -90,7 +78,7 @@ public:
 	CurlInputStream(const CurlInputStream &) = delete;
 	CurlInputStream &operator=(const CurlInputStream &) = delete;
 
-	static InputStreamPtr Open(const char *url,
+	static InputStreamPtr Open(std::string_view url,
 				   const Curl::Headers &headers,
 				   Mutex &mutex);
 
@@ -150,6 +138,51 @@ static unsigned proxy_port;
 static const char *cacert;
 
 static bool verify_peer, verify_host;
+
+/** Connection settings */
+static std::chrono::duration<long> connect_timeout;
+
+/**
+ * CURLOPT_VERBOSE - verbose mode
+ * DEFAULT 0, meaning disabled.
+ */
+static bool verbose = false;
+
+/**
+ * CURLOPT_LOW_SPEED_LIMIT - low speed limit in bytes per second
+ * DEFAULT 0, disabled
+ */
+static const unsigned default_low_speed_limit = 0;
+static long low_speed_limit = default_low_speed_limit;
+
+/**
+ * CURLOPT_LOW_SPEED_TIME - low speed limit time period in seconds
+ * DEFAULT 0, disabled
+ */
+static const unsigned default_low_speed_time = 0;
+static long low_speed_time = default_low_speed_time;
+
+/**
+ * CURLOPT_TCP_KEEPALIVE - TCP keep-alive probing
+ * DEFAULT false, disabled
+ */
+static const bool default_tcp_keepalive = false;
+static bool tcp_keepalive = default_tcp_keepalive;
+
+/**
+ * CURLOPT_TCP_KEEPIDLE - TCP keep-alive idle time wait in seconds
+ * DEFAULT 60 seconds
+ */
+static const unsigned default_tcp_keepidle = 60;
+static long tcp_keepidle = default_tcp_keepidle;
+
+/**
+ * CURLOPT_TCP_KEEPINTVL - TCP keep-alive interval in seconds
+ * DEFAULT 60 seconds
+ */
+static const unsigned default_tcp_keepintvl = 60;
+static long tcp_keepintvl = default_tcp_keepintvl;
+
 
 static CurlInit *curl_init;
 
@@ -232,10 +265,10 @@ CurlInputStream::OnHeaders(unsigned status,
 
 	if (status < 200 || status >= 300)
 		throw HttpStatusError(status,
-				      StringFormat<40>("got HTTP status %u",
-						       status).c_str());
+				      FmtBuffer<40>("got HTTP status {}",
+						    status).c_str());
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	if (IsSeekPending()) {
 		/* don't update metadata while seeking */
@@ -298,7 +331,7 @@ CurlInputStream::OnData(std::span<const std::byte> data)
 {
 	assert(!data.empty());
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	if (IsSeekPending())
 		SeekDone();
@@ -308,13 +341,13 @@ CurlInputStream::OnData(std::span<const std::byte> data)
 		throw CurlResponseHandler::Pause{};
 	}
 
-	AppendToBuffer(data.data(), data.size());
+	AppendToBuffer(data);
 }
 
 void
 CurlInputStream::OnEnd()
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	InvokeOnAvailable();
 
 	AsyncInputStream::SetClosed();
@@ -323,7 +356,7 @@ CurlInputStream::OnEnd()
 void
 CurlInputStream::OnError(std::exception_ptr e) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	postponed_exception = std::move(e);
 
 	if (IsSeekPending())
@@ -374,6 +407,24 @@ input_curl_init(EventLoop &event_loop, const ConfigBlock &block)
 	cacert = block.GetBlockValue("cacert");
 	verify_peer = block.GetBlockValue("verify_peer", default_verify);
 	verify_host = block.GetBlockValue("verify_host", default_verify);
+
+	constexpr std::chrono::seconds default_connection_timeout{10};
+	connect_timeout = std::chrono::duration_cast<std::chrono::duration<long>>(
+		block.GetDuration("connect_timeout",
+				  std::chrono::seconds{1},
+				  default_connection_timeout));
+
+	verbose = block.GetBlockValue("verbose", verbose);
+
+	low_speed_limit = block.GetBlockValue("low_speed_limit", default_low_speed_limit);
+
+	low_speed_time = block.GetBlockValue("low_speed_time", default_low_speed_time);
+
+	tcp_keepalive = block.GetBlockValue("tcp_keepalive",default_tcp_keepalive);
+
+	tcp_keepidle  = block.GetBlockValue("tcp_keepidle",default_tcp_keepidle);
+
+	tcp_keepintvl = block.GetBlockValue("tcp_keepintvl",default_tcp_keepintvl);
 }
 
 static void
@@ -385,9 +436,34 @@ input_curl_finish() noexcept
 	http_200_aliases = nullptr;
 }
 
+/**
+ * CURLOPT_DEBUGFUNCTION
+ */
+static int
+CurlDebugToLog(CURL *handle, curl_infotype type, char *data, size_t size, void *user)
+{
+	(void)handle;
+	(void)user;
+
+	switch(type) {
+		case CURLINFO_TEXT:
+			Log(LogLevel::DEBUG, curl_domain, std::string_view{data, size});
+			break;
+		case CURLINFO_HEADER_OUT:
+			FmtDebug(curl_domain, "Header out: {}", std::string_view{data, size});
+			break;
+		case CURLINFO_HEADER_IN:
+			FmtDebug(curl_domain, "Header in: {}", std::string_view{data, size});
+			break;
+		default:
+			break;
+	}
+	return 0;
+}
+
 template<typename I>
 inline
-CurlInputStream::CurlInputStream(EventLoop &event_loop, const char *_url,
+CurlInputStream::CurlInputStream(EventLoop &event_loop, std::string_view _url,
 				 const Curl::Headers &headers,
 				 I &&_icy,
 				 Mutex &_mutex)
@@ -399,7 +475,7 @@ CurlInputStream::CurlInputStream(EventLoop &event_loop, const char *_url,
 	request_headers.Append("Icy-Metadata: 1");
 
 	for (const auto &[key, header] : headers)
-		request_headers.Append((key + ":" + header).c_str());
+		request_headers.Append((key + ":" += header).c_str());
 }
 
 CurlInputStream::~CurlInputStream() noexcept
@@ -407,36 +483,72 @@ CurlInputStream::~CurlInputStream() noexcept
 	FreeEasyIndirect();
 }
 
-void
-CurlInputStream::InitEasy()
+static CurlEasy
+CreateEasy(const char *url, struct curl_slist *headers)
 {
-	request = new CurlRequest(**curl_init, GetURI(), *this);
+	CurlEasy easy{url};
 
-	request->SetOption(CURLOPT_HTTP200ALIASES, http_200_aliases);
-	request->SetOption(CURLOPT_FOLLOWLOCATION, 1L);
-	request->SetOption(CURLOPT_MAXREDIRS, 5L);
-	request->SetOption(CURLOPT_FAILONERROR, 1L);
+	/* increase CURL's receive buffer size from 16 kB to 512 kB
+	   (the maximum until CURL 7.88.0) to reduce system call
+	   overhead */
+	easy.TrySetOption(CURLOPT_BUFFERSIZE, 512L * 1024L);
+
+	easy.SetOption(CURLOPT_HTTP200ALIASES, http_200_aliases);
+	easy.SetOption(CURLOPT_FOLLOWLOCATION, 1L);
+	easy.SetOption(CURLOPT_MAXREDIRS, 5L);
 
 	/* this option eliminates the probe request when
 	   username/password are specified */
-	request->SetOption(CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
+	easy.SetOption(CURLOPT_HTTPAUTH, CURLAUTH_BASIC);
 
 	if (proxy != nullptr)
-		request->SetOption(CURLOPT_PROXY, proxy);
+		easy.SetOption(CURLOPT_PROXY, proxy);
 
 	if (proxy_port > 0)
-		request->SetOption(CURLOPT_PROXYPORT, (long)proxy_port);
+		easy.SetOption(CURLOPT_PROXYPORT, (long)proxy_port);
 
 	if (proxy_user != nullptr && proxy_password != nullptr)
-		request->SetOption(CURLOPT_PROXYUSERPWD,
-				   StringFormat<1024>("%s:%s", proxy_user,
-						      proxy_password).c_str());
+		easy.SetOption(CURLOPT_PROXYUSERPWD,
+			       FmtBuffer<1024>("{}:{}", proxy_user,
+					       proxy_password).c_str());
 
 	if (cacert != nullptr)
-		request->SetOption(CURLOPT_CAINFO, cacert);
-	request->SetVerifyPeer(verify_peer);
-	request->SetVerifyHost(verify_host);
-	request->SetOption(CURLOPT_HTTPHEADER, request_headers.Get());
+		easy.SetOption(CURLOPT_CAINFO, cacert);
+	easy.SetVerifyPeer(verify_peer);
+	easy.SetVerifyHost(verify_host);
+
+	try {
+		easy.SetProxyVerifyPeer(verify_peer);
+		easy.SetProxyVerifyHost(verify_host);
+	} catch (...) {
+		/* these methods fail if libCURL was compiled with
+		   CURL_DISABLE_PROXY; ignore silently */
+	}
+
+	easy.SetConnectTimeout(connect_timeout);
+
+	easy.SetOption(CURLOPT_VERBOSE, verbose ? 1 : 0);
+
+	easy.SetOption(CURLOPT_LOW_SPEED_LIMIT, low_speed_limit);
+	easy.SetOption(CURLOPT_LOW_SPEED_TIME, low_speed_time);
+
+	easy.SetOption(CURLOPT_TCP_KEEPALIVE, tcp_keepalive ? 1 : 0);
+	easy.SetOption(CURLOPT_TCP_KEEPIDLE, tcp_keepidle);
+	easy.SetOption(CURLOPT_TCP_KEEPINTVL, tcp_keepintvl);
+
+	easy.SetRequestHeaders(headers);
+
+	easy.SetOption(CURLOPT_DEBUGFUNCTION, CurlDebugToLog);
+
+	return easy;
+}
+
+void
+CurlInputStream::InitEasy()
+{
+	request = new CurlRequest(**curl_init,
+				  CreateEasy(GetURI(), request_headers.Get()),
+				  *this);
 }
 
 void
@@ -466,9 +578,8 @@ CurlInputStream::SeekInternal(offset_type new_offset)
 	/* send the "Range" header */
 
 	if (offset > 0)
-		request->SetOption(CURLOPT_RANGE,
-				   StringFormat<40>("%" PRIoffset "-",
-						    offset).c_str());
+		request->GetEasy().SetOption(CURLOPT_RANGE,
+					     FmtBuffer<40>("{}-"sv, offset).c_str());
 
 	StartRequest();
 }
@@ -487,7 +598,7 @@ CurlInputStream::DoSeek(offset_type new_offset)
 }
 
 inline InputStreamPtr
-CurlInputStream::Open(const char *url,
+CurlInputStream::Open(std::string_view url,
 		      const Curl::Headers &headers,
 		      Mutex &mutex)
 {
@@ -507,26 +618,26 @@ CurlInputStream::Open(const char *url,
 }
 
 InputStreamPtr
-OpenCurlInputStream(const char *uri, const Curl::Headers &headers,
+OpenCurlInputStream(std::string_view uri, const Curl::Headers &headers,
 		    Mutex &mutex)
 {
 	return CurlInputStream::Open(uri, headers, mutex);
 }
 
 static InputStreamPtr
-input_curl_open(const char *url, Mutex &mutex)
+input_curl_open(std::string_view url, Mutex &mutex)
 {
-	if (!StringStartsWithCaseASCII(url, "http://") &&
-	    !StringStartsWithCaseASCII(url, "https://"))
+	if (!StringStartsWithIgnoreCase(url, "http://"sv) &&
+	    !StringStartsWithIgnoreCase(url, "https://"sv))
 		return nullptr;
 
 	return CurlInputStream::Open(url, {}, mutex);
 }
 
-static std::set<std::string>
+static std::set<std::string, std::less<>>
 input_curl_protocols() noexcept
 {
-	std::set<std::string> protocols;
+	std::set<std::string, std::less<>> protocols;
 	auto version_info = curl_version_info(CURLVERSION_FIRST);
 	for (auto proto_ptr = version_info->protocols; *proto_ptr != nullptr; proto_ptr++) {
 		if (protocol_is_whitelisted(*proto_ptr)) {

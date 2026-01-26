@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "TagStream.hxx"
 #include "tag/Generic.hxx"
@@ -33,7 +17,7 @@
 /**
  * Does the #DecoderPlugin support either the suffix or the MIME type?
  */
-gcc_pure
+[[gnu::pure]]
 static bool
 CheckDecoderPlugin(const DecoderPlugin &plugin,
 		   std::string_view suffix, std::string_view mime) noexcept
@@ -57,16 +41,20 @@ tag_stream_scan(InputStream &is, TagHandler &handler)
 	if (full_mime != nullptr)
 		mime_base = GetMimeTypeBase(full_mime);
 
-	return decoder_plugins_try([suffix, mime_base, &is,
-				    &handler](const DecoderPlugin &plugin){
-			try {
-				is.LockRewind();
-			} catch (...) {
-			}
+	for (const auto &plugin : GetEnabledDecoderPlugins()) {
+		if (!CheckDecoderPlugin(plugin, suffix, mime_base))
+			continue;
 
-			return CheckDecoderPlugin(plugin, suffix, mime_base) &&
-				plugin.ScanStream(is, handler);
-		});
+		try {
+			is.LockRewind();
+		} catch (...) {
+		}
+
+		if (plugin.ScanStream(is, handler))
+			return true;
+	}
+
+	return false;
 }
 
 bool

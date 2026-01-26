@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "PulseOutputPlugin.hxx"
 #include "lib/pulse/Error.hxx"
@@ -23,7 +7,6 @@
 #include "lib/pulse/LockGuard.hxx"
 #include "../OutputAPI.hxx"
 #include "../Error.hxx"
-#include "mixer/MixerList.hxx"
 #include "mixer/plugins/PulseMixerPlugin.hxx"
 #include "util/ScopeExit.hxx"
 
@@ -39,6 +22,10 @@
 #include <stdexcept>
 
 #include <stdlib.h>
+
+#ifdef _WIN32
+#include <processenv.h>
+#endif
 
 #define MPD_PULSE_NAME "Music Player Daemon"
 
@@ -192,8 +179,13 @@ PulseOutput::PulseOutput(const ConfigBlock &block)
 	 sink(block.GetBlockValue("sink")),
 	 media_role(block.GetBlockValue("media_role"))
 {
+#ifdef _WIN32
+	SetEnvironmentVariableA("PULSE_PROP_media.role", "music");
+	SetEnvironmentVariableA("PULSE_PROP_application.icon_name", "mpd");
+#else
 	setenv("PULSE_PROP_media.role", "music", true);
 	setenv("PULSE_PROP_application.icon_name", "mpd", true);
+#endif
 }
 
 struct pa_threaded_mainloop *
@@ -369,8 +361,8 @@ PulseOutput::Connect()
 
 	if (pa_context_connect(context, server,
 			       (pa_context_flags_t)0, nullptr) < 0)
-		throw MakePulseError(context,
-				     "pa_context_connect() has failed");
+		throw Pulse::MakeError(context,
+				       "pa_context_connect() has failed");
 }
 
 void
@@ -502,8 +494,8 @@ PulseOutput::WaitConnection()
 		case PA_CONTEXT_FAILED:
 			/* failure */
 			{
-				auto e = MakePulseError(context,
-							"failed to connect");
+				auto e = Pulse::MakeError(context,
+							  "failed to connect");
 				DeleteContext();
 				throw e;
 			}
@@ -604,8 +596,8 @@ PulseOutput::SetupStream(const pa_sample_spec &ss)
 				   PA_CHANNEL_MAP_WAVEEX);
 	stream = pa_stream_new(context, name, &ss, &chan_map);
 	if (stream == nullptr)
-		throw MakePulseError(context,
-				     "pa_stream_new() has failed");
+		throw Pulse::MakeError(context,
+				       "pa_stream_new() has failed");
 
 	pa_stream_set_suspended_callback(stream,
 					 pulse_output_stream_suspended_cb,
@@ -683,8 +675,8 @@ PulseOutput::Open(AudioFormat &audio_format)
 				       nullptr, nullptr) < 0) {
 		DeleteStream();
 
-		throw MakePulseError(context,
-				     "pa_stream_connect_playback() has failed");
+		throw Pulse::MakeError(context,
+				       "pa_stream_connect_playback() has failed");
 	}
 
 	interrupted = false;
@@ -730,8 +722,8 @@ PulseOutput::WaitStream()
 		case PA_STREAM_FAILED:
 		case PA_STREAM_TERMINATED:
 		case PA_STREAM_UNCONNECTED:
-			throw MakePulseError(context,
-					     "failed to connect the stream");
+			throw Pulse::MakeError(context,
+					       "failed to connect the stream");
 
 		case PA_STREAM_CREATING:
 			if (interrupted)
@@ -753,12 +745,12 @@ PulseOutput::StreamPause(bool _pause)
 	pa_operation *o = pa_stream_cork(stream, _pause,
 					 pulse_output_stream_success_cb, this);
 	if (o == nullptr)
-		throw MakePulseError(context,
-				     "pa_stream_cork() has failed");
+		throw Pulse::MakeError(context,
+				       "pa_stream_cork() has failed");
 
 	if (!pulse_wait_for_operation(mainloop, o))
-		throw MakePulseError(context,
-				     "pa_stream_cork() has failed");
+		throw Pulse::MakeError(context,
+				       "pa_stream_cork() has failed");
 }
 
 std::chrono::steady_clock::duration
@@ -770,7 +762,7 @@ PulseOutput::Delay() const noexcept
 	if (pa_stream_is_corked(stream) &&
 	    pa_stream_get_state(stream) == PA_STREAM_READY)
 		/* idle while paused */
-		result = std::chrono::seconds(1);
+		result = std::chrono::steady_clock::duration::max();
 
 	return result;
 }
@@ -820,7 +812,7 @@ PulseOutput::Play(std::span<const std::byte> src)
 	int result = pa_stream_write(stream, src.data(), src.size(), nullptr,
 				     0, PA_SEEK_RELATIVE);
 	if (result < 0)
-		throw MakePulseError(context, "pa_stream_write() failed");
+		throw Pulse::MakeError(context, "pa_stream_write() failed");
 
 	return src.size();
 }
@@ -839,7 +831,7 @@ PulseOutput::Drain()
 		pa_stream_drain(stream,
 				pulse_output_stream_success_cb, this);
 	if (o == nullptr)
-		throw MakePulseError(context, "pa_stream_drain() failed");
+		throw Pulse::MakeError(context, "pa_stream_drain() failed");
 
 	pulse_wait_for_operation(mainloop, o);
 }

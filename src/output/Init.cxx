@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Filtered.hxx"
 #include "Registry.hxx"
@@ -23,10 +7,12 @@
 #include "OutputAPI.hxx"
 #include "Defaults.hxx"
 #include "lib/fmt/ExceptionFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "pcm/AudioParser.hxx"
-#include "mixer/MixerList.hxx"
-#include "mixer/MixerType.hxx"
-#include "mixer/MixerControl.hxx"
+#include "mixer/Type.hxx"
+#include "mixer/Control.hxx"
+#include "mixer/plugins/NullMixerPlugin.hxx"
+#include "mixer/plugins/SoftwareMixerPlugin.hxx"
 #include "filter/LoadChain.hxx"
 #include "filter/Prepared.hxx"
 #include "filter/plugins/AutoConvertFilterPlugin.hxx"
@@ -35,13 +21,14 @@
 #include "filter/plugins/TwoFilters.hxx"
 #include "filter/plugins/VolumeFilterPlugin.hxx"
 #include "filter/plugins/NormalizeFilterPlugin.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/StringAPI.hxx"
-#include "util/StringFormat.hxx"
 #include "Log.hxx"
+
+#include <fmt/core.h>
 
 #include <cassert>
 #include <stdexcept>
+#include <utility> // for std::unreachable()
 
 #include <string.h>
 
@@ -65,15 +52,15 @@ audio_output_detect()
 {
 	LogInfo(output_domain, "Attempt to detect audio output device");
 
-	audio_output_plugins_for_each(plugin) {
-		if (plugin->test_default_device == nullptr)
+	for (const auto &plugin : GetAllAudioOutputPlugins()) {
+		if (plugin.test_default_device == nullptr)
 			continue;
 
 		FmtInfo(output_domain,
-			"Attempting to detect a {} audio device",
-			plugin->name);
-		if (ao_plugin_test_default_device(plugin))
-			return plugin;
+			"Attempting to detect a {:?} audio device",
+			plugin.name);
+		if (ao_plugin_test_default_device(&plugin))
+			return &plugin;
 	}
 
 	throw std::runtime_error("Unable to detect an audio device");
@@ -143,8 +130,7 @@ audio_output_load_mixer(EventLoop &event_loop, FilteredAudioOutput &ao,
 		return mixer;
 	}
 
-	assert(false);
-	gcc_unreachable();
+	std::unreachable();
 }
 
 void
@@ -168,7 +154,7 @@ FilteredAudioOutput::Configure(const ConfigBlock &block,
 		config_audio_format.Clear();
 	}
 
-	log_name = StringFormat<256>("\"%s\" (%s)", name, plugin_name);
+	log_name = fmt::format("{:?} ({})", name, plugin_name);
 
 	/* create the normalization filter (if configured) */
 
@@ -187,7 +173,7 @@ FilteredAudioOutput::Configure(const ConfigBlock &block,
 		   has been set up already and even an empty one will
 		   work (if only with unexpected behaviour) */
 		FmtError(output_domain,
-			 "Failed to initialize filter chain for '{}': {}",
+			 "Failed to initialize filter chain for {:?}: {}",
 			 name, std::current_exception());
 	}
 }
@@ -237,7 +223,7 @@ FilteredAudioOutput::Setup(EventLoop &event_loop,
 						mixer_listener);
 	} catch (...) {
 		FmtError(output_domain,
-			 "Failed to initialize hardware mixer for '{}': {}",
+			 "Failed to initialize hardware mixer for {:?}: {}",
 			 name, std::current_exception());
 	}
 
@@ -249,7 +235,7 @@ FilteredAudioOutput::Setup(EventLoop &event_loop,
 						     mixer, 100);
 		else
 			FmtError(output_domain,
-				 "No such mixer for output '{}'", name);
+				 "No such mixer for output {:?}", name);
 	} else if (!StringIsEqual(replay_gain_handler, "software") &&
 		   prepared_replay_gain_filter != nullptr) {
 		throw std::runtime_error("Invalid \"replay_gain_handler\" value");
@@ -279,9 +265,10 @@ audio_output_new(EventLoop &normal_event_loop, EventLoop &rt_event_loop,
 		if (p == nullptr)
 			throw std::runtime_error("Missing \"type\" configuration");
 
-		plugin = AudioOutputPlugin_get(p);
+		plugin = GetAudioOutputPluginByName(p);
 		if (plugin == nullptr)
-			throw FormatRuntimeError("No such audio output plugin: %s", p);
+			throw FmtRuntimeError("No such audio output plugin: {}",
+					      p);
 	} else {
 		LogWarning(output_domain,
 			   "No 'audio_output' defined in config file");

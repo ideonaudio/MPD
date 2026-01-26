@@ -1,34 +1,6 @@
-/*
- * Copyright 2007-2022 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #include "Client.hxx"
 #include "ConnectionListener.hxx"
@@ -58,11 +30,15 @@ void
 Client::Close() noexcept
 {
 	if (client != nullptr) {
+		connected = false;
+
 		for (auto *l : listeners)
 			l->OnAvahiDisconnect();
 
 		avahi_client_free(client);
 		client = nullptr;
+	} else {
+		assert(!connected);
 	}
 
 	reconnect_timer.Cancel();
@@ -71,22 +47,24 @@ Client::Close() noexcept
 void
 Client::ClientCallback(AvahiClient *c, AvahiClientState state) noexcept
 {
-	int error;
-
 	switch (state) {
 	case AVAHI_CLIENT_S_RUNNING:
+		connected = true;
+
 		for (auto *l : listeners)
 			l->OnAvahiConnect(c);
 
 		break;
 
 	case AVAHI_CLIENT_FAILURE:
-		error = avahi_client_errno(c);
-		if (error == AVAHI_ERR_DISCONNECTED) {
+		if (int error = avahi_client_errno(c);
+		    error == AVAHI_ERR_DISCONNECTED) {
 			Close();
 
 			reconnect_timer.Schedule(std::chrono::seconds(10));
 		} else {
+			Close();
+
 			if (!error_handler.OnAvahiError(std::make_exception_ptr(MakeError(error,
 											  "Avahi connection error"))))
 				return;
@@ -101,12 +79,15 @@ Client::ClientCallback(AvahiClient *c, AvahiClientState state) noexcept
 
 	case AVAHI_CLIENT_S_COLLISION:
 	case AVAHI_CLIENT_S_REGISTERING:
+		connected = false;
+
 		for (auto *l : listeners)
 			l->OnAvahiChanged();
 
 		break;
 
 	case AVAHI_CLIENT_CONNECTING:
+		assert(!connected);
 		break;
 	}
 }
@@ -122,6 +103,9 @@ Client::ClientCallback(AvahiClient *c, AvahiClientState state,
 void
 Client::OnReconnectTimer() noexcept
 {
+	assert(client == nullptr);
+	assert(!connected);
+
 	int error;
 	client = avahi_client_new(&poll, AVAHI_CLIENT_NO_FAIL,
 				  ClientCallback, this,

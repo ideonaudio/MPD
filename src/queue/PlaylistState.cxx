@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /*
  * Saving and loading the playlist to/from the state file.
@@ -34,7 +18,7 @@
 #include "util/CharUtil.hxx"
 #include "util/StringAPI.hxx"
 #include "util/StringCompare.hxx"
-#include "util/NumberParser.hxx"
+#include "util/CNumberParser.hxx"
 #include "Log.hxx"
 
 #include <fmt/format.h>
@@ -52,6 +36,7 @@
 #define PLAYLIST_STATE_FILE_CROSSFADE		"crossfade: "
 #define PLAYLIST_STATE_FILE_MIXRAMPDB		"mixrampdb: "
 #define PLAYLIST_STATE_FILE_MIXRAMPDELAY	"mixrampdelay: "
+#define PLAYLIST_STATE_FILE_LOADED_PLAYLIST	"lastloadedplaylist: "
 #define PLAYLIST_STATE_FILE_PLAYLIST_BEGIN	"playlist_begin"
 #define PLAYLIST_STATE_FILE_PLAYLIST_END	"playlist_end"
 
@@ -75,32 +60,34 @@ playlist_state_save(BufferedOutputStream &os, const struct playlist &playlist,
 		default:
 			os.Write(PLAYLIST_STATE_FILE_STATE_PLAY "\n");
 		}
-		os.Fmt(FMT_STRING(PLAYLIST_STATE_FILE_CURRENT "{}\n"),
+		os.Fmt(PLAYLIST_STATE_FILE_CURRENT "{}\n",
 		       playlist.queue.OrderToPosition(playlist.current));
-		os.Fmt(FMT_STRING(PLAYLIST_STATE_FILE_TIME "{}\n"),
+		os.Fmt(PLAYLIST_STATE_FILE_TIME "{}\n",
 		       player_status.elapsed_time.ToDoubleS());
 	} else {
 		os.Write(PLAYLIST_STATE_FILE_STATE_STOP "\n");
 
 		if (playlist.current >= 0)
-			os.Fmt(FMT_STRING(PLAYLIST_STATE_FILE_CURRENT "{}\n"),
+			os.Fmt(PLAYLIST_STATE_FILE_CURRENT "{}\n",
 			       playlist.queue.OrderToPosition(playlist.current));
 	}
 
-	os.Fmt(FMT_STRING(PLAYLIST_STATE_FILE_RANDOM "{}\n"),
+	os.Fmt(PLAYLIST_STATE_FILE_RANDOM "{}\n",
 	       (unsigned)playlist.queue.random);
-	os.Fmt(FMT_STRING(PLAYLIST_STATE_FILE_REPEAT "{}\n"),
+	os.Fmt(PLAYLIST_STATE_FILE_REPEAT "{}\n",
 	       (unsigned)playlist.queue.repeat);
-	os.Fmt(FMT_STRING(PLAYLIST_STATE_FILE_SINGLE "{}\n"),
-			  (int)playlist.queue.single);
-	os.Fmt(FMT_STRING(PLAYLIST_STATE_FILE_CONSUME "{}\n"),
-	       (unsigned)playlist.queue.consume);
-	os.Fmt(FMT_STRING(PLAYLIST_STATE_FILE_CROSSFADE "{}\n"),
+	os.Fmt(PLAYLIST_STATE_FILE_SINGLE "{}\n",
+		   SingleToString(playlist.queue.single));
+	os.Fmt(PLAYLIST_STATE_FILE_CONSUME "{}\n",
+	       ConsumeToString(playlist.queue.consume));
+	os.Fmt(PLAYLIST_STATE_FILE_CROSSFADE "{}\n",
 	       pc.GetCrossFade().count());
-	os.Fmt(FMT_STRING(PLAYLIST_STATE_FILE_MIXRAMPDB "{}\n"),
+	os.Fmt(PLAYLIST_STATE_FILE_MIXRAMPDB "{}\n",
 	       pc.GetMixRampDb());
-	os.Fmt(FMT_STRING(PLAYLIST_STATE_FILE_MIXRAMPDELAY "{}\n"),
+	os.Fmt(PLAYLIST_STATE_FILE_MIXRAMPDELAY "{}\n",
 	       pc.GetMixRampDelay().count());
+	os.Fmt(PLAYLIST_STATE_FILE_LOADED_PLAYLIST "{}\n",
+	       playlist.GetLastLoadedPlaylist());
 	os.Write(PLAYLIST_STATE_FILE_PLAYLIST_BEGIN "\n");
 	queue_save(os, playlist.queue);
 	os.Write(PLAYLIST_STATE_FILE_PLAYLIST_END "\n");
@@ -162,7 +149,7 @@ playlist_state_restore(const StateFileConfig &config,
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_SINGLE))) {
 			playlist.SetSingle(pc, SingleFromString(p));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_CONSUME))) {
-			playlist.SetConsume(StringIsEqual(p, "1"));
+			playlist.SetConsume(ConsumeFromString(p));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_CROSSFADE))) {
 			pc.SetCrossFade(FloatDuration(atoi(p)));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_MIXRAMPDB))) {
@@ -172,6 +159,8 @@ playlist_state_restore(const StateFileConfig &config,
 			   prior to MPD 0.18 */
 			if (IsDigitASCII(*p))
 				pc.SetMixRampDelay(FloatDuration(ParseFloat(p)));
+		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_LOADED_PLAYLIST))) {
+			playlist.SetLastLoadedPlaylist(p);
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_RANDOM))) {
 			random_mode = StringIsEqual(p, "1");
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_STATE_FILE_CURRENT))) {
@@ -243,6 +232,7 @@ playlist_state_get_hash(const playlist &playlist,
 		((int)playlist.queue.single << 25) ^
 		(playlist.queue.random << 27) ^
 		(playlist.queue.repeat << 28) ^
-		(playlist.queue.consume << 30) ^
+		/* note that this takes 2 bits */
+		((int)playlist.queue.consume << 29) ^
 		(playlist.queue.random << 31);
 }

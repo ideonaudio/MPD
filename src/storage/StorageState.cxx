@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /*
  * Save and load mounts of the compound storage to/from the state file.
@@ -34,15 +18,7 @@
 #include "Instance.hxx"
 #include "Log.hxx"
 
-#ifdef __clang__
-/* ignore -Wcomma due to strange code in boost/array.hpp (in Boost
-   1.72) */
-#pragma GCC diagnostic ignored "-Wcomma"
-#endif
-
-#include <boost/crc.hpp>
-
-#include <set>
+#include <functional> // for std::hash()
 
 #define MOUNT_STATE_BEGIN        "mount_begin"
 #define MOUNT_STATE_END          "mount_end"
@@ -62,10 +38,10 @@ storage_state_save(BufferedOutputStream &os, const Instance &instance)
 		if (uri.empty() || StringIsEmpty(mount_uri))
 			return;
 
-		os.Fmt(FMT_STRING(MOUNT_STATE_BEGIN "\n"
-				  MOUNT_STATE_STORAGE_URI "{}\n"
-				  MOUNT_STATE_MOUNTED_URL "{}\n"
-				  MOUNT_STATE_END "\n"),
+		os.Fmt(MOUNT_STATE_BEGIN "\n"
+		       MOUNT_STATE_STORAGE_URI "{}\n"
+		       MOUNT_STATE_MOUNTED_URL "{}\n"
+		       MOUNT_STATE_END "\n",
 		       mount_uri, uri);
 	};
 
@@ -73,7 +49,8 @@ storage_state_save(BufferedOutputStream &os, const Instance &instance)
 }
 
 bool
-storage_state_restore(const char *line, LineReader &file, Instance &instance)
+storage_state_restore(const char *line, LineReader &file,
+		      Instance &instance) noexcept
 {
 	if (!StringStartsWith(line, MOUNT_STATE_BEGIN))
 		return false;
@@ -103,7 +80,7 @@ storage_state_restore(const char *line, LineReader &file, Instance &instance)
 		return true;
 
 	if (url.empty() || uri.empty()) {
-		LogError(storage_domain, "Missing value in mountpoint state.");	
+		LogError(storage_domain, "Missing value in mountpoint state.");
 		return true;
 	}
 
@@ -144,24 +121,21 @@ storage_state_restore(const char *line, LineReader &file, Instance &instance)
 }
 
 unsigned
-storage_state_get_hash(const Instance &instance)
+storage_state_get_hash(const Instance &instance) noexcept
 {
 	if (instance.storage == nullptr)
 		return 0;
 
-	std::set<std::string> mounts;
+	unsigned result = 0;
 
-	const auto visitor = [&mounts](const char *mount_uri, const Storage &storage) {
-		mounts.emplace(std::string(mount_uri) + ":" + storage.MapUTF8(""));
+	const std::hash<std::string_view> hash;
+
+	const auto visitor = [&result, &hash](const char *mount_uri, const Storage &storage) {
+		result = result * 33 + hash(mount_uri);
+		result = result * 33 + hash(storage.MapUTF8(""));
 	};
 
 	((CompositeStorage*)instance.storage)->VisitMounts(visitor);
 
-	boost::crc_32_type result;
-
-	for (const auto& mount : mounts) {
-		result.process_bytes(mount.c_str(), mount.length());
-	}
-
-	return result.checksum();
+	return result;
 }

@@ -1,46 +1,27 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "Daemon.hxx"
-#include "system/Error.hxx"
-#include "fs/AllocatedPath.hxx"
-#include "util/RuntimeError.hxx"
-
-#ifndef _WIN32
 #include "PidFile.hxx"
-#endif
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
+#include "lib/fmt/SystemError.hxx"
+#include "fs/AllocatedPath.hxx"
+#include "io/FileDescriptor.hxx"
+#include "util/SpanCast.hxx"
+
+#include <csignal>
+#include <cstdlib> // for std::exit()
 
 #include <fcntl.h>
-
-#ifndef _WIN32
-#include <csignal>
 #include <sys/wait.h>
 #include <pwd.h>
 #include <grp.h>
-#endif
 
 #ifndef WCOREDUMP
 #define WCOREDUMP(v) 0
 #endif
-
-#ifndef _WIN32
 
 /** the Unix user name which MPD runs as */
 static char *user_name;
@@ -61,7 +42,7 @@ static bool had_group = false;
  * The write end of a pipe that is used to notify the parent process
  * that initialization has finished and that it should detach.
  */
-static int detach_fd = -1;
+static FileDescriptor detach_fd = FileDescriptor::Undefined();
 
 void
 daemonize_kill()
@@ -70,20 +51,18 @@ daemonize_kill()
 		throw std::runtime_error("no pid_file specified in the config file");
 
 	const pid_t pid = ReadPidFile(pidfile);
-	if (pid < 0) {
-		const std::string utf8 = pidfile.ToUTF8();
-		throw FormatErrno("unable to read the pid from file \"%s\"",
-				  utf8.c_str());
-	}
+	if (pid < 0)
+		throw FmtErrno("unable to read the pid from file {:?}",
+			       pidfile);
 
 	if (kill(pid, SIGTERM) < 0)
-		throw FormatErrno("unable to kill process %i", int(pid));
+		throw FmtErrno("unable to kill process {}", pid);
 
 	std::exit(EXIT_SUCCESS);
 }
 
 void
-daemonize_close_stdin()
+daemonize_close_stdin() noexcept
 {
 	close(STDIN_FILENO);
 	open("/dev/null", O_RDONLY);
@@ -98,7 +77,7 @@ daemonize_set_user()
 	/* set gid */
 	if (user_gid != (gid_t)-1 && user_gid != getgid() &&
 	    setgid(user_gid) == -1) {
-		throw FormatErrno("Failed to set group %d", (int)user_gid);
+		throw FmtErrno("Failed to set group {}", user_gid);
 	}
 
 #ifdef HAVE_INITGROUPS
@@ -110,16 +89,16 @@ daemonize_set_user()
 	       we are already this user */
 	    user_uid != getuid() &&
 	    initgroups(user_name, user_gid) == -1) {
-		throw FormatErrno("Failed to set supplementary groups "
-				  "of user \"%s\"",
-				  user_name);
+		throw FmtErrno("Failed to set supplementary groups "
+			       "of user {:?}",
+			       user_name);
 	}
 #endif
 
 	/* set uid */
 	if (user_uid != (uid_t)-1 && user_uid != getuid() &&
 	    setuid(user_uid) == -1) {
-		throw FormatErrno("Failed to set user \"%s\"", user_name);
+		throw FmtErrno("Failed to set user {:?}", user_name);
 	}
 }
 
@@ -145,11 +124,14 @@ daemonize_begin(bool detach)
 
 	/* create a pipe to synchronize the parent and the child */
 
-	int fds[2];
-	if (pipe(fds) < 0)
+	FileDescriptor p;
+
+	if (!FileDescriptor::CreatePipe(p, detach_fd))
 		throw MakeErrno("pipe() failed");
 
 	/* move to a child process */
+
+#ifndef __APPLE__
 
 	pid_t pid = fork();
 	if (pid < 0)
@@ -159,8 +141,7 @@ daemonize_begin(bool detach)
 		/* in the child process */
 
 		pidfile2.Close();
-		close(fds[0]);
-		detach_fd = fds[1];
+		p.Close();
 
 		/* detach from the current session */
 		setsid();
@@ -171,10 +152,10 @@ daemonize_begin(bool detach)
 
 	/* in the parent process */
 
-	close(fds[1]);
+	detach_fd.Close();
 
 	int result;
-	ssize_t nbytes = read(fds[0], &result, sizeof(result));
+	ssize_t nbytes = p.Read(ReferenceAsWritableBytes(result));
 	if (nbytes == (ssize_t)sizeof(result)) {
 		/* the child process was successful */
 		pidfile2.Write(pid);
@@ -191,21 +172,23 @@ daemonize_begin(bool detach)
 		throw MakeErrno("waitpid() failed");
 
 	if (WIFSIGNALED(status))
-		throw FormatErrno("MPD died from signal %d%s", WTERMSIG(status),
-				  WCOREDUMP(status) ? " (core dumped)" : "");
+		throw FmtErrno("MPD died from signal {}{}", WTERMSIG(status),
+			       WCOREDUMP(status) ? " (core dumped)" : "");
 
 	std::exit(WEXITSTATUS(status));
+
+#endif
 }
 
 void
 daemonize_commit()
 {
-	if (detach_fd >= 0) {
+	if (detach_fd.IsDefined()) {
 		/* tell the parent process to let go of us and exit
 		   indicating success */
-		int result = 0;
-		write(detach_fd, &result, sizeof(result));
-		close(detach_fd);
+		static constexpr int result = 0;
+		(void)detach_fd.Write(ReferenceAsBytes(result));
+		detach_fd.Close();
 	} else
 		/* the pidfile was not written by the parent because
 		   there is no parent - do it now */
@@ -218,7 +201,7 @@ daemonize_init(const char *user, const char *group, AllocatedPath &&_pidfile)
 	if (user) {
 		struct passwd *pwd = getpwnam(user);
 		if (pwd == nullptr)
-			throw FormatRuntimeError("no such user \"%s\"", user);
+			throw FmtRuntimeError("no such user {:?}", user);
 
 		user_uid = pwd->pw_uid;
 		user_gid = pwd->pw_gid;
@@ -232,8 +215,7 @@ daemonize_init(const char *user, const char *group, AllocatedPath &&_pidfile)
 	if (group) {
 		struct group *grp = getgrnam(group);
 		if (grp == nullptr)
-			throw FormatRuntimeError("no such group \"%s\"",
-						 group);
+			throw FmtRuntimeError("no such group {:?}", group);
 		user_gid = grp->gr_gid;
 		had_group = true;
 	}
@@ -243,7 +225,7 @@ daemonize_init(const char *user, const char *group, AllocatedPath &&_pidfile)
 }
 
 void
-daemonize_finish()
+daemonize_finish() noexcept
 {
 	if (!pidfile.IsNull()) {
 		unlink(pidfile.c_str());
@@ -252,5 +234,3 @@ daemonize_finish()
 
 	free(user_name);
 }
-
-#endif

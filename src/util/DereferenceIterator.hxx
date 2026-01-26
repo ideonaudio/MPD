@@ -1,34 +1,7 @@
-/*
- * Copyright 2012-2020 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
-#ifndef DEREFERENCE_ITERATOR_HXX
-#define DEREFERENCE_ITERATOR_HXX
+#pragma once
 
 #include <iterator>
 #include <type_traits>
@@ -38,8 +11,13 @@
  * original iterator.
  */
 template<typename IT,
-	 typename VT=typename std::remove_pointer<typename IT::value_type>::type>
+	 typename VT=std::remove_reference_t<decltype(*std::declval<typename std::iterator_traits<IT>::value_type>())>>
 class DereferenceIterator {
+	/* this friend declaration allows the template operator==() to
+	   compare arbitrary specializations */
+	template<typename, typename>
+	friend class DereferenceIterator;
+
 	using Traits = std::iterator_traits<IT>;
 
 	IT original;
@@ -51,66 +29,117 @@ public:
 	using pointer = VT *;
 	using reference = VT &;
 
-	DereferenceIterator() = default;
+	constexpr DereferenceIterator() = default;
 
 	constexpr DereferenceIterator(const IT _original) noexcept
 		:original(_original) {}
 
-	reference operator*() const noexcept {
+	constexpr reference operator*() const noexcept {
 		return static_cast<reference>(**original);
 	}
 
-	pointer operator->() const noexcept {
+	constexpr pointer operator->() const noexcept {
 		return static_cast<pointer>(&**original);
 	}
 
-	auto &operator++() noexcept {
+	constexpr auto &operator++() noexcept {
 		++original;
 		return *this;
 	}
 
-	auto operator++(int) noexcept {
+	constexpr auto operator++(int) noexcept {
 		auto old = *this;
-		original++;
+		++original;
 		return old;
 	}
 
-	auto &operator+=(difference_type n) noexcept {
+	constexpr auto &operator+=(difference_type n) noexcept {
 		original += n;
 		return *this;
 	}
 
-	auto &operator+(difference_type n) noexcept {
-		return original + n;
+	constexpr auto operator+(difference_type n) const noexcept {
+		return DereferenceIterator{original + n};
 	}
 
-	auto &operator--() noexcept {
-		original = --original;
+	constexpr auto &operator--() noexcept {
+		--original;
 		return *this;
 	}
 
-	auto operator--(int) noexcept {
+	constexpr auto operator--(int) noexcept {
 		auto old = *this;
-		original--;
+		--original;
 		return old;
 	}
 
-	auto &operator-=(difference_type n) noexcept {
+	constexpr auto &operator-=(difference_type n) noexcept {
 		original -= n;
 		return *this;
 	}
 
-	auto &operator-(difference_type n) noexcept {
-		return original - n;
+	constexpr auto operator-(difference_type n) const noexcept {
+		return DereferenceIterator{original - n};
 	}
 
-	bool operator==(const DereferenceIterator<IT,VT> &other) const noexcept {
+	constexpr auto operator-(const DereferenceIterator<IT, VT>& other) const noexcept {
+		return std::distance(other.original, original);
+	}
+
+	/* this is a template to allow comparisons with sentinel end
+	   iterators */
+	template<typename IT2>
+	constexpr bool operator==(const DereferenceIterator<IT2, VT> &other) const noexcept {
 		return original == other.original;
-	}
-
-	bool operator!=(const DereferenceIterator<IT,VT> &other) const noexcept {
-		return original != other.original;
 	}
 };
 
-#endif
+/**
+ * A container wrapper that wraps the iterators in a
+ * DereferenceIterator.
+ */
+template<typename CT,
+	 typename VT=std::remove_pointer_t<typename std::remove_reference_t<CT>::value_type>>
+class DereferenceContainerAdapter {
+	CT original;
+
+	/* these aliases allow the underlying container to return a
+	   different type for begin() and end() */
+	using const_end_iterator = DereferenceIterator<decltype(std::declval<CT>().cend()), const VT>;
+	using end_iterator = DereferenceIterator<decltype(std::declval<CT>().end()), VT>;
+
+public:
+	using value_type = VT;
+	using pointer = VT *;
+	using reference = VT &;
+
+	using const_iterator = DereferenceIterator<decltype(std::declval<CT>().cbegin()), const VT>;
+	using iterator = DereferenceIterator<decltype(std::declval<CT>().begin()), VT>;
+
+	explicit constexpr DereferenceContainerAdapter(CT &&_original) noexcept
+		:original(std::move(_original)) {}
+
+	constexpr iterator begin() noexcept {
+		return original.begin();
+	}
+
+	constexpr const_iterator begin() const noexcept {
+		return original.cbegin();
+	}
+
+	constexpr const_iterator cbegin() const noexcept {
+		return original.cbegin();
+	}
+
+	constexpr end_iterator end() noexcept {
+		return original.end();
+	}
+
+	constexpr const_end_iterator end() const noexcept {
+		return original.cend();
+	}
+
+	constexpr const_end_iterator cend() const noexcept {
+		return original.cend();
+	}
+};

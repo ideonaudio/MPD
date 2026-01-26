@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "SmbclientInputPlugin.hxx"
 #include "lib/smbclient/Init.hxx"
@@ -33,7 +17,7 @@ class SmbclientInputStream final : public InputStream {
 	SMBCFILE *const handle;
 
 public:
-	SmbclientInputStream(const char *_uri,
+	SmbclientInputStream(std::string &&_uri,
 			     Mutex &_mutex,
 			     SmbclientContext &&_ctx,
 			     SMBCFILE *_handle, const struct stat &st)
@@ -56,7 +40,7 @@ public:
 	}
 
 	size_t Read(std::unique_lock<Mutex> &lock,
-		    void *ptr, size_t size) override;
+		    std::span<std::byte> dest) override;
 	void Seek(std::unique_lock<Mutex> &lock, offset_type offset) override;
 };
 
@@ -80,12 +64,13 @@ input_smbclient_init(EventLoop &, const ConfigBlock &)
 }
 
 static InputStreamPtr
-input_smbclient_open(const char *uri,
+input_smbclient_open(std::string_view _uri,
 		     Mutex &mutex)
 {
 	auto ctx = SmbclientContext::New();
 
-	SMBCFILE *handle = ctx.OpenReadOnly(uri);
+	std::string uri{_uri};
+	SMBCFILE *handle = ctx.OpenReadOnly(uri.c_str());
 	if (handle == nullptr)
 		throw MakeErrno("smbc_open() failed");
 
@@ -97,20 +82,20 @@ input_smbclient_open(const char *uri,
 	}
 
 	return std::make_unique<MaybeBufferedInputStream>
-		(std::make_unique<SmbclientInputStream>(uri, mutex,
+		(std::make_unique<SmbclientInputStream>(std::move(uri), mutex,
 							std::move(ctx),
 							handle, st));
 }
 
 size_t
 SmbclientInputStream::Read(std::unique_lock<Mutex> &,
-			   void *ptr, size_t read_size)
+			   std::span<std::byte> dest)
 {
 	ssize_t nbytes;
 
 	{
 		const ScopeUnlock unlock(mutex);
-		nbytes = ctx.Read(handle, ptr, read_size);
+		nbytes = ctx.Read(handle, dest.data(), dest.size());
 	}
 
 	if (nbytes < 0)

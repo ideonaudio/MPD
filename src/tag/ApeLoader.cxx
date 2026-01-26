@@ -1,25 +1,10 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "ApeLoader.hxx"
-#include "util/ByteOrder.hxx"
 #include "input/InputStream.hxx"
+#include "util/PackedLittleEndian.hxx"
+#include "util/SpanCast.hxx"
 
 #include <cassert>
 #include <cstdint>
@@ -38,7 +23,7 @@ struct ApeFooter {
 bool
 tag_ape_scan(InputStream &is, const ApeTagCallback& callback)
 try {
-	std::unique_lock<Mutex> lock(is.mutex);
+	std::unique_lock lock{is.mutex};
 
 	if (!is.KnownSize() || !is.CheapSeeking())
 		return false;
@@ -46,7 +31,7 @@ try {
 	/* determine if file has an apeV2 tag */
 	ApeFooter footer;
 	is.Seek(lock, is.GetSize() - sizeof(footer));
-	is.ReadFull(lock, &footer, sizeof(footer));
+	is.ReadFull(lock, ReferenceAsWritableBytes(footer));
 
 	if (memcmp(footer.id, "APETAGEX", sizeof(footer.id)) != 0 ||
 	    FromLE32(footer.version) != 2000)
@@ -65,12 +50,12 @@ try {
 	remaining -= sizeof(footer);
 	assert(remaining > 10);
 
-	auto buffer = std::make_unique<char[]>(remaining);
-	is.ReadFull(lock, buffer.get(), remaining);
+	auto buffer = std::make_unique_for_overwrite<std::byte[]>(remaining);
+	is.ReadFull(lock, {buffer.get(), remaining});
 
 	/* read tags */
 	unsigned n = FromLE32(footer.count);
-	const char *p = buffer.get();
+	const char *p = (const char *)buffer.get();
 	while (n-- && remaining > 10) {
 		size_t size = *(const PackedLE32 *)p;
 		p += 4;

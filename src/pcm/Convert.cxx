@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Convert.hxx"
 #include "ConfiguredResampler.hxx"
@@ -38,7 +22,9 @@ PcmConvert::PcmConvert(const AudioFormat _src_format,
 	assert(dest_format.IsValid());
 
 	AudioFormat format = _src_format;
-	if (format.format == SampleFormat::DSD) {
+	if (format.format == SampleFormat::DSD &&
+	    (dest_format.format != SampleFormat::DSD ||
+	     format.sample_rate != dest_format.sample_rate)) {
 #ifdef ENABLE_DSD
 		dsd2pcm_float = dest_format.format == SampleFormat::FLOAT;
 		format.format = dsd2pcm_float
@@ -116,10 +102,9 @@ PcmConvert::Convert(std::span<const std::byte> buffer)
 {
 #ifdef ENABLE_DSD
 	if (src_format.format == SampleFormat::DSD) {
-		auto s = FromBytesStrict<const uint8_t>(buffer);
 		auto d = dsd2pcm_float
-			? std::as_bytes(dsd.ToFloat(src_format.channels, s))
-			: std::as_bytes(dsd.ToS24(src_format.channels, s));
+			? std::as_bytes(dsd.ToFloat(src_format.channels, buffer))
+			: std::as_bytes(dsd.ToS24(src_format.channels, buffer));
 		if (d.data() == nullptr)
 			throw std::runtime_error("DSD to PCM conversion failed");
 

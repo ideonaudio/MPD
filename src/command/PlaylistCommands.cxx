@@ -1,27 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
 #include "PlaylistCommands.hxx"
 #include "PositionArg.hxx"
 #include "Request.hxx"
 #include "Instance.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "db/Interface.hxx"
 #include "db/Selection.hxx"
 #include "db/DatabasePlaylist.hxx"
@@ -31,8 +15,10 @@
 #include "PlaylistError.hxx"
 #include "db/PlaylistVector.hxx"
 #include "SongLoader.hxx"
+#include "song/Filter.hxx"
 #include "song/DetachedSong.hxx"
 #include "BulkEdit.hxx"
+#include "playlist/Length.hxx"
 #include "playlist/PlaylistQueue.hxx"
 #include "playlist/Print.hxx"
 #include "TimePrint.hxx"
@@ -41,6 +27,7 @@
 #include "Mapper.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "time/ChronoUtil.hxx"
+#include "util/Exception.hxx"
 #include "util/UriExtract.hxx"
 #include "LocateUri.hxx"
 
@@ -56,7 +43,7 @@ static void
 print_spl_list(Response &r, const PlaylistVector &list)
 {
 	for (const auto &i : list) {
-		r.Fmt(FMT_STRING("playlist: {}\n"), i.name);
+		r.Fmt("playlist: {}\n", i.name);
 
 		if (!IsNegative(i.mtime))
 			time_print(r, "Last-Modified", i.mtime);
@@ -66,7 +53,22 @@ print_spl_list(Response &r, const PlaylistVector &list)
 CommandResult
 handle_save(Client &client, Request args, [[maybe_unused]] Response &r)
 {
-	spl_save_playlist(args.front(), client.GetPlaylist());
+	PlaylistSaveMode mode = PlaylistSaveMode::CREATE;
+
+	const char *mode_arg = args.GetOptional(1);
+	if (mode_arg != nullptr) {
+		if (StringIsEqual(mode_arg, "create"))
+			mode = PlaylistSaveMode::CREATE;
+		else if (StringIsEqual(mode_arg, "append"))
+			mode = PlaylistSaveMode::APPEND;
+		else if (StringIsEqual(mode_arg, "replace"))
+			mode = PlaylistSaveMode::REPLACE;
+		else
+			throw std::invalid_argument("Unrecognized save mode, expected one of 'create', 'append', 'replace'");
+	}
+
+	spl_save_playlist(args.front(), mode, client.GetPlaylist());
+
 	return CommandResult::OK;
 }
 
@@ -126,11 +128,11 @@ handle_listplaylist(Client &client, Request args, Response &r)
 #endif
 					   );
 
-	if (playlist_file_print(r, client.GetPartition(), SongLoader(client),
-				name, false))
-		return CommandResult::OK;
+	RangeArg range = args.ParseOptional(1, RangeArg::All());
 
-	throw PlaylistError::NoSuchList();
+	playlist_file_print(r, client.GetPartition(), SongLoader(client),
+			    name, range.start, range.end, false, nullptr);
+	return CommandResult::OK;
 }
 
 CommandResult
@@ -143,11 +145,59 @@ handle_listplaylistinfo(Client &client, Request args, Response &r)
 #endif
 					   );
 
-	if (playlist_file_print(r, client.GetPartition(), SongLoader(client),
-				name, true))
-		return CommandResult::OK;
+	RangeArg range = args.ParseOptional(1, RangeArg::All());
 
-	throw PlaylistError::NoSuchList();
+	playlist_file_print(r, client.GetPartition(), SongLoader(client),
+			    name, range.start, range.end, true, nullptr);
+	return CommandResult::OK;
+}
+
+CommandResult
+handle_searchplaylist(Client &client, Request args, Response &r)
+{
+	const auto name = LocateUri(UriPluginKind::PLAYLIST, args.front(),
+				    &client
+#ifdef ENABLE_DATABASE
+					   , nullptr
+#endif
+					   );
+	args.shift();
+
+	RangeArg window = RangeArg::All();
+	if (args.size() == 3 && StringIsEqual(args[args.size() - 2], "window")) {
+		window = args.ParseRange(args.size() - 1);
+
+		args.pop_back();
+		args.pop_back();
+	}
+
+	SongFilter filter;
+	try {
+		filter.Parse(args, true);
+	} catch (...) {
+		r.Error(ACK_ERROR_ARG,
+			GetFullMessage(std::current_exception()).c_str());
+		return CommandResult::ERROR;
+	}
+	filter.Optimize();
+
+	playlist_file_print(r, client.GetPartition(), SongLoader(client),
+				   name, window.start, window.end, true, &filter);
+	return CommandResult::OK;
+}
+
+CommandResult
+handle_playlistlength(Client &client, Request args, Response &r)
+{
+	const auto name = LocateUri(UriPluginKind::PLAYLIST, args.front(),
+				    &client
+#ifdef ENABLE_DATABASE
+					   , nullptr
+#endif
+					   );
+
+	playlist_file_length(r, client.GetPartition(), SongLoader(client), name);
+	return CommandResult::OK;
 }
 
 CommandResult
@@ -156,6 +206,9 @@ handle_rm([[maybe_unused]] Client &client, Request args, [[maybe_unused]] Respon
 	const char *const name = args.front();
 
 	spl_delete(name);
+
+	client.GetInstance().OnPlaylistDeleted(name);
+
 	return CommandResult::OK;
 }
 
@@ -187,10 +240,16 @@ handle_playlistmove([[maybe_unused]] Client &client,
 		    Request args, [[maybe_unused]] Response &r)
 {
 	const char *const name = args.front();
-	unsigned from = args.ParseUnsigned(1);
+
+	RangeArg from = args.ParseRange(1);
+	if (from.IsOpenEnded()) {
+		r.Error(ACK_ERROR_ARG, "Open-ended range not supported");
+		return CommandResult::ERROR;
+	}
+
 	unsigned to = args.ParseUnsigned(2);
 
-	if (from == to)
+	if (from.IsEmpty() || from.start == to)
 		/* this doesn't check whether the playlist exists, but
 		   what the hell.. */
 		return CommandResult::OK;

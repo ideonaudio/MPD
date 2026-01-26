@@ -1,41 +1,11 @@
-/*
- * Copyright 2020-2022 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #pragma once
 
 #include "Ring.hxx"
 #include "util/IntrusiveList.hxx"
-
-#include <liburing.h>
 
 namespace Uring {
 
@@ -53,10 +23,24 @@ class Queue {
 
 public:
 	Queue(unsigned entries, unsigned flags);
+	Queue(unsigned entries, struct io_uring_params &params);
 	~Queue() noexcept;
 
 	FileDescriptor GetFileDescriptor() const noexcept {
 		return ring.GetFileDescriptor();
+	}
+
+	void SetMaxWorkers(unsigned values[2]) {
+		ring.SetMaxWorkers(values);
+	}
+
+	void SetMaxWorkers(unsigned bounded, unsigned unbounded) {
+		ring.SetMaxWorkers(bounded, unbounded);
+	}
+
+	[[gnu::pure]]
+	bool HasOverflow() const noexcept {
+		return ring.HasOverflow();
 	}
 
 	struct io_uring_sqe *GetSubmitEntry() noexcept {
@@ -75,35 +59,79 @@ public:
 		return !operations.empty();
 	}
 
+	/**
+	 * Are there more than this number of pending operations?
+	 * This is a special method for integration into #EventLoop so
+	 * #EventLoop can determine whether there are pending
+	 * operations other than its own ones.
+	 */
+	[[gnu::pure]]
+	bool HasPendingMoreThan(std::size_t n) const noexcept {
+		for (auto i = operations.begin(), end = operations.end(); i != end; ++i) {
+			if (n-- == 0)
+				return true;
+		}
+
+		return false;
+	}
+
 protected:
 	void AddPending(struct io_uring_sqe &sqe,
 			Operation &operation) noexcept;
 
+	void SubmitAndGetEvents() {
+		ring.SubmitAndGetEvents();
+	}
+
 public:
-	virtual void Push(struct io_uring_sqe &sqe,
-			  Operation &operation) noexcept {
+	void Push(struct io_uring_sqe &sqe,
+		  Operation &operation) noexcept {
 		AddPending(sqe, operation);
 		Submit();
 	}
 
-	void Submit() {
+	virtual void Submit() {
 		ring.Submit();
 	}
 
+	/**
+	 * @return true if a completion was dispatched, false if the
+	 * completion queue was empty
+	 */
 	bool DispatchOneCompletion();
 
-	void DispatchCompletions() {
-		while (DispatchOneCompletion()) {}
+	/**
+	 * @return true if at least one completion was dispatched,
+	 * false if the completion queue was empty
+	 */
+	bool DispatchCompletions() {
+		bool result = false;
+		while (DispatchOneCompletion()) {
+			result = true;
+		}
+		return result;
 	}
 
+	/**
+	 * @return true if a completion was dispatched, false if the
+	 * completion queue was empty
+	 */
 	bool WaitDispatchOneCompletion();
 
 	void WaitDispatchCompletions() {
 		while (WaitDispatchOneCompletion()) {}
 	}
 
+	bool SubmitAndWaitDispatchCompletions(struct __kernel_timespec *timeout);
+
 private:
+	static void _DispatchOneCompletion(const struct io_uring_cqe &cqe) noexcept;
 	void DispatchOneCompletion(struct io_uring_cqe &cqe) noexcept;
+
+	/**
+	 * Dispatch all completions using io_uring_for_each_cqe().
+	 */
+	unsigned DispatchCompletions(struct io_uring_cqe &cqe) noexcept;
 };
 
 } // namespace Uring

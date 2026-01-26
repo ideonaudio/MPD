@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "LocateUri.hxx"
@@ -24,24 +8,41 @@
 #include "PlaylistSong.hxx"
 #include "SongEnumerator.hxx"
 #include "SongPrint.hxx"
+#include "song/Filter.hxx"
 #include "song/DetachedSong.hxx"
+#include "song/LightSong.hxx"
+#include "input/Error.hxx"
 #include "fs/Traits.hxx"
 #include "thread/Mutex.hxx"
 #include "Partition.hxx"
 #include "Instance.hxx"
+#include "PlaylistError.hxx"
+#include <fmt/format.h>
+#include "client/Response.hxx"
 
 static void
 playlist_provider_print(Response &r,
 			const SongLoader &loader,
 			const char *uri,
-			SongEnumerator &e, bool detail) noexcept
+			SongEnumerator &e,
+			unsigned start_index,
+			unsigned end_index,
+			bool detail) noexcept
 {
 	const auto base_uri = uri != nullptr
 		? PathTraitsUTF8::GetParent(uri)
 		: ".";
 
 	std::unique_ptr<DetachedSong> song;
-	while ((song = e.NextSong()) != nullptr) {
+
+	for (unsigned i = 0;
+	     i < end_index && (song = e.NextSong()) != nullptr;
+	     ++i) {
+		if (i < start_index) {
+			/* skip songs before the start index */
+			continue;
+		}
+
 		if (playlist_check_translate_song(*song, base_uri,
 						  loader) &&
 		    detail)
@@ -53,11 +54,63 @@ playlist_provider_print(Response &r,
 	}
 }
 
-bool
+static void
+playlist_provider_search_print(Response &r,
+			       const SongLoader &loader,
+			       const char *uri,
+			       SongEnumerator &e,
+			       unsigned start_index,
+			       unsigned end_index,
+			       SongFilter *filter) noexcept
+{
+	const auto base_uri = uri != nullptr
+		? PathTraitsUTF8::GetParent(uri)
+		: ".";
+
+	std::unique_ptr<DetachedSong> song;
+
+	unsigned skip = start_index;
+	unsigned n = end_index - start_index;
+	unsigned position = 0;
+
+	while ((song = e.NextSong()) != nullptr) {
+		const bool detail = playlist_check_translate_song(*song, base_uri,
+								  loader);
+		if (!filter->Match(static_cast<LightSong>(*song))) {
+			++position;
+			continue;
+		}
+
+		if (skip > 0) {
+			--skip;
+			++position;
+			continue;
+		}
+
+		if (detail) {
+			song_print_info(r, *song);
+			r.Fmt("Pos: {}\n", position);
+		} else
+			/* fallback if no detail was requested or no
+			   detail was available */
+			song_print_uri(r, *song);
+
+		if (--n == 0)
+			break;
+
+		++position;
+	}
+}
+
+void
 playlist_file_print(Response &r, Partition &partition,
 		    const SongLoader &loader,
-		    const LocatedUri &uri, bool detail)
-{
+		    const LocatedUri &uri,
+		    unsigned start_index,
+		    unsigned end_index,
+		    bool detail,
+		    SongFilter *filter)
+try {
 	Mutex mutex;
 
 #ifndef ENABLE_DATABASE
@@ -70,8 +123,17 @@ playlist_file_print(Response &r, Partition &partition,
 #endif
 					  mutex);
 	if (playlist == nullptr)
-		return false;
+		throw PlaylistError::NoSuchList();
 
-	playlist_provider_print(r, loader, uri.canonical_uri, *playlist, detail);
-	return true;
+	if (filter == nullptr)
+		playlist_provider_print(r, loader, uri.canonical_uri, *playlist,
+					start_index, end_index, detail);
+	else
+		playlist_provider_search_print(r, loader, uri.canonical_uri, *playlist,
+					start_index, end_index, filter);
+} catch (...) {
+	if (IsFileNotFound(std::current_exception()))
+		throw PlaylistError::NoSuchList();
+
+	throw;
 }

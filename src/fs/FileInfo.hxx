@@ -1,27 +1,9 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_FS_FILE_INFO_HXX
-#define MPD_FS_FILE_INFO_HXX
+#pragma once
 
 #include "Path.hxx"
-#include "system/Error.hxx"
 
 #ifdef _WIN32
 #include "time/FileTime.hxx"
@@ -32,10 +14,14 @@
 #include <chrono>
 #include <cstdint>
 
+class FileDescriptor;
+
 class FileInfo {
 	friend bool GetFileInfo(Path path, FileInfo &info,
-				bool follow_symlinks);
-	friend class FileReader;
+				bool follow_symlinks) noexcept;
+#ifdef _WIN32
+	friend bool GetFileInfoByHandle(HANDLE handle, FileInfo &info) noexcept;
+#endif
 
 #ifdef _WIN32
 	WIN32_FILE_ATTRIBUTE_DATA data;
@@ -44,21 +30,17 @@ class FileInfo {
 #endif
 
 public:
-	FileInfo() = default;
+	constexpr FileInfo() noexcept = default;
 
-	FileInfo(Path path, bool follow_symlinks=true) {
-		if (!GetFileInfo(path, *this, follow_symlinks)) {
+	explicit FileInfo(Path path, bool follow_symlinks=true);
+
 #ifdef _WIN32
-			throw FormatLastError("Failed to access %s",
-					      path.ToUTF8().c_str());
+	explicit FileInfo(HANDLE handle);
 #else
-			throw FormatErrno("Failed to access %s",
-					  path.ToUTF8().c_str());
+	explicit FileInfo(FileDescriptor fd);
 #endif
-		}
-	}
 
-	bool IsRegular() const {
+	constexpr bool IsRegular() const noexcept {
 #ifdef _WIN32
 		return (data.dwFileAttributes &
 			(FILE_ATTRIBUTE_DIRECTORY|FILE_ATTRIBUTE_DEVICE)) == 0;
@@ -67,7 +49,7 @@ public:
 #endif
 	}
 
-	bool IsDirectory() const {
+	constexpr bool IsDirectory() const noexcept {
 #ifdef _WIN32
 		return data.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY;
 #else
@@ -75,7 +57,7 @@ public:
 #endif
 	}
 
-	uint64_t GetSize() const {
+	constexpr uint_least64_t GetSize() const noexcept {
 #ifdef _WIN32
 		return ConstructUint64(data.nFileSizeLow, data.nFileSizeHigh);
 #else
@@ -83,7 +65,8 @@ public:
 #endif
 	}
 
-	std::chrono::system_clock::time_point GetModificationTime() const {
+	[[gnu::pure]]
+	std::chrono::system_clock::time_point GetModificationTime() const noexcept {
 #ifdef _WIN32
 		return FileTimeToChrono(data.ftLastWriteTime);
 #else
@@ -92,26 +75,26 @@ public:
 	}
 
 #ifndef _WIN32
-	uid_t GetUid() const {
+	constexpr uid_t GetUid() const noexcept {
 		return st.st_uid;
 	}
 
-	mode_t GetMode() const {
+	constexpr mode_t GetMode() const noexcept {
 		return st.st_mode;
 	}
 
-	dev_t GetDevice() const {
+	constexpr dev_t GetDevice() const noexcept {
 		return st.st_dev;
 	}
 
-	ino_t GetInode() const {
+	constexpr ino_t GetInode() const noexcept {
 		return st.st_ino;
 	}
 #endif
 };
 
 inline bool
-GetFileInfo(Path path, FileInfo &info, bool follow_symlinks=true)
+GetFileInfo(Path path, FileInfo &info, bool follow_symlinks=true) noexcept
 {
 #ifdef _WIN32
 	(void)follow_symlinks;
@@ -124,5 +107,10 @@ GetFileInfo(Path path, FileInfo &info, bool follow_symlinks=true)
 	return ret == 0;
 #endif
 }
+
+#ifdef _WIN32
+
+bool
+GetFileInfoByHandle(HANDLE handle, FileInfo &info) noexcept;
 
 #endif

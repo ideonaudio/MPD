@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "HttpdOutputPlugin.hxx"
 #include "HttpdInternal.hxx"
@@ -112,7 +96,7 @@ HttpdOutput::OnDeferredBroadcast() noexcept
 	/* this method runs in the IOThread; it broadcasts pages from
 	   our own queue to all clients */
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	while (!pages.empty()) {
 		PagePtr page = std::move(pages.front());
@@ -129,12 +113,12 @@ HttpdOutput::OnDeferredBroadcast() noexcept
 
 void
 HttpdOutput::OnAccept(UniqueSocketDescriptor fd,
-		      SocketAddress, [[maybe_unused]] int uid) noexcept
+		      SocketAddress) noexcept
 {
 	/* the listener socket has become readable - a client has
 	   connected */
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	/* can we allow additional client */
 	if (open && (clients_max == 0 || clients.size() < clients_max))
@@ -161,11 +145,29 @@ HttpdOutput::ReadPage() noexcept
 
 	size_t size = 0;
 	do {
-		const auto r = encoder->Read(std::span{buffer}.subspan(size));
+		const auto b = std::span{buffer}.subspan(size);
+		const auto r = encoder->Read(b);
 		if (r.empty())
 			break;
 
 		unflushed_input = 0;
+
+		if (r.data() != b.data()) {
+			if (size == 0 && r.size() >= sizeof(buffer) / 2)
+				/* if the returned memory area is
+				   large (and nothing has been written
+				   to the stack buffer yet), copy
+				   right from the returned memory
+				   area, avoiding the copy into the
+				   buffer*/
+				return std::make_shared<Page>(r);
+
+			/* if the encoder did not write to the given
+			   buffer but instead returned its own buffer,
+			   we need to copy it so we have a contiguous
+			   buffer */
+			std::copy(r.begin(), r.end(), b.begin());
+		}
 
 		size += r.size();
 	} while (size < sizeof(buffer));
@@ -195,7 +197,7 @@ HttpdOutput::Open(AudioFormat &audio_format)
 	assert(!open);
 	assert(clients.empty());
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	OpenEncoder(audio_format);
 
@@ -217,7 +219,7 @@ HttpdOutput::Close() noexcept
 	BlockingCall(GetEventLoop(), [this](){
 			defer_broadcast.Cancel();
 
-			const std::scoped_lock<Mutex> protect(mutex);
+			const std::scoped_lock protect{mutex};
 			open = false;
 			clients.clear_and_dispose(DeleteDisposer());
 		});
@@ -270,7 +272,7 @@ HttpdOutput::BroadcastPage(PagePtr page) noexcept
 	assert(page != nullptr);
 
 	{
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		pages.emplace(std::move(page));
 	}
 
@@ -282,7 +284,7 @@ HttpdOutput::BroadcastFromEncoder() noexcept
 {
 	/* synchronize with the IOThread */
 	{
-		std::unique_lock<Mutex> lock(mutex);
+		std::unique_lock lock{mutex};
 		cond.wait(lock, [this]{ return pages.empty(); });
 	}
 
@@ -290,7 +292,7 @@ HttpdOutput::BroadcastFromEncoder() noexcept
 
 	PagePtr page;
 	while ((page = ReadPage()) != nullptr) {
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		pages.emplace(std::move(page));
 		empty = false;
 	}
@@ -382,7 +384,7 @@ HttpdOutput::SendTag(const Tag &tag)
 
 		metadata = icy_server_metadata_page(tag, &types[0]);
 		if (metadata != nullptr) {
-			const std::scoped_lock<Mutex> protect(mutex);
+			const std::scoped_lock protect{mutex};
 			for (auto &client : clients)
 				client.PushMetaData(metadata);
 		}
@@ -392,7 +394,7 @@ HttpdOutput::SendTag(const Tag &tag)
 inline void
 HttpdOutput::CancelAllClients() noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	while (!pages.empty()) {
 		PagePtr page = std::move(pages.front());

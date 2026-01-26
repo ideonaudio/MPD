@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "PipeWireOutputPlugin.hxx"
 #include "lib/pipewire/Error.hxx"
@@ -23,23 +7,23 @@
 #include "../OutputAPI.hxx"
 #include "../Error.hxx"
 #include "mixer/plugins/PipeWireMixerPlugin.hxx"
+#include "pcm/Features.h" // for ENABLE_DSD
 #include "pcm/Silence.hxx"
 #include "lib/fmt/ExceptionFormatter.hxx"
 #include "system/Error.hxx"
 #include "util/BitReverse.hxx"
 #include "util/Domain.hxx"
+#include "util/RingBuffer.hxx"
 #include "util/ScopeExit.hxx"
+#include "util/StaticVector.hxx"
 #include "util/StringCompare.hxx"
 #include "Log.hxx"
 #include "tag/Format.hxx"
-#include "config.h" // for ENABLE_DSD
 
 #ifdef __GNUC__
 #pragma GCC diagnostic push
 /* oh no, libspa likes to cast away "const"! */
 #pragma GCC diagnostic ignored "-Wcast-qual"
-/* suppress more annoying warnings */
-#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
 #endif
 
 #include <pipewire/pipewire.h>
@@ -51,8 +35,6 @@
 #ifdef __GNUC__
 #pragma GCC diagnostic pop
 #endif
-
-#include <boost/lockfree/spsc_queue.hpp>
 
 #include <algorithm>
 #include <array>
@@ -81,8 +63,8 @@ class PipeWireOutput final : AudioOutput {
 	/**
 	 * This buffer passes PCM data from Play() to Process().
 	 */
-	using RingBuffer = boost::lockfree::spsc_queue<std::byte>;
-	RingBuffer *ring_buffer;
+	using RingBuffer = ::RingBuffer<std::byte>;
+	RingBuffer ring_buffer;
 
 	uint32_t target_id = PW_ID_ANY;
 
@@ -127,6 +109,12 @@ class PipeWireOutput final : AudioOutput {
 	 */
 	uint_least8_t dsd_interleave;
 #endif
+
+	/**
+	 * Configuration setting for #PW_STREAM_FLAG_DONT_RECONNECT
+	 * (negated).
+	 */
+	const bool reconnect_stream;
 
 	bool disconnected;
 
@@ -306,10 +294,11 @@ PipeWireOutput::PipeWireOutput(const ConfigBlock &block)
 	:AudioOutput(FLAG_ENABLE_DISABLE),
 	 name(block.GetBlockValue("name", "pipewire")),
 	 remote(block.GetBlockValue("remote", nullptr)),
-	 target(block.GetBlockValue("target", nullptr))
+	 target(block.GetBlockValue("target", nullptr)),
 #if defined(ENABLE_DSD) && defined(SPA_AUDIO_DSD_FLAG_NONE)
-	, enable_dsd(block.GetBlockValue("dsd", false))
+	 enable_dsd(block.GetBlockValue("dsd", false)),
 #endif
+	 reconnect_stream(block.GetBlockValue("reconnect_stream", true))
 {
 	if (target != nullptr) {
 		if (StringIsEmpty(target))
@@ -522,7 +511,9 @@ PipeWireOutput::Open(AudioFormat &audio_format)
 		pw_properties_setf(props, PW_KEY_REMOTE_NAME, "%s", remote);
 
 	if (target != nullptr && target_id == PW_ID_ANY)
-		pw_properties_setf(props, PW_KEY_NODE_TARGET, "%s", target);
+		pw_properties_setf(props,
+				   PW_KEY_TARGET_OBJECT,
+				   "%s", target);
 
 #ifdef PW_KEY_NODE_RATE
 	/* ask PipeWire to change the graph sample rate to ours
@@ -566,9 +557,7 @@ PipeWireOutput::Open(AudioFormat &audio_format)
 	interrupted = false;
 
 	/* allocate a ring buffer of 0.5 seconds */
-	const std::size_t ring_buffer_size =
-		frame_size * (audio_format.sample_rate / 2);
-	ring_buffer = new RingBuffer(ring_buffer_size);
+	ring_buffer = RingBuffer{frame_size * (audio_format.sample_rate / 2)};
 
 	const struct spa_pod *params[1];
 
@@ -598,14 +587,19 @@ PipeWireOutput::Open(AudioFormat &audio_format)
 						       SPA_PARAM_EnumFormat,
 						       &raw);
 
+	unsigned stream_flags = PW_STREAM_FLAG_AUTOCONNECT |
+		PW_STREAM_FLAG_INACTIVE |
+		PW_STREAM_FLAG_MAP_BUFFERS |
+		PW_STREAM_FLAG_RT_PROCESS;
+
+	if (!reconnect_stream)
+		stream_flags |= PW_STREAM_FLAG_DONT_RECONNECT;
+
 	int error =
 		pw_stream_connect(stream,
 				  PW_DIRECTION_OUTPUT,
 				  target_id,
-				  (enum pw_stream_flags)(PW_STREAM_FLAG_AUTOCONNECT |
-							 PW_STREAM_FLAG_INACTIVE |
-							 PW_STREAM_FLAG_MAP_BUFFERS |
-							 PW_STREAM_FLAG_RT_PROCESS),
+				  static_cast<enum pw_stream_flags>(stream_flags),
 				  params, 1);
 	if (error < 0)
 		throw PipeWire::MakeError(error, "Failed to connect stream");
@@ -620,12 +614,12 @@ PipeWireOutput::Close() noexcept
 		stream = nullptr;
 	}
 
-	delete ring_buffer;
+	ring_buffer = {};
 }
 
 inline void
 PipeWireOutput::StateChanged(enum pw_stream_state state,
-			     [[maybe_unused]] const char *error) noexcept
+			     const char *error) noexcept
 {
 	const bool was_disconnected = disconnected;
 	disconnected = state == PW_STREAM_STATE_ERROR ||
@@ -678,7 +672,7 @@ PipeWireOutput::ParamChanged([[maybe_unused]] uint32_t id,
 				::SetVolume(*stream, channels, volume);
 			} catch (...) {
 				FmtError(pipewire_output_domain,
-					 FMT_STRING("Failed to restore volume: {}"),
+					 "Failed to restore volume: {}",
 					 std::current_exception());
 			}
 		}
@@ -721,16 +715,10 @@ Interleave(std::byte *data, std::byte *end,
 }
 
 static void
-BitReverse(uint8_t *data, std::size_t n) noexcept
-{
-	while (n-- > 0)
-		*data = bit_reverse(*data);
-}
-
-static void
 BitReverse(std::byte *data, std::size_t n) noexcept
 {
-	BitReverse((uint8_t *)data, n);
+	while (n-- > 0)
+		*data = BitReverse(*data);
 }
 
 static void
@@ -755,6 +743,14 @@ PostProcessDsd(std::byte *data, struct spa_chunk &chunk, unsigned channels,
 inline void
 PipeWireOutput::Process() noexcept
 {
+	if (drain_requested && ring_buffer.IsEmptyRelaxed()) {
+		/* draining was requested and our ring buffer is
+		   empty: tell PipeWire to drain (instead of queueing
+		   a buffer) */
+		pw_stream_flush(stream, true);
+		return;
+	}
+
 	auto *b = pw_stream_dequeue_buffer(stream);
 	if (b == nullptr) {
 		pw_log_warn("out of buffers: %m");
@@ -764,38 +760,26 @@ PipeWireOutput::Process() noexcept
 	auto &buffer = *b->buffer;
 	auto &d = buffer.datas[0];
 
-	auto dest = (std::byte *)d.data;
-	if (dest == nullptr)
+	const std::span<std::byte> dest{reinterpret_cast<std::byte *>(d.data), d.maxsize};
+	if (dest.data() == nullptr)
 		return;
 
-	std::size_t max_frames = d.maxsize / frame_size;
+	std::size_t chunk_size = frame_size;
 
 #if defined(ENABLE_DSD) && defined(SPA_AUDIO_DSD_FLAG_NONE)
 	if (use_dsd && dsd_interleave > 1) {
 		/* make sure we don't get partial interleave frames */
-		std::size_t interleave_size = frame_size * dsd_interleave;
-		std::size_t available_bytes = ring_buffer->read_available();
-		std::size_t available_interleaves =
-			available_bytes / interleave_size;
-		std::size_t available_frames =
-			available_interleaves * dsd_interleave;
-		if (max_frames > available_frames)
-			max_frames = available_frames;
+		chunk_size *= dsd_interleave;
 	}
 #endif
 
-	const std::size_t max_size = max_frames * frame_size;
-	size_t nbytes = ring_buffer->pop(dest, max_size);
-	assert(nbytes % frame_size == 0);
+	size_t nbytes = ring_buffer.ReadFramesTo(dest, chunk_size);
+	assert(nbytes % chunk_size == 0);
 	if (nbytes == 0) {
-		if (drain_requested) {
-			pw_stream_flush(stream, true);
-			return;
-		}
-
 		/* buffer underrun: generate some silence */
-		PcmSilence({dest, max_size}, sample_format);
-		nbytes = max_size;
+		std::size_t max_chunks = d.maxsize / chunk_size;
+		nbytes = max_chunks * chunk_size;
+		PcmSilence(dest.first(nbytes), sample_format);
 
 		LogWarning(pipewire_output_domain, "Decoder is too slow; playing silence to avoid xrun");
 	}
@@ -807,7 +791,7 @@ PipeWireOutput::Process() noexcept
 
 #if defined(ENABLE_DSD) && defined(SPA_AUDIO_DSD_FLAG_NONE)
 	if (use_dsd)
-		PostProcessDsd(dest, chunk, channels,
+		PostProcessDsd(dest.data(), chunk, channels,
 			       dsd_reverse_bits, dsd_interleave);
 #endif
 
@@ -840,7 +824,7 @@ PipeWireOutput::Play(std::span<const std::byte> src)
 		CheckThrowError();
 
 		std::size_t bytes_written =
-			ring_buffer->push(src.data(), src.size());
+			ring_buffer.WriteFrom(src);
 		if (bytes_written > 0) {
 			drained = false;
 			return bytes_written;
@@ -896,7 +880,7 @@ PipeWireOutput::Cancel() noexcept
 		return;
 
 	/* clear MPD's ring buffer */
-	ring_buffer->reset();
+	ring_buffer.Clear();
 
 	/* clear libpipewire's buffer */
 	pw_stream_flush(stream, false);
@@ -943,28 +927,30 @@ PipeWireOutput::SendTag(const Tag &tag)
 {
 	CheckThrowError();
 
-	struct spa_dict_item items[3];
-	uint32_t n_items=0;
+	static constexpr struct {
+		TagType mpd;
+		const char *pipewire;
+	} tag_map[] = {
+		{ TAG_ARTIST, PW_KEY_MEDIA_ARTIST },
+		{ TAG_TITLE, PW_KEY_MEDIA_TITLE },
+		{ TAG_DATE, PW_KEY_MEDIA_DATE },
+		{ TAG_COMMENT, PW_KEY_MEDIA_COMMENT },
+	};
 
-	const char *artist, *title;
+	StaticVector<spa_dict_item, 1 + std::size(tag_map)> items;
 
 	char *medianame = FormatTag(tag, "%artist% - %title%");
 	AtScopeExit(medianame) { free(medianame); };
 
-	items[n_items++] = SPA_DICT_ITEM_INIT(PW_KEY_MEDIA_NAME, medianame);
+	items.push_back(SPA_DICT_ITEM_INIT(PW_KEY_MEDIA_NAME, medianame));
 
-	artist = tag.GetValue(TAG_ARTIST);
-	title = tag.GetValue(TAG_TITLE);
+	for (const auto &i : tag_map)
+		if (const char *value = tag.GetValue(i.mpd))
+			items.push_back(SPA_DICT_ITEM_INIT(i.pipewire, value));
 
-	if (artist != nullptr) {
-		items[n_items++] = SPA_DICT_ITEM_INIT(PW_KEY_MEDIA_ARTIST, artist);
-	}
+	struct spa_dict dict = SPA_DICT_INIT(items.data(), (uint32_t)items.size());
 
-	if (title != nullptr) {
-		items[n_items++] = SPA_DICT_ITEM_INIT(PW_KEY_MEDIA_TITLE, title);
-	}
-
-	struct spa_dict dict = SPA_DICT_INIT(items, n_items);
+	const PipeWire::ThreadLoopLock lock(thread_loop);
 
 	auto rc = pw_stream_update_properties(stream, &dict);
 	if (rc < 0)

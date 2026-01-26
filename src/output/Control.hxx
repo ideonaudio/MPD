@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_OUTPUT_CONTROL_HXX
 #define MPD_OUTPUT_CONTROL_HXX
@@ -25,7 +9,7 @@
 #include "thread/Thread.hxx"
 #include "thread/Mutex.hxx"
 #include "thread/Cond.hxx"
-#include "system/PeriodClock.hxx"
+#include "time/PeriodClock.hxx"
 
 #include <cstdint>
 #include <exception>
@@ -147,6 +131,32 @@ class AudioOutputControl {
 	} command = Command::NONE;
 
 	/**
+	 * The current state of #source (an #AudioOutputSource
+	 * object).  This is used to keep track of whether it needs to
+	 * be (re)initialized.
+	 */
+	enum class SourceState : uint_least8_t {
+		/**
+		 * #source is closed and cannot be used.
+		 * InternalOpen() will open it once #Command::OPEN
+		 * gets received.
+		 */
+		CLOSED,
+
+		/**
+		 * #source is open and usable.
+		 */
+		OPEN,
+
+		/**
+		 * #source is open, but has been flushed (via
+		 * InternalDrain() / Command::DRAIN).  It cannot be
+		 * used until it is reopened.
+		 */
+		FLUSHED,
+	} source_state = SourceState::CLOSED;
+
+	/**
 	 * Will this output receive tags from the decoder?  The
 	 * default is true, but it may be configured to false to
 	 * suppress sending tags to the output.
@@ -158,6 +168,11 @@ class AudioOutputControl {
 	 * even when playback is stopped?
 	 */
 	const bool always_on;
+
+	/**
+	 * Should this output never play anything, even when enabled?
+	 */
+	const bool always_off;
 
 	/**
 	 * Has the user enabled this device?
@@ -193,6 +208,15 @@ class AudioOutputControl {
 	 * ao_pause() loop.
 	 */
 	bool pause = false;
+
+	/**
+	 * Should the device be reopened?  This is set to true after
+	 * the #AudioOutputSource got flushed because reopening is
+	 * necessary after a flush.
+	 *
+	 * Protected by #mutex.
+	 */
+	bool should_reopen = false;
 
 	/**
 	 * When this flag is set, the output thread will not do any
@@ -290,6 +314,10 @@ public:
 		return !output;
 	}
 
+	bool AlwaysOff() const noexcept {
+		return always_off;
+	}
+
 	/**
 	 * Caller must lock the mutex.
 	 */
@@ -362,7 +390,7 @@ public:
 	void WaitForCommand(std::unique_lock<Mutex> &lock) noexcept;
 
 	void LockWaitForCommand() noexcept {
-		std::unique_lock<Mutex> lock(mutex);
+		std::unique_lock lock{mutex};
 		WaitForCommand(lock);
 	}
 
@@ -387,7 +415,7 @@ public:
 
 	void BeginDestroy() noexcept;
 
-	std::map<std::string, std::string> GetAttributes() const noexcept;
+	std::map<std::string, std::string, std::less<>> GetAttributes() const noexcept;
 	void SetAttribute(std::string &&name, std::string &&value);
 
 	/**
@@ -414,7 +442,7 @@ public:
 	void EnableDisableAsync();
 
 	void LockEnableDisableAsync() {
-		const std::scoped_lock<Mutex> protect(mutex);
+		const std::scoped_lock protect{mutex};
 		EnableDisableAsync();
 	}
 
@@ -443,7 +471,7 @@ public:
 	/**
 	 * Caller must lock the mutex.
 	 */
-	bool Open(std::unique_lock<Mutex> &lock,
+	bool Open(std::unique_lock<Mutex> &&lock,
 		  AudioFormat audio_format, const MusicPipe &mp) noexcept;
 
 	/**
@@ -489,7 +517,7 @@ public:
 	 * Locking wrapper for ClearTailChunk().
 	 */
 	void LockClearTailChunk(const MusicChunk &chunk) noexcept {
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		ClearTailChunk(chunk);
 	}
 

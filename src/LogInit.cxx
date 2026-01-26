@@ -1,35 +1,20 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "LogInit.hxx"
 #include "LogBackend.hxx"
 #include "Log.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "config/Param.hxx"
 #include "config/Data.hxx"
 #include "config/Option.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "fs/FileSystem.hxx"
 #include "util/Domain.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/StringAPI.hxx"
-#include "system/Error.hxx"
+#include "lib/fmt/SystemError.hxx"
 
 #include <cassert>
 
@@ -78,14 +63,11 @@ log_init_file(int line)
 	out_fd = open_log_file();
 	if (out_fd < 0) {
 #ifdef _WIN32
-		const std::string out_path_utf8 = out_path.ToUTF8();
-		throw FormatRuntimeError("failed to open log file \"%s\" (config line %d)",
-					 out_path_utf8.c_str(), line);
+		throw FmtRuntimeError("failed to open log file {:?} (config line {})",
+				      out_path, line);
 #else
-		int e = errno;
-		const std::string out_path_utf8 = out_path.ToUTF8();
-		throw FormatErrno(e, "failed to open log file \"%s\" (config line %d)",
-				  out_path_utf8.c_str(), line);
+		throw FmtErrno("failed to open log file {:?} (config line {})",
+			       out_path, line);
 #endif
 	}
 
@@ -110,7 +92,7 @@ parse_log_level(const char *value)
 	else if (StringIsEqual(value, "error"))
 		return LogLevel::ERROR;
 	else
-		throw FormatRuntimeError("unknown log level \"%s\"", value);
+		throw FmtRuntimeError("unknown log level {:?}", value);
 }
 
 #endif
@@ -148,6 +130,7 @@ log_init(const ConfigData &config, bool verbose, bool use_stdout)
 
 	if (use_stdout) {
 		out_fd = STDOUT_FILENO;
+		EnableLogTimestamp();
 	} else {
 		const auto *param = config.GetParam(ConfigOption::LOG_FILE);
 		if (param == nullptr) {
@@ -158,12 +141,15 @@ log_init(const ConfigData &config, bool verbose, bool use_stdout)
 			    getenv("NOTIFY_SOCKET") != nullptr) {
 				/* if MPD was started as a systemd
 				   service, default to journal (which
-				   is connected to fd=2) */
+				   is connected to stdout&stderr) */
 				out_fd = STDOUT_FILENO;
 				return;
 			}
 #endif
-#ifndef HAVE_SYSLOG
+#ifdef _WIN32
+			/* default to stdout on Windows */
+			out_fd = STDOUT_FILENO;
+#elif !defined(HAVE_SYSLOG)
 			throw std::runtime_error("config parameter 'log_file' not found");
 #endif
 #ifdef HAVE_SYSLOG
@@ -239,10 +225,9 @@ cycle_log_files() noexcept
 
 	fd = open_log_file();
 	if (fd < 0) {
-		const std::string out_path_utf8 = out_path.ToUTF8();
 		FmtError(log_domain,
 			 "error re-opening log file: {}",
-			 out_path_utf8);
+			 out_path);
 		return -1;
 	}
 

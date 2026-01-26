@@ -1,23 +1,6 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
 #include "FingerprintCommands.hxx"
 #include "Request.hxx"
 #include "LocateUri.hxx"
@@ -28,6 +11,7 @@
 #include "client/Client.hxx"
 #include "client/Response.hxx"
 #include "client/ThreadBackgroundCommand.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "input/InputStream.hxx"
 #include "input/LocalOpen.hxx"
 #include "input/Handler.hxx"
@@ -62,12 +46,12 @@ protected:
 	void Run() override;
 
 	void SendResponse(Response &r) noexcept override {
-		r.Fmt(FMT_STRING("chromaprint: {}\n"),
+		r.Fmt("chromaprint: {}\n",
 		      GetFingerprint());
 	}
 
 	void CancelThread() noexcept override {
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		cancel = true;
 		cond.notify_one();
 	}
@@ -84,9 +68,9 @@ private:
 	void DecodeFile();
 
 	/* virtual methods from class DecoderClient */
-	InputStreamPtr OpenUri(const char *uri) override;
+	InputStreamPtr OpenUri(std::string_view uri) override;
 	size_t Read(InputStream &is,
-		    void *buffer, size_t length) noexcept override;
+		    std::span<std::byte> dest) noexcept override;
 
 	/* virtual methods from class InputStreamHandler */
 	void OnInputStreamReady() noexcept override {
@@ -117,7 +101,7 @@ GetChromaprintCommand::DecodeStream(InputStream &input_stream,
 	plugin.StreamDecode(*this, input_stream);
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
 decoder_check_plugin_mime(const DecoderPlugin &plugin,
 			  const InputStream &is) noexcept
@@ -129,7 +113,7 @@ decoder_check_plugin_mime(const DecoderPlugin &plugin,
 		plugin.SupportsMimeType(GetMimeTypeBase(mime_type));
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
 decoder_check_plugin_suffix(const DecoderPlugin &plugin,
 			    std::string_view suffix) noexcept
@@ -139,7 +123,7 @@ decoder_check_plugin_suffix(const DecoderPlugin &plugin,
 	return !suffix.empty() && plugin.SupportsSuffix(suffix);
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
 decoder_check_plugin(const DecoderPlugin &plugin, const InputStream &is,
 		     std::string_view suffix) noexcept
@@ -168,9 +152,10 @@ GetChromaprintCommand::DecodeStream(InputStream &is)
 {
 	const auto suffix = uri_get_suffix(uri);
 
-	decoder_plugins_try([this, &is, suffix](const DecoderPlugin &plugin){
-		return DecodeStream(is, suffix, plugin);
-	});
+	for (const auto &plugin : GetEnabledDecoderPlugins()) {
+		if (DecodeStream(is, suffix, plugin))
+			break;
+	}
 }
 
 inline bool
@@ -191,9 +176,12 @@ GetChromaprintCommand::DecodeContainer(std::string_view suffix,
 inline bool
 GetChromaprintCommand::DecodeContainer(std::string_view suffix)
 {
-	return decoder_plugins_try([this, suffix](const DecoderPlugin &plugin){
-		return DecodeContainer(suffix, plugin);
-	});
+	for (const auto &plugin : GetEnabledDecoderPlugins()) {
+		if (DecodeContainer(suffix, plugin))
+			return true;
+	}
+
+	return false;
 }
 
 inline bool
@@ -204,7 +192,7 @@ GetChromaprintCommand::DecodeFile(std::string_view suffix, InputStream &is,
 		return false;
 
 	{
-		const std::scoped_lock<Mutex> protect(mutex);
+		const std::scoped_lock protect{mutex};
 		if (cancel)
 			throw StopDecoder();
 	}
@@ -246,10 +234,12 @@ GetChromaprintCommand::DecodeFile()
 
 	assert(input_stream);
 
-	auto &is = *input_stream;
-	decoder_plugins_try([this, suffix, &is](const DecoderPlugin &plugin){
-		return DecodeFile(suffix, is, plugin);
-	});
+	input_stream->SetHandler(this);
+
+	for (const auto &plugin : GetEnabledDecoderPlugins()) {
+		if (DecodeFile(suffix, *input_stream, plugin))
+			break;
+	}
 }
 
 void
@@ -258,14 +248,14 @@ try {
 	if (!path.IsNull())
 		DecodeFile();
 	else
-		DecodeStream(*OpenUri(uri.c_str()));
+		DecodeStream(*OpenUri(uri));
 
 	ChromaprintDecoderClient::Finish();
 } catch (StopDecoder) {
 }
 
 InputStreamPtr
-GetChromaprintCommand::OpenUri(const char *uri2)
+GetChromaprintCommand::OpenUri(std::string_view uri2)
 {
 	if (cancel)
 		throw StopDecoder();
@@ -273,7 +263,7 @@ GetChromaprintCommand::OpenUri(const char *uri2)
 	auto is = InputStream::Open(uri2, mutex);
 	is->SetHandler(this);
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 	while (true) {
 		if (cancel)
 			throw StopDecoder();
@@ -290,15 +280,15 @@ GetChromaprintCommand::OpenUri(const char *uri2)
 
 size_t
 GetChromaprintCommand::Read(InputStream &is,
-			    void *buffer, size_t length) noexcept
+			    std::span<std::byte> dest) noexcept
 {
 	/* overriding ChromaprintDecoderClient's implementation to
 	   make it cancellable */
 
-	if (length == 0)
+	if (dest.empty())
 		return 0;
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 
 	while (true) {
 		if (cancel)
@@ -311,7 +301,7 @@ GetChromaprintCommand::Read(InputStream &is,
 	}
 
 	try {
-		return is.Read(lock, buffer, length);
+		return is.Read(lock, dest);
 	} catch (...) {
 		ChromaprintDecoderClient::error = std::current_exception();
 		return 0;
@@ -348,7 +338,7 @@ handle_getfingerprint(Client &client, Request args, Response &)
 			lu.path = storage->MapFS(lu.canonical_uri);
 			if (lu.path.IsNull()) {
 				uri = storage->MapUTF8(lu.canonical_uri);
-				if (!uri_has_scheme(uri.c_str()))
+				if (!uri_has_scheme(uri))
 					throw ProtocolError(ACK_ERROR_NO_EXIST, "No such song");
 			}
 		}

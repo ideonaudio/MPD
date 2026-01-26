@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Environment.hxx"
 #include "java/Class.hxx"
@@ -25,13 +9,13 @@
 #include "fs/AllocatedPath.hxx"
 
 namespace Environment {
-	static Java::TrivialClass cls;
-	static jmethodID getExternalStorageDirectory_method;
-	static jmethodID getExternalStoragePublicDirectory_method;
-}
+
+static Java::TrivialClass cls;
+static jmethodID getExternalStorageDirectory_method;
+static jmethodID getExternalStoragePublicDirectory_method;
 
 void
-Environment::Initialise(JNIEnv *env) noexcept
+Initialise(JNIEnv *env) noexcept
 {
 	cls.Find(env, "android/os/Environment");
 
@@ -45,16 +29,14 @@ Environment::Initialise(JNIEnv *env) noexcept
 }
 
 void
-Environment::Deinitialise(JNIEnv *env) noexcept
+Deinitialise(JNIEnv *env) noexcept
 {
 	cls.Clear(env);
 }
 
 AllocatedPath
-Environment::getExternalStorageDirectory() noexcept
+getExternalStorageDirectory(JNIEnv *env) noexcept
 {
-	JNIEnv *env = Java::GetEnv();
-
 	jobject file =
 		env->CallStaticObjectMethod(cls,
 					    getExternalStorageDirectory_method);
@@ -65,20 +47,20 @@ Environment::getExternalStorageDirectory() noexcept
 }
 
 AllocatedPath
-Environment::getExternalStoragePublicDirectory(const char *type) noexcept
+getExternalStoragePublicDirectory(JNIEnv *env, const char *type) noexcept
 {
 	if (getExternalStoragePublicDirectory_method == nullptr)
 		/* needs API level 8 */
 		return nullptr;
 
-	JNIEnv *env = Java::GetEnv();
-
 	Java::String type2(env, type);
-	jobject file = env->CallStaticObjectMethod(Environment::cls,
-						   Environment::getExternalStoragePublicDirectory_method,
+	jobject file = env->CallStaticObjectMethod(cls,
+						   getExternalStoragePublicDirectory_method,
 						   type2.Get());
 	if (file == nullptr)
 		return nullptr;
 
 	return Java::File::ToAbsolutePath(env, file);
 }
+
+} // namespace Environment

@@ -14,12 +14,15 @@ config = static_library(
   include_directories: inc,
   dependencies: [
     log_dep,
+    fmt_dep,
+    fs_dep,
+    fs_glue_dep,
+    io_fs_dep,
   ],
 )
 
 config_dep = declare_dependency(
   link_with: config,
   dependencies: [
-    fs_dep,
   ],
 )

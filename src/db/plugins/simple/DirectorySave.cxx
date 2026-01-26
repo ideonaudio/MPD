@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "DirectorySave.hxx"
 #include "Directory.hxx"
@@ -26,12 +10,15 @@
 #include "io/LineReader.hxx"
 #include "io/BufferedOutputStream.hxx"
 #include "time/ChronoUtil.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "util/StringAPI.hxx"
 #include "util/StringCompare.hxx"
-#include "util/NumberParser.hxx"
-#include "util/RuntimeError.hxx"
+#include "util/CNumberParser.hxx"
 
 #include <fmt/format.h>
+
+#include <set>
+#include <string_view>
 
 #include <string.h>
 
@@ -41,7 +28,7 @@
 #define DIRECTORY_BEGIN "begin: "
 #define DIRECTORY_END "end: "
 
-gcc_const
+[[gnu::const]]
 static const char *
 DeviceToTypeString(unsigned device) noexcept
 {
@@ -60,7 +47,7 @@ DeviceToTypeString(unsigned device) noexcept
 	}
 }
 
-gcc_pure
+[[gnu::pure]]
 static unsigned
 ParseTypeString(const char *type) noexcept
 {
@@ -80,20 +67,20 @@ directory_save(BufferedOutputStream &os, const Directory &directory)
 	if (!directory.IsRoot()) {
 		const char *type = DeviceToTypeString(directory.device);
 		if (type != nullptr)
-			os.Fmt(FMT_STRING(DIRECTORY_TYPE "{}\n"), type);
+			os.Fmt(DIRECTORY_TYPE "{}\n", type);
 
 		if (!IsNegative(directory.mtime))
-			os.Fmt(FMT_STRING(DIRECTORY_MTIME "{}\n"),
+			os.Fmt(DIRECTORY_MTIME "{}\n",
 			       std::chrono::system_clock::to_time_t(directory.mtime));
 
-		os.Fmt(FMT_STRING(DIRECTORY_BEGIN "{}\n"), directory.GetPath());
+		os.Fmt(DIRECTORY_BEGIN "{}\n", directory.GetPath());
 	}
 
 	for (const auto &child : directory.children) {
 		if (child.IsMount())
 			continue;
 
-		os.Fmt(FMT_STRING(DIRECTORY_DIR "{}\n"), child.GetName());
+		os.Fmt(DIRECTORY_DIR "{}\n", child.GetName());
 		directory_save(os, child);
 	}
 
@@ -103,7 +90,7 @@ directory_save(BufferedOutputStream &os, const Directory &directory)
 	playlist_vector_save(os, directory.playlists);
 
 	if (!directory.IsRoot())
-		os.Fmt(FMT_STRING(DIRECTORY_END "{}\n"), directory.GetPath());
+		os.Fmt(DIRECTORY_END "{}\n", directory.GetPath());
 }
 
 static bool
@@ -125,10 +112,6 @@ ParseLine(Directory &directory, const char *line)
 static Directory *
 directory_load_subdir(LineReader &file, Directory &parent, std::string_view name)
 {
-	if (parent.FindChild(name) != nullptr)
-		throw FormatRuntimeError("Duplicate subdirectory '%.*s'",
-					 int(name.size()), name.data());
-
 	Directory *directory = parent.CreateChild(name);
 
 	try {
@@ -141,7 +124,7 @@ directory_load_subdir(LineReader &file, Directory &parent, std::string_view name
 				break;
 
 			if (!ParseLine(*directory, line))
-				throw FormatRuntimeError("Malformed line: %s", line);
+				throw FmtRuntimeError("Malformed line: {:?}", line);
 		}
 
 		directory_load(file, *directory);
@@ -156,33 +139,44 @@ directory_load_subdir(LineReader &file, Directory &parent, std::string_view name
 void
 directory_load(LineReader &file, Directory &directory)
 {
+	/* these sets are used to quickly check for duplicates,
+	   avoiding linear lookups */
+	std::set<std::string_view> children, songs;
+
 	const char *line;
 
 	while ((line = file.ReadLine()) != nullptr &&
 	       !StringStartsWith(line, DIRECTORY_END)) {
 		const char *p;
 		if ((p = StringAfterPrefix(line, DIRECTORY_DIR))) {
-			directory_load_subdir(file, directory, p);
+			auto *child = directory_load_subdir(file, directory, p);
+
+			const std::string_view name = child->GetName();
+			if (!children.emplace(name).second)
+				throw FmtRuntimeError("Duplicate subdirectory {:?}", name);
 		} else if ((p = StringAfterPrefix(line, SONG_BEGIN))) {
 			const char *name = p;
 
-			if (directory.FindSong(name) != nullptr)
-				throw FormatRuntimeError("Duplicate song '%s'", name);
-
 			std::string target;
+			bool in_playlist = false;
 			auto detached_song = song_load(file, name,
-						       &target);
+						       &target, &in_playlist);
 
 			auto song = std::make_unique<Song>(std::move(detached_song),
 							   directory);
 			song->target = std::move(target);
+			song->in_playlist = in_playlist;
+
+			if (!songs.emplace(song->filename).second)
+				throw FmtRuntimeError("Duplicate song {:?}",
+						      name);
 
 			directory.AddSong(std::move(song));
 		} else if ((p = StringAfterPrefix(line, PLAYLIST_META_BEGIN))) {
 			const char *name = p;
 			playlist_metadata_load(file, directory.playlists, name);
 		} else {
-			throw FormatRuntimeError("Malformed line: %s", line);
+			throw FmtRuntimeError("Malformed line: {:?}", line);
 		}
 	}
 }

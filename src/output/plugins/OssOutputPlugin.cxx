@@ -1,28 +1,12 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "OssOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
-#include "mixer/MixerList.hxx"
+#include "mixer/plugins/OssMixerPlugin.hxx"
 #include "pcm/Export.hxx"
 #include "io/UniqueFileDescriptor.hxx"
-#include "system/Error.hxx"
+#include "lib/fmt/SystemError.hxx"
 #include "util/Domain.hxx"
 #include "util/ByteOrder.hxx"
 #include "util/Manual.hxx"
@@ -32,6 +16,7 @@
 #include <cerrno>
 #include <iterator>
 #include <stdexcept>
+#include <utility> // for std::unreachable()
 
 #include <sys/stat.h>
 #include <sys/ioctl.h>
@@ -39,11 +24,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-# include <soundcard.h>
-#else /* !(defined(__OpenBSD__) || defined(__NetBSD__) */
-# include <sys/soundcard.h>
-#endif /* !(defined(__OpenBSD__) || defined(__NetBSD__) */
+#include <sys/soundcard.h>
 
 /* We got bug reports from FreeBSD users who said that the two 24 bit
    formats generate white noise on FreeBSD, but 32 bit works.  This is
@@ -61,6 +42,16 @@
 class OssOutput final : AudioOutput {
 	Manual<PcmExport> pcm_export;
 
+	const char *const device;
+
+	FileDescriptor fd = FileDescriptor::Undefined();
+
+	/**
+	 * The effective audio format settings of the OSS device.
+	 * This is needed by Reopen() after Cancel().
+	 */
+	int effective_channels, effective_speed, effective_samplesize;
+
 #ifdef ENABLE_OSS_DSD
 	/**
 	 * Enable DSD over PCM according to the DoP standard?
@@ -72,14 +63,11 @@ class OssOutput final : AudioOutput {
 	const bool dop_setting;
 #endif
 
-	FileDescriptor fd = FileDescriptor::Undefined();
-	const char *device;
-
 	/**
-	 * The effective audio format settings of the OSS device.
-	 * This is needed by Reopen() after Cancel().
+	 * Has Drain() been called?  If not, then Close() will use
+	 * SNDCTL_DSP_RESET to omit the implicit sync on close().
 	 */
-	int effective_channels, effective_speed, effective_samplesize;
+	bool drain = false;
 
 	static constexpr unsigned oss_flags = FLAG_ENABLE_DISABLE;
 
@@ -90,16 +78,17 @@ public:
 #endif
 			   )
 		:AudioOutput(oss_flags),
-#ifdef ENABLE_OSS_DSD
-		 dop_setting(dop),
-#endif
 		 device(_device)
+#ifdef ENABLE_OSS_DSD
+		, dop_setting(dop)
+#endif
 	{
 	}
 
 	static AudioOutput *Create(EventLoop &event_loop,
 				   const ConfigBlock &block);
 
+	// virtual methods from class AudioOutput
 	void Enable() override {
 		pcm_export.Construct();
 	}
@@ -109,12 +98,10 @@ public:
 	}
 
 	void Open(AudioFormat &audio_format) override;
-
-	void Close() noexcept override {
-		DoClose();
-	}
+	void Close() noexcept override;
 
 	std::size_t Play(std::span<const std::byte> src) override;
+	void Drain() noexcept override;
 	void Cancel() noexcept override;
 
 private:
@@ -186,7 +173,7 @@ oss_output_test_default_device() noexcept
 			return true;
 
 		FmtError(oss_output_domain,
-			 "Error opening OSS device \"{}\": {}",
+			 "Error opening OSS device {:?}: {}",
 			 default_devices[i], strerror(errno));
 	}
 
@@ -288,10 +275,11 @@ oss_try_ioctl_r(FileDescriptor fd, unsigned long request, int *value_r,
 	if (ret >= 0)
 		return true;
 
-	if (errno == EINVAL)
+	const int err = errno;
+	if (err == EINVAL)
 		return false;
 
-	throw MakeErrno(msg);
+	throw MakeErrno(err, msg);
 }
 
 /**
@@ -392,8 +380,7 @@ oss_setup_sample_rate(FileDescriptor fd, AudioFormat &audio_format,
  * Convert a MPD sample format to its OSS counterpart.  Returns
  * AFMT_QUERY if there is no direct counterpart.
  */
-gcc_const
-static int
+static constexpr int
 sample_format_to_oss(SampleFormat format) noexcept
 {
 	switch (format) {
@@ -423,16 +410,14 @@ sample_format_to_oss(SampleFormat format) noexcept
 #endif
 	}
 
-	assert(false);
-	gcc_unreachable();
+	std::unreachable();
 }
 
 /**
  * Convert an OSS sample format to its MPD counterpart.  Returns
  * SampleFormat::UNDEFINED if there is no direct counterpart.
  */
-gcc_const
-static SampleFormat
+static constexpr SampleFormat
 sample_format_from_oss(int format) noexcept
 {
 	switch (format) {
@@ -643,7 +628,7 @@ try {
 	assert(!fd.IsDefined());
 
 	if (!fd.Open(device, O_WRONLY))
-		throw FormatErrno("Error opening OSS device \"%s\"", device);
+		throw FmtErrno("Error opening OSS device {:?}", device);
 
 	OssIoctlExact(fd, SNDCTL_DSP_CHANNELS, effective_channels,
 		      "Failed to set channel count");
@@ -660,19 +645,50 @@ void
 OssOutput::Open(AudioFormat &_audio_format)
 try {
 	if (!fd.Open(device, O_WRONLY))
-		throw FormatErrno("Error opening OSS device \"%s\"", device);
+		throw FmtErrno("Error opening OSS device {:?}", device);
 
 	SetupOrDop(_audio_format);
+
+	drain = false;
 } catch (...) {
 	DoClose();
 	throw;
 }
 
 void
+OssOutput::Close() noexcept
+{
+	if (!fd.IsDefined())
+		return;
+
+	if (!drain)
+		/* if Drain() has not been called, then the caller
+		   wishes to close as quickly as possible, so let's
+		   skip the implicit sync on close */
+		ioctl(fd.Get(), SNDCTL_DSP_RESET, 0);
+
+	fd.Close();
+}
+
+void
+OssOutput::Drain() noexcept
+{
+	/* enable the "drain" flag; the actual sync happens later in
+	   Close() */
+	drain = true;
+}
+
+void
 OssOutput::Cancel() noexcept
 {
+	drain = false;
+
 	if (fd.IsDefined()) {
 		ioctl(fd.Get(), SNDCTL_DSP_RESET, 0);
+
+		/* after SNDCTL_DSP_RESET, we can't use the file
+		   handle anymore; closing it here, to be reopened by
+		   the next Play() call */
 		DoClose();
 	}
 
@@ -684,7 +700,7 @@ OssOutput::Play(std::span<const std::byte> src)
 {
 	assert(!src.empty());
 
-	/* reopen the device since it was closed by dropBufferedAudio */
+	/* reopen the device since it was closed by Cancel() */
 	if (!fd.IsDefined())
 		Reopen();
 
@@ -693,12 +709,28 @@ OssOutput::Play(std::span<const std::byte> src)
 		return src.size();
 
 	while (true) {
-		const ssize_t ret = fd.Write(e.data(), e.size());
-		if (ret > 0)
+		const ssize_t ret = fd.Write(e);
+		if (ret > 0) [[likely]]
 			return pcm_export->CalcInputSize(ret);
 
-		if (ret < 0 && errno != EINTR)
-			throw FormatErrno("Write error on %s", device);
+		if (ret == 0) [[unlikely]]
+			// can this ever happen?  What now?
+			continue;
+
+		const int err = errno;
+		if (err == EINTR)
+			/* interrupted by a signal - try again */
+			continue;
+
+		if (err == EAGAIN) {
+			/* we opened the device in non-blocking mode
+			   and the OSS FIFO is full */
+			const int w = fd.WaitWritable(1000);
+			if (w >= 0)
+				continue;
+		}
+
+		throw FmtErrno(err, "Write error on {:?}", device);
 	}
 }
 

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Walk.hxx"
 #include "UpdateIO.hxx"
@@ -33,6 +17,7 @@
 #include "storage/FileInfo.hxx"
 #include "input/InputStream.hxx"
 #include "input/Error.hxx"
+#include "input/WaitReady.hxx"
 #include "util/StringCompare.hxx"
 #include "util/StringSplit.hxx"
 #include "util/UriExtract.hxx"
@@ -89,6 +74,19 @@ UpdateWalk::RemoveExcludedFromDirectory(Directory &directory,
 	});
 }
 
+static void
+UnmarkAllIn(Directory &directory) noexcept
+{
+	for (auto &i : directory.children)
+		i.mark = false;
+
+	for (auto &i : directory.songs)
+		i.mark = false;
+
+	for (auto &i : directory.playlists)
+		i.mark = false;
+}
+
 inline void
 UpdateWalk::PurgeDeletedFromDirectory(Directory &directory) noexcept
 {
@@ -97,8 +95,7 @@ UpdateWalk::PurgeDeletedFromDirectory(Directory &directory) noexcept
 			/* mount points are always preserved */
 			return;
 
-		if (DirectoryExists(storage, child) &&
-		    child.IsPluginAvailable())
+		if (child.mark)
 			return;
 
 		/* the directory was deleted (or the plugin which
@@ -110,9 +107,7 @@ UpdateWalk::PurgeDeletedFromDirectory(Directory &directory) noexcept
 	});
 
 	directory.ForEachSongSafe([&](Song &song){
-		if (!directory_child_is_regular(storage, directory,
-						song.filename) ||
-		    !song.IsPluginAvailable()) {
+		if (!song.mark) {
 			/* the song file was deleted (or the decoder
 			   plugin is unavailable) */
 
@@ -125,7 +120,7 @@ UpdateWalk::PurgeDeletedFromDirectory(Directory &directory) noexcept
 	for (auto i = directory.playlists.begin(),
 		     end = directory.playlists.end();
 	     i != end;) {
-		if (!directory_child_is_regular(storage, directory, i->name)) {
+		if (!i->mark) {
 			const ScopeDatabaseLock protect;
 			i = directory.playlists.erase(i);
 		} else
@@ -154,7 +149,7 @@ update_directory_stat(Storage &storage, Directory &directory) noexcept
  */
 static int
 FindAncestorLoop(Storage &storage, Directory *parent,
-		 unsigned inode, unsigned device) noexcept
+		 uint64_t inode, uint64_t device) noexcept
 {
 #ifndef _WIN32
 	if (device == 0 && inode == 0)
@@ -231,14 +226,14 @@ try {
 }
 
 /* we don't look at files with newlines in their name */
-gcc_pure
+[[gnu::pure]]
 static bool
 skip_path(const char *name_utf8) noexcept
 {
 	return std::strchr(name_utf8, '\n') != nullptr;
 }
 
-gcc_pure
+[[gnu::pure]]
 bool
 UpdateWalk::SkipSymlink(const Directory *directory,
 			std::string_view utf8_name) const noexcept
@@ -313,18 +308,19 @@ UpdateWalk::SkipSymlink(const Directory *directory,
 }
 
 static void
-LoadExcludeListOrThrow(const Storage &storage, const Directory &directory,
+LoadExcludeListOrThrow(Storage &storage, const Directory &directory,
 		       ExcludeList &exclude_list)
 {
 	Mutex mutex;
-	auto is = InputStream::OpenReady(storage.MapUTF8(PathTraitsUTF8::Build(directory.GetPath(),
-									       ".mpdignore")).c_str(),
-					 mutex);
+	auto is = storage.OpenFile(PathTraitsUTF8::Build(directory.GetPath(),
+							 ".mpdignore"),
+				   mutex);
+	LockWaitReady(*is);
 	exclude_list.Load(std::move(is));
 }
 
 static void
-LoadExcludeListOrLog(const Storage &storage, const Directory &directory,
+LoadExcludeListOrLog(Storage &storage, const Directory &directory,
 		     ExcludeList &exclude_list) noexcept
 {
 	try {
@@ -359,7 +355,7 @@ UpdateWalk::UpdateDirectory(Directory &directory,
 	if (!child_exclude_list.IsEmpty())
 		RemoveExcludedFromDirectory(directory, child_exclude_list);
 
-	PurgeDeletedFromDirectory(directory);
+	UnmarkAllIn(directory);
 
 	const char *name_utf8;
 	while (!cancel && (name_utf8 = reader->Read()) != nullptr) {
@@ -386,7 +382,10 @@ UpdateWalk::UpdateDirectory(Directory &directory,
 		UpdateDirectoryChild(directory, child_exclude_list, name_utf8, info2);
 	}
 
+	PurgeDeletedFromDirectory(directory);
+
 	directory.mtime = info.mtime;
+	directory.mark = true;
 
 	return true;
 }
@@ -459,7 +458,7 @@ UpdateWalk::DirectoryMakeUriParentChecked(Directory &root,
 
 static void
 LoadExcludeLists(std::forward_list<ExcludeList> &lists,
-		 const Storage &storage, const Directory &directory) noexcept
+		 Storage &storage, const Directory &directory) noexcept
 {
 	assert(!lists.empty());
 
@@ -471,7 +470,7 @@ LoadExcludeLists(std::forward_list<ExcludeList> &lists,
 }
 
 static auto
-LoadExcludeLists(const Storage &storage, const Directory &directory) noexcept
+LoadExcludeLists(Storage &storage, const Directory &directory) noexcept
 {
 	std::forward_list<ExcludeList> lists;
 	lists.emplace_front();
@@ -531,6 +530,7 @@ UpdateWalk::Walk(Directory &root, const char *path, bool discard) noexcept
 
 	{
 		const ScopeDatabaseLock protect;
+		root.ClearInPlaylist();
 		PurgeDanglingFromPlaylists(root);
 	}
 

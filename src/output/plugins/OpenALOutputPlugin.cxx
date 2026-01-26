@@ -1,25 +1,9 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "OpenALOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
-#include "util/RuntimeError.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 
 #include <unistd.h>
 
@@ -59,7 +43,7 @@ private:
 	void Open(AudioFormat &audio_format) override;
 	void Close() noexcept override;
 
-	[[nodiscard]] gcc_pure
+	[[nodiscard]] [[gnu::pure]]
 	std::chrono::steady_clock::duration Delay() const noexcept override {
 		return filled < NUM_BUFFERS || HasProcessed()
 			? std::chrono::steady_clock::duration::zero()
@@ -73,19 +57,19 @@ private:
 
 	void Cancel() noexcept override;
 
-	[[nodiscard]] gcc_pure
+	[[nodiscard]] [[gnu::pure]]
 	ALint GetSourceI(ALenum param) const noexcept {
 		ALint value;
 		alGetSourcei(source, param, &value);
 		return value;
 	}
 
-	[[nodiscard]] gcc_pure
+	[[nodiscard]] [[gnu::pure]]
 	bool HasProcessed() const noexcept {
 		return GetSourceI(AL_BUFFERS_PROCESSED) > 0;
 	}
 
-	[[nodiscard]] gcc_pure
+	[[nodiscard]] [[gnu::pure]]
 	bool IsPlaying() const noexcept {
 		return GetSourceI(AL_SOURCE_STATE) == AL_PLAYING;
 	}
@@ -126,14 +110,14 @@ OpenALOutput::SetupContext()
 {
 	device = alcOpenDevice(device_name);
 	if (device == nullptr)
-		throw FormatRuntimeError("Error opening OpenAL device \"%s\"",
-					 device_name);
+		throw FmtRuntimeError("Error opening OpenAL device {:?}",
+				      device_name);
 
 	context = alcCreateContext(device, nullptr);
 	if (context == nullptr) {
 		alcCloseDevice(device);
-		throw FormatRuntimeError("Error creating context for \"%s\"",
-					 device_name);
+		throw FmtRuntimeError("Error creating context for {:?}",
+				      device_name);
 	}
 }
 

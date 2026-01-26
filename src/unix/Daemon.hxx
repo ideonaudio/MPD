@@ -1,27 +1,14 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_DAEMON_HXX
 #define MPD_DAEMON_HXX
 
 class AllocatedPath;
 
+/**
+ * Throws on error.
+ */
 #ifndef _WIN32
 void
 daemonize_init(const char *user, const char *group, AllocatedPath &&pidfile);
@@ -33,16 +20,18 @@ daemonize_init(const char *user, const char *group, AllocatedPath &&pidfile)
 
 #ifndef _WIN32
 void
-daemonize_finish();
+daemonize_finish() noexcept;
 #else
 static inline void
-daemonize_finish()
+daemonize_finish() noexcept
 { /* nop */ }
 #endif
 
 /**
  * Kill the MPD which is currently running, pid determined from the
  * pid file.
+ *
+ * Throws on error.
  */
 #ifndef _WIN32
 [[noreturn]]
@@ -63,14 +52,16 @@ daemonize_kill()
  */
 #ifndef _WIN32
 void
-daemonize_close_stdin();
+daemonize_close_stdin() noexcept;
 #else
 static inline void
-daemonize_close_stdin() {}
+daemonize_close_stdin() noexcept {}
 #endif
 
 /**
  * Change to the configured Unix user.
+ *
+ * Throws on error.
  */
 #ifndef _WIN32
 void
@@ -81,6 +72,9 @@ daemonize_set_user()
 { /* nop */ }
 #endif
 
+/**
+ * Throws on error.
+ */
 #ifndef _WIN32
 void
 daemonize_begin(bool detach);
@@ -90,6 +84,9 @@ daemonize_begin(bool detach)
 { (void)detach; }
 #endif
 
+/**
+ * Throws on error.
+ */
 #ifndef _WIN32
 void
 daemonize_commit();

@@ -1,24 +1,10 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_STORAGE_INTERFACE_HXX
-#define MPD_STORAGE_INTERFACE_HXX
+#pragma once
+
+#include "input/Ptr.hxx"
+#include "thread/Mutex.hxx"
 
 #include <memory>
 #include <string>
@@ -33,11 +19,13 @@ public:
 	StorageDirectoryReader(const StorageDirectoryReader &) = delete;
 	virtual ~StorageDirectoryReader() noexcept = default;
 
+	[[nodiscard]]
 	virtual const char *Read() noexcept = 0;
 
 	/**
 	 * Throws #std::runtime_error on error.
 	 */
+	[[nodiscard]]
 	virtual StorageFileInfo GetInfo(bool follow) = 0;
 };
 
@@ -50,17 +38,19 @@ public:
 	/**
 	 * Throws #std::runtime_error on error.
 	 */
+	[[nodiscard]]
 	virtual StorageFileInfo GetInfo(std::string_view uri_utf8, bool follow) = 0;
 
 	/**
 	 * Throws #std::runtime_error on error.
 	 */
+	[[nodiscard]]
 	virtual std::unique_ptr<StorageDirectoryReader> OpenDirectory(std::string_view uri_utf8) = 0;
 
 	/**
 	 * Map the given relative URI to an absolute URI.
 	 */
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	virtual std::string MapUTF8(std::string_view uri_utf8) const noexcept = 0;
 
 	/**
@@ -68,10 +58,10 @@ public:
 	 * nullptr on error or if this storage does not
 	 * support local files.
 	 */
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	virtual AllocatedPath MapFS(std::string_view uri_utf8) const noexcept;
 
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	AllocatedPath MapChildFS(std::string_view uri_utf8,
 				 std::string_view child_utf8) const noexcept;
 
@@ -80,8 +70,14 @@ public:
 	 * then it returns a relative URI (pointing inside the given
 	 * string); if not, returns nullptr.
 	 */
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	virtual std::string_view MapToRelativeUTF8(std::string_view uri_utf8) const noexcept = 0;
-};
 
-#endif
+	/**
+	 * Open a file in this storage as an #InputStream.
+	 *
+	 * Throws on error
+	 */
+	[[nodiscard]]
+	virtual InputStreamPtr OpenFile(std::string_view uri_utf8, Mutex &mutex) = 0;
+};

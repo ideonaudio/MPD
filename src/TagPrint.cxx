@@ -1,23 +1,8 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "TagPrint.hxx"
+#include "tag/Names.hxx"
 #include "tag/Tag.hxx"
 #include "tag/Settings.hxx"
 #include "client/Response.hxx"
@@ -30,19 +15,28 @@ tag_print_types(Response &r) noexcept
 	const auto tag_mask = global_tag_mask & r.GetTagMask();
 	for (unsigned i = 0; i < TAG_NUM_OF_ITEM_TYPES; i++)
 		if (tag_mask.Test(TagType(i)))
-			r.Fmt(FMT_STRING("tagtype: {}\n"), tag_item_names[i]);
+			r.Fmt("tagtype: {}\n", tag_item_names[i]);
 }
 
 void
-tag_print(Response &r, TagType type, std::string_view value) noexcept
+tag_print_types_available(Response &r) noexcept
 {
-	r.Fmt(FMT_STRING("{}: {}\n"), tag_item_names[type], value);
+	for (unsigned i = 0; i < TAG_NUM_OF_ITEM_TYPES; i++)
+		if (global_tag_mask.Test(TagType(i)))
+			r.Fmt("tagtype: {}\n", tag_item_names[i]);
+}
+
+void
+tag_print(Response &r, TagType type, std::string_view _value) noexcept
+{
+	const std::string_view value{_value};
+	r.Fmt("{}: {}\n", tag_item_names[type], value);
 }
 
 void
 tag_print(Response &r, TagType type, const char *value) noexcept
 {
-	r.Fmt(FMT_STRING("{}: {}\n"), tag_item_names[type], value);
+	r.Fmt("{}: {}\n", tag_item_names[type], value);
 }
 
 void
@@ -58,8 +52,8 @@ void
 tag_print(Response &r, const Tag &tag) noexcept
 {
 	if (!tag.duration.IsNegative())
-		r.Fmt(FMT_STRING("Time: {}\n"
-				 "duration: {:1.3f}\n"),
+		r.Fmt("Time: {}\n"
+		      "duration: {:1.3f}\n",
 		      tag.duration.RoundS(),
 		      tag.duration.ToDoubleS());
 

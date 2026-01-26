@@ -1,44 +1,17 @@
-/*
- * Copyright 2007-2022 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #pragma once
 
 #include "EntryGroup.hxx"
 #include "ConnectionListener.hxx"
+#include "event/DeferEvent.hxx"
+#include "util/IntrusiveList.hxx"
 
 #include <avahi-client/publish.h>
 
 #include <string>
-#include <forward_list>
 
 class SocketAddress;
 
@@ -59,9 +32,18 @@ class Publisher final : ConnectionListener {
 
 	Client &client;
 
+	DeferEvent defer_register_services;
+
 	EntryGroupPtr group;
 
-	const std::forward_list<Service> services;
+	IntrusiveList<Service> services;
+
+	/**
+	 * Should avahi_entry_group_reset() be called by the next
+	 * RegisterServices() call?  This is true if the #gorup is
+	 * non-empty.
+	 */
+	bool should_reset_group = false;
 
 	/**
 	 * Shall the published services be visible?  This is controlled by
@@ -71,12 +53,33 @@ class Publisher final : ConnectionListener {
 
 public:
 	Publisher(Client &client, const char *_name,
-		  std::forward_list<Service> _services,
 		  ErrorHandler &_error_handler) noexcept;
 	~Publisher() noexcept;
 
 	Publisher(const Publisher &) = delete;
 	Publisher &operator=(const Publisher &) = delete;
+
+	/**
+	 * Call this after a #Service field was modified to publish
+	 * the changes.
+	 */
+	void UpdateServices() noexcept;
+
+	/**
+	 * Publish another service.
+	 *
+	 * @param service a #Service instance owned by the caller (it
+	 * must remain valid until you call RemoveService())
+	 */
+	void AddService(Service &service) noexcept;
+
+	/**
+	 * Unpublish a service.
+	 *
+	 * @param service a #Service instance which was previously
+	 * passed to AddService()
+	 */
+	void RemoveService(Service &service) noexcept;
 
 	/**
 	 * Temporarily hide all registered services.  You can undo this
@@ -96,7 +99,9 @@ private:
 				  AvahiEntryGroupState state,
 				  void *userdata) noexcept;
 
-	void RegisterServices(AvahiClient *c) noexcept;
+	void RegisterServices(AvahiEntryGroup &g);
+	void RegisterServices(AvahiClient *c);
+	void DeferredRegisterServices() noexcept;
 
 	/* virtual methods from class AvahiConnectionListener */
 	void OnAvahiConnect(AvahiClient *client) noexcept override;

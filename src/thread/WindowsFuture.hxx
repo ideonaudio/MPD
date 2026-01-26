@@ -1,21 +1,5 @@
-/*
- * Copyright 2020-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef THREAD_WINDOWS_FUTURE_HXX
 #define THREAD_WINDOWS_FUTURE_HXX
@@ -24,6 +8,7 @@
 #include "WindowsCond.hxx"
 
 #include <memory>
+#include <system_error> // for std::error_category
 #include <variant>
 
 enum class WinFutureErrc : int {
@@ -86,24 +71,24 @@ private:
 
 public:
 	bool is_ready() const noexcept {
-		std::unique_lock<CriticalSection> lock(mutex);
+		const std::lock_guard lock{mutex};
 		return ready;
 	}
 
 	bool already_retrieved() const noexcept {
-		std::unique_lock<CriticalSection> lock(mutex);
+		const std::lock_guard lock{mutex};
 		return retrieved;
 	}
 
 	void wait() {
-		std::unique_lock<CriticalSection> lock(mutex);
+		std::unique_lock lock{mutex};
 		condition.wait(lock, [this]() { return ready; });
 	}
 
 	template <class Rep, class Period>
 	WinFutureStatus
 	wait_for(const std::chrono::duration<Rep, Period> &timeout_duration) const {
-		std::unique_lock<CriticalSection> lock(mutex);
+		std::unique_lock lock{mutex};
 		// deferred function not support yet
 		if (condition.wait_for(lock, timeout_duration,
 				       [this]() { return ready; })) {
@@ -113,7 +98,7 @@ public:
 	}
 
 	virtual T &get_value() {
-		std::unique_lock<CriticalSection> lock(mutex);
+		std::unique_lock lock{mutex};
 		if (retrieved) {
 			throw WinFutureError(WinFutureErrc::future_already_retrieved);
 		}
@@ -129,8 +114,8 @@ public:
 	}
 
 	void set_value(const T &value) {
-		std::unique_lock<CriticalSection> lock(mutex);
-		if (!std::holds_alternative<std::monostate>(&result)) {
+		const std::lock_guard lock{mutex};
+		if (!std::holds_alternative<std::monostate>(result)) {
 			throw WinFutureError(WinFutureErrc::promise_already_satisfied);
 		}
 		result.template emplace<T>(value);
@@ -139,7 +124,7 @@ public:
 	}
 
 	void set_value(T &&value) {
-		std::unique_lock<CriticalSection> lock(mutex);
+		const std::lock_guard lock{mutex};
 		if (!std::holds_alternative<std::monostate>(result)) {
 			throw WinFutureError(WinFutureErrc::promise_already_satisfied);
 		}
@@ -149,7 +134,7 @@ public:
 	}
 
 	void set_exception(std::exception_ptr eptr) {
-		std::unique_lock<CriticalSection> lock(mutex);
+		const std::lock_guard lock{mutex};
 		if (!std::holds_alternative<std::monostate>(result)) {
 			throw WinFutureError(WinFutureErrc::promise_already_satisfied);
 		}

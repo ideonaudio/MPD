@@ -1,24 +1,8 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
-#include "config/Data.hxx"
+#include "ConfigGlue.hxx"
 #include "event/Thread.hxx"
 #include "decoder/DecoderList.hxx"
 #include "decoder/DecoderPlugin.hxx"
@@ -26,23 +10,90 @@
 #include "input/InputStream.hxx"
 #include "tag/Handler.hxx"
 #include "tag/Generic.hxx"
+#include "tag/Names.hxx"
 #include "fs/Path.hxx"
 #include "fs/NarrowPath.hxx"
 #include "pcm/AudioFormat.hxx"
+#include "lib/fmt/AudioFormatFormatter.hxx"
+#include "cmdline/OptionDef.hxx"
+#include "cmdline/OptionParser.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/StringBuffer.hxx"
 #include "util/PrintException.hxx"
+#include "Log.hxx"
+#include "LogBackend.hxx"
+
+#include <fmt/core.h>
 
 #include <cassert>
 #include <stdexcept>
 
 #include <unistd.h>
 #include <stdlib.h>
-#include <stdio.h>
 
 #ifdef HAVE_LOCALE_H
 #include <locale.h>
 #endif
+
+struct CommandLine {
+	const char *decoder = nullptr;
+	const char *uri = nullptr;
+
+	FromNarrowPath config_path;
+
+	bool verbose = false;
+};
+
+enum Option {
+	OPTION_CONFIG,
+	OPTION_VERBOSE,
+};
+
+static constexpr OptionDef option_defs[] = {
+	{"config", 0, true, "Load a MPD configuration file"},
+	{"verbose", 'v', false, "Verbose logging"},
+};
+
+static CommandLine
+ParseCommandLine(int argc, char **argv)
+{
+	CommandLine c;
+
+	OptionParser option_parser(option_defs, argc, argv);
+	while (auto o = option_parser.Next()) {
+		switch (Option(o.index)) {
+		case OPTION_CONFIG:
+			c.config_path = o.value;
+			break;
+
+		case OPTION_VERBOSE:
+			c.verbose = true;
+			break;
+		}
+	}
+
+	auto args = option_parser.GetRemaining();
+	if (args.size() != 2)
+		throw std::runtime_error("Usage: read_tags [--verbose] DECODER URI");
+
+	c.decoder = args[0];
+	c.uri = args[1];
+	return c;
+}
+
+class GlobalInit {
+	const ConfigData config;
+	EventThread io_thread;
+	const ScopeInputPluginsInit input_plugins_init{config, io_thread.GetEventLoop()};
+	const ScopeDecoderPluginsInit decoder_plugins_init{config};
+
+public:
+	explicit GlobalInit(Path config_path)
+		:config(AutoLoadConfigFile(config_path))
+	{
+		io_thread.Start();
+	}
+};
 
 class DumpTagHandler final : public NullTagHandler {
 	bool empty = true;
@@ -56,68 +107,51 @@ public:
 	}
 
 	void OnDuration(SongTime duration) noexcept override {
-		printf("duration=%f\n", duration.ToDoubleS());
+		fmt::print("duration={}\n", duration.ToDoubleS());
 	}
 
 	void OnTag(TagType type, std::string_view value) noexcept override {
-		printf("[%s]=%.*s\n", tag_item_names[type],
-		       int(value.size()), value.data());
+		fmt::print("[{}]={:?}\n", tag_item_names[type], value);
 		empty = false;
 	}
 
 	void OnPair(std::string_view key, std::string_view value) noexcept override {
-		printf("\"%.*s\"=%.*s\n",
-		       int(key.size()), key.data(),
-		       int(value.size()), value.data());
+		fmt::print("{:?}={:?}\n", key, value);
 	}
 
 	void OnAudioFormat(AudioFormat af) noexcept override {
-		printf("%s\n", ToString(af).c_str());
+		fmt::print("{}\n", af);
 	}
 
-	void OnPicture(const char *mime_type,
+	void OnPicture(std::string_view mime_type,
 		       std::span<const std::byte> buffer) noexcept override {
-		printf("picture mime='%s' size=%zu\n",
-		       mime_type, buffer.size());
+		fmt::print("picture mime={:?} size={}\n",
+			   mime_type, buffer.size());
 	}
 };
 
 int main(int argc, char **argv)
 try {
-	const char *decoder_name;
-	const struct DecoderPlugin *plugin;
-
 #ifdef HAVE_LOCALE_H
 	/* initialize locale */
 	setlocale(LC_CTYPE,"");
 #endif
 
-	if (argc != 3) {
-		fprintf(stderr, "Usage: read_tags DECODER FILE\n");
-		return EXIT_FAILURE;
-	}
+	const auto c = ParseCommandLine(argc, argv);
 
-	decoder_name = argv[1];
-	const char *path = argv[2];
+	SetLogThreshold(c.verbose ? LogLevel::DEBUG : LogLevel::INFO);
+	const GlobalInit init{c.config_path};
 
-	EventThread io_thread;
-	io_thread.Start();
-
-	const ScopeInputPluginsInit input_plugins_init(ConfigData(),
-						       io_thread.GetEventLoop());
-
-	const ScopeDecoderPluginsInit decoder_plugins_init({});
-
-	plugin = decoder_plugin_from_name(decoder_name);
+	auto *plugin = decoder_plugin_from_name(c.decoder);
 	if (plugin == nullptr) {
-		fprintf(stderr, "No such decoder: %s\n", decoder_name);
+		fmt::print(stderr, "No such decoder: {:?}\n", c.decoder);
 		return EXIT_FAILURE;
 	}
 
 	DumpTagHandler h;
 	bool success;
 	try {
-		success = plugin->ScanFile(FromNarrowPath(path), h);
+		success = plugin->ScanFile(FromNarrowPath(c.uri), h);
 	} catch (...) {
 		PrintException(std::current_exception());
 		success = false;
@@ -127,12 +161,12 @@ try {
 	InputStreamPtr is;
 
 	if (!success && plugin->scan_stream != nullptr) {
-		is = InputStream::OpenReady(path, mutex);
+		is = InputStream::OpenReady(c.uri, mutex);
 		success = plugin->ScanStream(*is, h);
 	}
 
 	if (!success) {
-		fprintf(stderr, "Failed to read tags\n");
+		fmt::print(stderr, "Failed to read tags\n");
 		return EXIT_FAILURE;
 	}
 
@@ -140,7 +174,7 @@ try {
 		if (is)
 			ScanGenericTags(*is, h);
 		else
-			ScanGenericTags(FromNarrowPath(path), h);
+			ScanGenericTags(FromNarrowPath(c.uri), h);
 	}
 
 	return 0;

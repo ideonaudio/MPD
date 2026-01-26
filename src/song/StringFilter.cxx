@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "StringFilter.hxx"
 #include "util/StringAPI.hxx"
@@ -32,14 +16,32 @@ StringFilter::MatchWithoutNegation(const char *s) const noexcept
 		return regex->Match(s);
 #endif
 
-	if (fold_case) {
-		return substring
-			? fold_case.IsIn(s)
-			: fold_case == s;
+	if (icu_compare) {
+		switch (position) {
+		case Position::FULL:
+			break;
+
+		case Position::ANYWHERE:
+			return icu_compare.IsIn(s);
+
+		case Position::PREFIX:
+			return icu_compare.StartsWith(s);
+		}
+
+		return icu_compare == s;
 	} else {
-		return substring
-			? StringFind(s, value.c_str()) != nullptr
-			: value == s;
+		switch (position) {
+		case Position::FULL:
+			break;
+
+		case Position::ANYWHERE:
+			return StringFind(s, value.c_str()) != nullptr;
+
+		case Position::PREFIX:
+			return StringIsEqual(s, value.c_str(), value.length());
+		}
+
+		return value == s;
 	}
 }
 

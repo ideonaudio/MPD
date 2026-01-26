@@ -1,26 +1,8 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "AsyncInputStream.hxx"
-#include "CondHandler.hxx"
 #include "tag/Tag.hxx"
-#include "thread/Cond.hxx"
 #include "event/Loop.hxx"
 
 #include <cassert>
@@ -28,7 +10,7 @@
 
 #include <string.h>
 
-AsyncInputStream::AsyncInputStream(EventLoop &event_loop, const char *_url,
+AsyncInputStream::AsyncInputStream(EventLoop &event_loop, std::string_view _url,
 				   Mutex &_mutex,
 				   size_t _buffer_size,
 				   size_t _resume_at) noexcept
@@ -36,7 +18,6 @@ AsyncInputStream::AsyncInputStream(EventLoop &event_loop, const char *_url,
 	 deferred_resume(event_loop, BIND_THIS_METHOD(DeferredResume)),
 	 deferred_seek(event_loop, BIND_THIS_METHOD(DeferredSeek)),
 	 allocation(_buffer_size),
-	 buffer(&allocation.front(), allocation.size()),
 	 resume_at(_resume_at)
 {
 	allocation.SetName("InputStream");
@@ -83,7 +64,7 @@ AsyncInputStream::Resume()
 void
 AsyncInputStream::Check()
 {
-	if (postponed_exception)
+	if (postponed_exception) [[unlikely]]
 		std::rethrow_exception(std::exchange(postponed_exception,
 						     std::exception_ptr()));
 }
@@ -102,9 +83,17 @@ AsyncInputStream::Seek(std::unique_lock<Mutex> &lock,
 	assert(IsReady());
 	assert(seek_state == SeekState::NONE);
 
-	if (new_offset == offset)
-		/* no-op */
+	if (new_offset == offset) {
+		/* no-op, but if the stream is not open anymore (maybe
+		   because it has failed), nothing can be read, so we
+		   should check for errors here instead of pretending
+		   everything's fine */
+
+		if (!open)
+			Check();
+
 		return;
+	}
 
 	if (!IsSeekable())
 		throw std::runtime_error("Not seekable");
@@ -117,7 +106,7 @@ AsyncInputStream::Seek(std::unique_lock<Mutex> &lock,
 			break;
 
 		const size_t nbytes =
-			new_offset - offset < (offset_type)r.size()
+			std::cmp_less(new_offset - offset, r.size())
 			? new_offset - offset
 			: r.size();
 
@@ -135,10 +124,7 @@ AsyncInputStream::Seek(std::unique_lock<Mutex> &lock,
 
 	deferred_seek.Schedule();
 
-	CondInputStreamHandler cond_handler;
-	const ScopeExchangeInputStreamHandler h(*this, &cond_handler);
-	cond_handler.cond.wait(lock,
-			       [this]{ return seek_state == SeekState::NONE; });
+	caller_cond.wait(lock, [this]{ return seek_state == SeekState::NONE; });
 
 	Check();
 }
@@ -155,6 +141,7 @@ AsyncInputStream::SeekDone() noexcept
 	open = true;
 
 	seek_state = SeekState::NONE;
+	caller_cond.notify_one();
 	InvokeOnAvailable();
 }
 
@@ -172,37 +159,45 @@ AsyncInputStream::IsAvailable() const noexcept
 		!buffer.empty();
 }
 
+inline std::size_t
+AsyncInputStream::ReadFromBuffer(std::span<std::byte> dest) noexcept
+{
+	const size_t nbytes = buffer.MoveTo(dest);
+	if (nbytes == 0)
+		return 0;
+
+	if (buffer.empty())
+		/* when the buffer becomes empty, reset its head and
+		   tail so the next write can fill the whole buffer
+		   and not just the part after the tail */
+		buffer.Clear();
+
+	offset += (offset_type)nbytes;
+	return nbytes;
+}
+
 size_t
 AsyncInputStream::Read(std::unique_lock<Mutex> &lock,
-		       void *ptr, size_t read_size)
+		       std::span<std::byte> dest)
 {
 	assert(!GetEventLoop().IsInside());
 
-	CondInputStreamHandler cond_handler;
-
 	/* wait for data */
-	CircularBuffer<uint8_t>::Range r;
 	while (true) {
 		Check();
 
-		r = buffer.Read();
-		if (!r.empty() || IsEOF())
-			break;
+		if (std::size_t nbytes = ReadFromBuffer(dest); nbytes > 0) {
+			if (paused && buffer.GetSize() < resume_at)
+				deferred_resume.Schedule();
 
-		const ScopeExchangeInputStreamHandler h(*this, &cond_handler);
-		cond_handler.cond.wait(lock);
+			return nbytes;
+		}
+
+		if (IsEOF())
+			return 0;
+
+		caller_cond.wait(lock);
 	}
-
-	const size_t nbytes = std::min(read_size, r.size());
-	memcpy(ptr, r.data(), nbytes);
-	buffer.Consume(nbytes);
-
-	offset += (offset_type)nbytes;
-
-	if (paused && buffer.GetSize() < resume_at)
-		deferred_resume.Schedule();
-
-	return nbytes;
 }
 
 void
@@ -212,45 +207,63 @@ AsyncInputStream::CommitWriteBuffer(size_t nbytes) noexcept
 
 	if (!IsReady())
 		SetReady();
-	else
+	else {
+		caller_cond.notify_one();
 		InvokeOnAvailable();
+	}
 }
 
 void
-AsyncInputStream::AppendToBuffer(const void *data, size_t append_size) noexcept
+AsyncInputStream::AppendToBuffer(std::span<const std::byte> src) noexcept
 {
 	auto w = buffer.Write();
 	assert(!w.empty());
 
-	size_t nbytes = std::min(w.size(), append_size);
-	memcpy(w.data(), data, nbytes);
-	buffer.Append(nbytes);
+	std::span<const std::byte> second{};
 
-	const size_t remaining = append_size - nbytes;
-	if (remaining > 0) {
+	if (w.size() < src.size()) {
+		second = src.subspan(w.size());
+		src = src.first(w.size());
+	}
+
+	std::copy(src.begin(), src.end(), w.begin());
+	buffer.Append(src.size());
+
+	if (!second.empty()) {
 		w = buffer.Write();
 		assert(!w.empty());
-		assert(w.size() >= remaining);
+		assert(w.size() >= second.size());
 
-		memcpy(w.data(), (const uint8_t *)data + nbytes, remaining);
-		buffer.Append(remaining);
+		std::copy(second.begin(), second.end(), w.begin());
+		buffer.Append(second.size());
 	}
 
 	if (!IsReady())
 		SetReady();
-	else
+	else {
+		caller_cond.notify_one();
 		InvokeOnAvailable();
+	}
 }
 
 void
 AsyncInputStream::DeferredResume() noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
+
+	if (postponed_exception) [[unlikely]] {
+		/* do not proceed, first the caller must handle the
+                   pending error */
+		caller_cond.notify_one();
+		InvokeOnAvailable();
+		return;
+	}
 
 	try {
 		Resume();
 	} catch (...) {
 		postponed_exception = std::current_exception();
+		caller_cond.notify_one();
 		InvokeOnAvailable();
 	}
 }
@@ -258,9 +271,18 @@ AsyncInputStream::DeferredResume() noexcept
 void
 AsyncInputStream::DeferredSeek() noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	if (seek_state != SeekState::SCHEDULED)
 		return;
+
+	if (postponed_exception) [[unlikely]] {
+		/* do not proceed, first the caller must handle the
+                   pending error */
+		seek_state = SeekState::NONE;
+		caller_cond.notify_one();
+		InvokeOnAvailable();
+		return;
+	}
 
 	try {
 		Resume();
@@ -273,6 +295,7 @@ AsyncInputStream::DeferredSeek() noexcept
 	} catch (...) {
 		seek_state = SeekState::NONE;
 		postponed_exception = std::current_exception();
+		caller_cond.notify_one();
 		InvokeOnAvailable();
 	}
 }

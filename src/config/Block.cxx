@@ -1,35 +1,21 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Block.hxx"
 #include "Parser.hxx"
 #include "Path.hxx"
 #include "fs/AllocatedPath.hxx"
-#include "util/RuntimeError.hxx"
+#include "lib/fmt/RuntimeError.hxx"
+
+#include <exception> // for std::throw_with_nested()
 
 #include <stdlib.h>
 
 void
 BlockParam::ThrowWithNested() const
 {
-	std::throw_with_nested(FormatRuntimeError("Error in setting \"%s\" on line %i",
-						  name.c_str(), line));
+	std::throw_with_nested(FmtRuntimeError("Error in setting {:?} on line {}",
+					       name, line));
 }
 
 int
@@ -39,7 +25,7 @@ BlockParam::GetIntValue() const
 	char *endptr;
 	long value2 = strtol(s, &endptr, 0);
 	if (endptr == s || *endptr != 0)
-		throw FormatRuntimeError("Not a valid number in line %i", line);
+		throw FmtRuntimeError("Not a valid number in line {}", line);
 
 	return value2;
 }
@@ -60,6 +46,24 @@ bool
 BlockParam::GetBoolValue() const
 {
 	return With(ParseBool);
+}
+
+double
+BlockParam::GetDoubleValue() const
+{
+	return With(ParseDouble);
+}
+
+std::chrono::steady_clock::duration
+BlockParam::GetDuration(std::chrono::steady_clock::duration min_value) const
+{
+	return With([min_value](const char *s){
+		auto duration = ParseDuration(s);
+		if (duration < min_value)
+			throw std::invalid_argument{"Value is too small"};
+
+		return duration;
+	});
 }
 
 const BlockParam *
@@ -144,9 +148,31 @@ ConfigBlock::GetBlockValue(const char *name, bool default_value) const
 	return bp->GetBoolValue();
 }
 
+double
+ConfigBlock::GetBlockValue(const char *name, double default_value) const
+{
+	const BlockParam *bp = GetBlockParam(name);
+	if (bp == nullptr)
+		return default_value;
+
+	return bp->GetDoubleValue();
+}
+
+std::chrono::steady_clock::duration
+ConfigBlock::GetDuration(const char *name,
+			 std::chrono::steady_clock::duration min_value,
+			 std::chrono::steady_clock::duration default_value) const
+{
+	const BlockParam *bp = GetBlockParam(name);
+	if (bp == nullptr)
+		return default_value;
+
+	return bp->GetDuration(min_value);
+}
+
 void
 ConfigBlock::ThrowWithNested() const
 {
-	std::throw_with_nested(FormatRuntimeError("Error in block on line %i",
-						  line));
+	std::throw_with_nested(FmtRuntimeError("Error in block on line {}",
+					       line));
 }

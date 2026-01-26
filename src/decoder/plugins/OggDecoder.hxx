@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_OGG_DECODER_HXX
 #define MPD_OGG_DECODER_HXX
@@ -25,6 +9,23 @@
 #include "input/Offset.hxx"
 
 class OggDecoder : public OggVisitor {
+	/**
+	 * The file offset of the first audio packet (starts at
+	 * granulepos 0).  This is used by SeekGranulePos() to
+	 * interpolate the seek offset between this offset and
+	 * end-of-file, possibly skipping (large) tags preceding the
+	 * first audio packet.
+	 */
+	offset_type first_offset = 0;
+
+	/**
+	 * The granulepos at the end of the last packet.  This is used
+	 * to calculate the song duration and to calculate seek file
+	 * offsets.
+	 *
+	 * This field is uninitialized until UpdateEndGranulePos() is
+	 * called.
+	 */
 	ogg_int64_t end_granulepos;
 
 protected:
@@ -46,6 +47,25 @@ private:
 	ogg_int64_t LoadEndGranulePos() const;
 
 protected:
+	bool HasFirstOffset() const noexcept {
+		return first_offset > 0;
+	}
+
+	void SetFirstOffset(offset_type _first_offset) noexcept {
+		first_offset = _first_offset;
+	}
+
+	/**
+	 * If currently unset, set the #first_offset field to the
+	 * start of the most recent Ogg page.  Decoder implementations
+	 * should call this when they see the first page/packet
+	 * containing audio data.
+	 */
+	void AutoSetFirstOffset() noexcept {
+		if (!HasFirstOffset())
+			SetFirstOffset(GetStartOffset());
+	}
+
 	ogg_int64_t UpdateEndGranulePos() {
 		return end_granulepos = LoadEndGranulePos();
 	}

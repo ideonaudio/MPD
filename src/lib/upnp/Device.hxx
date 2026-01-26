@@ -1,26 +1,9 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef _UPNPDEV_HXX_INCLUDED_
-#define _UPNPDEV_HXX_INCLUDED_
+#pragma once
 
-#include <vector>
+#include <forward_list>
 #include <string>
 
 /**
@@ -60,20 +43,11 @@ public:
 	// Model name: e.g. MediaTomb, DNS-327L ("modelName")
 	std::string modelName;
 	// Services provided by this device.
-	std::vector<UPnPService> services;
-
-	UPnPDevice() = default;
-	UPnPDevice(const UPnPDevice &) = delete;
-	UPnPDevice(UPnPDevice &&) = default;
-	UPnPDevice &operator=(UPnPDevice &&) = default;
-
-	~UPnPDevice() noexcept;
+	std::forward_list<UPnPService> services;
 
 	/** Build device from xml description downloaded from discovery
 	 * @param url where the description came from
 	 * @param description the xml device description
 	 */
-	void Parse(const std::string &url, const char *description);
+	void Parse(std::string_view url, std::string_view description);
 };
-
-#endif /* _UPNPDEV_HXX_INCLUDED_ */

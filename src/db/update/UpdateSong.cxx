@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Walk.hxx"
 #include "UpdateIO.hxx"
@@ -32,7 +16,7 @@
 
 inline void
 UpdateWalk::UpdateSongFile2(Directory &directory,
-			    const char *name, std::string_view suffix,
+			    std::string_view name, std::string_view suffix,
 			    const StorageFileInfo &info) noexcept
 try {
 	Song *song;
@@ -45,17 +29,11 @@ try {
 		FmtError(update_domain,
 			 "no read permissions on {}/{}",
 			 directory.GetPath(), name);
-		if (song != nullptr)
-			editor.LockDeleteSong(directory, song);
-
 		return;
 	}
 
 	if (!(song != nullptr && info.mtime == song->mtime && !walk_discard) &&
 	    UpdateContainerFile(directory, name, suffix, info)) {
-		if (song != nullptr)
-			editor.LockDeleteSong(directory, song);
-
 		return;
 	}
 
@@ -63,13 +41,17 @@ try {
 		FmtDebug(update_domain, "reading {}/{}",
 			 directory.GetPath(), name);
 
-		auto new_song = Song::LoadFile(storage, name, directory);
+		auto new_song = Song::LoadFile(storage, name, info,
+					       directory);
 		if (!new_song) {
 			FmtDebug(update_domain,
 				 "ignoring unrecognized file {}/{}",
 				 directory.GetPath(), name);
 			return;
 		}
+
+		new_song->mark = true;
+		new_song->added = std::chrono::system_clock::now();
 
 		{
 			const ScopeDatabaseLock protect;
@@ -82,14 +64,17 @@ try {
 	} else if (info.mtime != song->mtime || walk_discard) {
 		FmtNotice(update_domain, "updating {}/{}",
 			  directory.GetPath(), name);
-		if (!song->UpdateFile(storage)) {
+		if (song->UpdateFile(storage, info))
+			song->mark = true;
+		else
 			FmtDebug(update_domain,
 				 "deleting unrecognized file {}/{}",
 				 directory.GetPath(), name);
-			editor.LockDeleteSong(directory, song);
-		}
 
 		modified = true;
+	} else {
+		/* not modified */
+		song->mark = true;
 	}
 } catch (...) {
 	FmtError(update_domain,
@@ -99,7 +84,7 @@ try {
 
 bool
 UpdateWalk::UpdateSongFile(Directory &directory,
-			   const char *name, std::string_view suffix,
+			   std::string_view name, std::string_view suffix,
 			   const StorageFileInfo &info) noexcept
 {
 	if (!decoder_plugins_supports_suffix(suffix))

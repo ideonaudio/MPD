@@ -1,34 +1,6 @@
-/*
- * Copyright 2020-2022 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #pragma once
 
@@ -47,7 +19,22 @@ class Ring {
 	struct io_uring ring;
 
 public:
+	/**
+	 * Construct the io_uring using io_uring_queue_init().
+	 *
+	 * Throws on error.
+	 */
 	Ring(unsigned entries, unsigned flags);
+
+	/**
+	 * Construct the io_uring using io_uring_queue_init().
+	 *
+	 * Throws on error.
+	 *
+	 * @param params initialization parameters; will also be
+	 * written to by this constructor
+	 */
+	Ring(unsigned entries, struct io_uring_params &params);
 
 	~Ring() noexcept {
 		io_uring_queue_exit(&ring);
@@ -56,25 +43,126 @@ public:
 	Ring(const Ring &) = delete;
 	Ring &operator=(const Ring &) = delete;
 
+	/**
+	 * Returns the io_uring file descriptor.
+	 */
 	FileDescriptor GetFileDescriptor() const noexcept {
 		return FileDescriptor(ring.ring_fd);
 	}
 
+	/**
+	 * Wrapper for io_uring_register_iowq_max_workers().
+	 *
+	 * Throws on error.
+	 */
+	void SetMaxWorkers(unsigned values[2]);
+
+	/**
+	 * This overload constructs an array for
+	 * io_uring_register_iowq_max_workers() and discards the
+	 * output values.
+	 */
+	void SetMaxWorkers(unsigned bounded, unsigned unbounded) {
+		unsigned values[2] = {bounded, unbounded};
+		SetMaxWorkers(values);
+	}
+
+	/**
+	 * @return true if there are overflow entries waiting to be
+	 * flushed onto the CQ ring
+	 */
+	[[gnu::pure]]
+	bool HasOverflow() const noexcept {
+		return io_uring_cq_has_overflow(&ring);
+	}
+
+	/**
+	 * Returns a submit queue entry or nullptr if the submit queue
+	 * is full.
+	 */
 	struct io_uring_sqe *GetSubmitEntry() noexcept {
 		return io_uring_get_sqe(&ring);
 	}
 
+	/**
+	 * Submit all pending entries from the submit queue to the
+	 * kernel using io_uring_submit().
+	 *
+	 * Throws on error.
+	 *
+	 * @see io_uring_submit()
+	 */
 	void Submit();
 
+	/**
+	 * Like Submit(), but also flush completions.
+	 *
+	 * @see io_uring_submit_and_get_events()
+	 */
+	void SubmitAndGetEvents();
+
+	/**
+	 * Waits for one completion.
+	 *
+	 * Throws on error.
+	 *
+	 * @return a completion queue entry or nullptr on EAGAIN
+	 */
 	struct io_uring_cqe *WaitCompletion();
 
 	/**
+	 * Submit requests and wait for one completion (or a timeout).
+	 * Wrapper for io_uring_submit_and_wait_timeout().
+	 *
+	 * Throws on error.
+	 *
+	 * @return a completion queue entry or nullptr on EAGAIN/ETIME
+	 */
+	struct io_uring_cqe *SubmitAndWaitCompletion(struct __kernel_timespec *timeout);
+
+	/**
+	 * Peek one completion (non-blocking).
+	 *
+	 * Throws on error.
+	 *
 	 * @return a completion queue entry or nullptr on EAGAIN
 	 */
 	struct io_uring_cqe *PeekCompletion();
 
+	/**
+	 * Mark one completion event as consumed.
+	 */
 	void SeenCompletion(struct io_uring_cqe &cqe) noexcept {
 		io_uring_cqe_seen(&ring, &cqe);
+	}
+
+	/**
+	 * Invoke a function with a reference to each completion (but
+	 * do not mark it "seen" or advance the completion queue
+	 * head).
+	 */
+	unsigned ForEachCompletion(struct io_uring_cqe *cqe,
+				   std::invocable<struct io_uring_cqe &> auto f) noexcept {
+		unsigned dummy, n = 0;
+
+		io_uring_for_each_cqe(&ring, dummy, cqe) {
+			++n;
+			f(*cqe);
+		}
+
+		return n;
+	}
+
+	/**
+	 * Like ForEachCompletion(), but advance the completion queue
+	 * head.
+	 */
+	unsigned VisitCompletions(struct io_uring_cqe *cqe,
+				  std::invocable<const struct io_uring_cqe &> auto f) noexcept {
+		unsigned n = ForEachCompletion(cqe, f);
+		if (n > 0)
+			io_uring_cq_advance(&ring, n);
+		return n;
 	}
 };
 

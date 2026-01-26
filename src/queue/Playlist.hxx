@@ -1,28 +1,12 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_PLAYLIST_HXX
-#define MPD_PLAYLIST_HXX
+#pragma once
 
 #include "SingleMode.hxx"
+#include "ConsumeMode.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "queue/Queue.hxx"
-#include "config.h"
 
 enum TagType : uint8_t;
 struct Tag;
@@ -111,17 +95,25 @@ struct playlist {
 		return queue.PositionToId(position);
 	}
 
-	gcc_pure
+	[[gnu::pure]]
 	int GetCurrentPosition() const noexcept;
 
-	gcc_pure
+	[[gnu::pure]]
 	int GetNextPosition() const noexcept;
+
+	const std::string_view GetLastLoadedPlaylist() const noexcept {
+		return queue.last_loaded_playlist;
+	}
+
+	void SetLastLoadedPlaylist(const char *playlist_name) noexcept {
+		queue.last_loaded_playlist = playlist_name;
+	}
 
 	/**
 	 * Returns the song object which is currently queued.  Returns
 	 * none if there is none (yet?) or if MPD isn't playing.
 	 */
-	gcc_pure
+	[[gnu::pure]]
 	const DetachedSong *GetQueuedSong() const noexcept;
 
 	/**
@@ -294,9 +286,17 @@ public:
 	void Stop(PlayerControl &pc) noexcept;
 
 	/**
+	 * Play any song ("current" song, or the first song.  Resumes
+	 * playback if paused.
+	 *
 	 * Throws on error.
 	 */
-	void PlayPosition(PlayerControl &pc, int position);
+	void PlayAny(PlayerControl &pc);
+
+	/**
+	 * Throws on error.
+	 */
+	void PlayPosition(PlayerControl &pc, unsigned position);
 
 	/**
 	 * Throws on error.
@@ -306,7 +306,7 @@ public:
 	/**
 	 * Throws on error.
 	 */
-	void PlayId(PlayerControl &pc, int id);
+	void PlayId(PlayerControl &pc, unsigned id);
 
 	/**
 	 * Throws on error.
@@ -369,11 +369,11 @@ public:
 
 	void SetSingle(PlayerControl &pc, SingleMode new_value) noexcept;
 
-	bool GetConsume() const noexcept {
+	ConsumeMode GetConsume() const noexcept {
 		return queue.consume;
 	}
 
-	void SetConsume(bool new_value) noexcept;
+	void SetConsume(ConsumeMode new_value) noexcept;
 
 private:
 	/**
@@ -387,5 +387,3 @@ private:
 	 */
 	unsigned MoveOrderToCurrent(unsigned old_order) noexcept;
 };
-
-#endif

@@ -1,5 +1,5 @@
 # An example configuration file for MPD.
-# Read the user manual for documentation: http://www.musicpd.org/doc/user/
+# Read the user manual for documentation: https://mpd.readthedocs.io/en/stable/user.html#configuration
 
 
 # Files and directories #######################################################
@@ -10,6 +10,7 @@
 # be disabled and audio files will only be accepted over ipc socket (using
 # file:// protocol) or streaming files over an accepted protocol.
 #
+#music_directory		"$XDG_MUSIC_DIR"
 #music_directory		"~/music"
 #
 # This setting sets the MPD internal playlist directory. The purpose of this
@@ -17,6 +18,7 @@
 # playlist files not created by the server but only if they are in the MPD
 # format. This setting defaults to playlist saving being disabled.
 #
+#playlist_directory		"$XDG_CONFIG_HOME/mpd/playlists"
 #playlist_directory		"~/.mpd/playlists"
 #
 # This setting sets the location of the MPD database. This file is used to
@@ -25,6 +27,7 @@
 # MPD to accept files over ipc socket (using file:// protocol) or streaming
 # files over an accepted protocol.
 #
+#db_file			"$XDG_CACHE_HOME/mpd/database"
 #db_file			"~/.mpd/database"
 
 # These settings are the locations for the daemon log files for the daemon.
@@ -35,6 +38,7 @@
 # If you use systemd, do not configure a log_file.  With systemd, MPD
 # defaults to the systemd journal, which is fine.
 #
+#log_file			"$XDG_CACHE_HOME/mpd/log"
 #log_file			"~/.mpd/log"
 
 # This setting sets the location of the file which stores the process ID
@@ -43,6 +47,7 @@
 #
 # If you use systemd, do not configure a pid_file.
 #
+#pid_file			"$XDG_RUNTIME_DIR/mpd/mpd.pid"
 #pid_file			"~/.mpd/pid"
 
 # This setting sets the location of the file which contains information about
@@ -50,11 +55,13 @@
 # it was brought down. This setting is disabled by default and the server
 # state will be reset on server start up.
 #
+#state_file			"$XDG_RUNTIME_DIR/mpd/state"
 #state_file			"~/.mpd/state"
 #
 # The location of the sticker database.  This is a database which
 # manages dynamic information attached to songs.
 #
+#sticker_file			"$XDG_CACHE_HOME/sticker.sql"
 #sticker_file			"~/.mpd/sticker.sql"
 #
 ###############################################################################
@@ -69,13 +76,6 @@
 #
 #user				"nobody"
 #
-# This setting specifies the group that MPD will run as. If not specified
-# primary group of user specified with "user" setting will be used (if set).
-# This is useful if MPD needs to be a member of group such as "audio" to
-# have permission to use sound card.
-#
-#group				"nogroup"
-#
 # This setting sets the address for the daemon to listen on. Careful attention
 # should be paid if this is assigned to anything other than the default, any.
 # This setting can deny access to control of the daemon. Not effective if
@@ -85,6 +85,7 @@
 #bind_to_address		"any"
 #
 # And for Unix Socket
+#bind_to_address		"$XDG_RUNTIME_DIR/mpd/socket"
 #bind_to_address		"~/.mpd/socket"
 #
 # This setting is the TCP port that is desired for the daemon to get assigned
@@ -118,7 +119,7 @@
 #metadata_to_use "+comment"
 #
 # This setting enables automatic update of MPD's database when files in
-# music_directory are changed.
+# music_directory are changed.  (Linux only)
 #
 #auto_update	"yes"
 #
@@ -165,6 +166,15 @@
 # If this setting is set, MPD will require password authorization. The password
 # setting can be specified multiple times for different password profiles.
 #
+# Possible permisisons:
+#
+# NAME    DESCRIPTION
+# read    Allows reading of the database, displaying the current playlist, and current status of MPD.
+# add     Allows adding songs and loading playlists.
+# player  Allows any player and queue manipulation (start/pause/stop playback etc.).
+# control Allows all other player and playlist manipulations.
+# admin   Allows manipulating outputs, stickers and partitions, mounting/unmounting storage and shutting down MPD.
+#
 #password                        "password@read,add,control,admin"
 #
 # This setting specifies the permissions a user has who has not yet logged in.
@@ -181,7 +191,7 @@
 #
 #database {
 #       plugin "simple"
-#       path "~/.local/share/mpd/db
+#       path "~/.local/share/mpd/db"
 #       cache_directory "~/.local/share/mpd/cache"
 #}
 #
@@ -314,6 +324,7 @@ input {
 ##	device		"Digital Audio (S/PDIF) (High Definition Audio Device)" # optional
 #		or
 ##	device		"0"		# optional
+##	mixer_type	"hardware"	# optional
 ## Exclusive mode blocks all other audio source, and get best audio quality without resampling.
 ##	exclusive	"no"		# optional
 ## Enumerate all devices in log.
@@ -380,31 +391,6 @@ input {
 # This setting is off by default.
 #
 #replaygain			"album"
-#
-# This setting sets the pre-amp used for files that have ReplayGain tags. By
-# default this setting is disabled.
-#
-#replaygain_preamp		"0"
-#
-# This setting sets the pre-amp used for files that do NOT have ReplayGain tags.
-# By default this setting is disabled.
-#
-#replaygain_missing_preamp	"0"
-#
-# This setting enables or disables ReplayGain limiting.
-# MPD calculates actual amplification based on the ReplayGain tags
-# and replaygain_preamp / replaygain_missing_preamp setting.
-# If replaygain_limit is enabled MPD will never amplify audio signal
-# above its original level. If replaygain_limit is disabled such amplification
-# might occur. By default this setting is enabled.
-#
-#replaygain_limit		"yes"
-#
-# This setting enables on-the-fly normalization volume adjustment. This will
-# result in the volume of all playing audio to be adjusted so the output has
-# equal "loudness". This setting is disabled by default.
-#
-#volume_normalization		"no"
 #
 ###############################################################################
 

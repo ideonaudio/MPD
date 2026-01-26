@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "MessageCommands.hxx"
 #include "Request.hxx"
@@ -29,6 +13,7 @@
 #include <cassert>
 #include <set>
 #include <string>
+#include <utility> // for std::unreachable()
 
 CommandResult
 handle_subscribe(Client &client, Request args, Response &r)
@@ -53,9 +38,7 @@ handle_subscribe(Client &client, Request args, Response &r)
 		return CommandResult::ERROR;
 	}
 
-	/* unreachable */
-	assert(false);
-	gcc_unreachable();
+	std::unreachable();
 }
 
 CommandResult
@@ -77,7 +60,7 @@ handle_channels(Client &client, [[maybe_unused]] Request args, Response &r)
 {
 	assert(args.empty());
 
-	std::set<std::string> channels;
+	std::set<std::string, std::less<>> channels;
 
 	for (const auto &c : client.GetPartition().clients) {
 		const auto &subscriptions = c.GetSubscriptions();
@@ -86,7 +69,7 @@ handle_channels(Client &client, [[maybe_unused]] Request args, Response &r)
 	}
 
 	for (const auto &channel : channels)
-		r.Fmt(FMT_STRING("channel: {}\n"), channel);
+		r.Fmt("channel: {}\n", channel);
 
 	return CommandResult::OK;
 }
@@ -98,7 +81,7 @@ handle_read_messages(Client &client,
 	assert(args.empty());
 
 	client.ConsumeMessages([&r](const auto &msg){
-		r.Fmt(FMT_STRING("channel: {}\nmessage: {}\n"),
+		r.Fmt("channel: {}\nmessage: {}\n",
 		      msg.GetChannel(), msg.GetMessage());
 	});
 

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Id3Scan.hxx"
 #include "Id3String.hxx"
@@ -55,6 +39,10 @@
 #define ID3_FRAME_ALBUM_ARTIST "TPE2"
 #endif
 
+#ifndef ID3_FRAME_TITLE_SORT
+#define ID3_FRAME_TITLE_SORT "TSOT"
+#endif
+
 #ifndef ID3_FRAME_ORIGINAL_RELEASE_DATE
 #define ID3_FRAME_ORIGINAL_RELEASE_DATE "TDOR"
 #endif
@@ -67,7 +55,7 @@
 #define ID3_FRAME_MOOD "TMOO"
 #endif
 
-gcc_pure
+[[gnu::pure]]
 static Id3String
 tag_id3_getstring(const struct id3_frame *frame, unsigned i) noexcept
 {
@@ -198,7 +186,7 @@ tag_id3_import_comment(const struct id3_tag *tag, const char *id, TagType type,
  * Parse a TXXX name, and convert it to a TagType enum value.
  * Returns TAG_NUM_OF_ITEM_TYPES if the TXXX name is not understood.
  */
-gcc_pure
+[[gnu::pure]]
 static TagType
 tag_id3_parse_txxx_name(const char *name) noexcept
 {
@@ -352,6 +340,7 @@ scan_id3_tag(const struct id3_tag *tag, TagHandler &handler) noexcept
 	tag_id3_import_text(tag, ID3_FRAME_LABEL, TAG_LABEL,
 			    handler);
 	tag_id3_import_text(tag, ID3_FRAME_MOOD, TAG_MOOD, handler);
+	tag_id3_import_text(tag, ID3_FRAME_TITLE_SORT, TAG_TITLE_SORT, handler);
 
 	tag_id3_import_musicbrainz(tag, handler);
 	tag_id3_import_ufid(tag, handler);

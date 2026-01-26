@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "MmsInputPlugin.hxx"
 #include "input/ThreadInputStream.hxx"
@@ -26,15 +10,17 @@
 
 #include <stdexcept>
 
-static constexpr size_t MMS_BUFFER_SIZE = 256 * 1024;
-
 class MmsInputStream final : public ThreadInputStream {
+	static constexpr std::size_t BUFFER_SIZE = 256 * 1024;
+
 	mmsx_t *mms;
 
 public:
-	MmsInputStream(const char *_uri, Mutex &_mutex)
+	MmsInputStream(std::string_view _uri, Mutex &_mutex)
 		:ThreadInputStream(input_plugin_mms.name, _uri, _mutex,
-				   MMS_BUFFER_SIZE) {
+				   BUFFER_SIZE)
+	{
+		Start();
 	}
 
 	~MmsInputStream() noexcept override {
@@ -46,7 +32,7 @@ public:
 
 protected:
 	void Open() override;
-	size_t ThreadRead(void *ptr, size_t size) override;
+	std::size_t ThreadRead(std::span<std::byte> dest) override;
 
 	void Close() noexcept override {
 		mmsx_close(mms);
@@ -70,25 +56,22 @@ MmsInputStream::Open()
 }
 
 static InputStreamPtr
-input_mms_open(const char *url,
-	       Mutex &mutex)
+input_mms_open(std::string_view url, Mutex &mutex)
 {
-	auto m = std::make_unique<MmsInputStream>(url, mutex);
-	m->Start();
-	return m;
+	return std::make_unique<MmsInputStream>(url, mutex);
 }
 
-size_t
-MmsInputStream::ThreadRead(void *ptr, size_t read_size)
+std::size_t
+MmsInputStream::ThreadRead(std::span<std::byte> dest)
 {
 	/* unfortunately, mmsx_read() blocks until the whole buffer
 	   has been filled; to avoid big latencies, limit the size of
 	   each chunk we read to a reasonable size */
 	constexpr size_t MAX_CHUNK = 16384;
-	if (read_size > MAX_CHUNK)
-		read_size = MAX_CHUNK;
+	if (dest.size() > MAX_CHUNK)
+		dest = dest.first(MAX_CHUNK);
 
-	int nbytes = mmsx_read(nullptr, mms, (char *)ptr, read_size);
+	int nbytes = mmsx_read(nullptr, mms, reinterpret_cast<char *>(dest.data()), dest.size());
 	if (nbytes <= 0) {
 		if (nbytes < 0)
 			throw MakeErrno("mmsx_read() failed");

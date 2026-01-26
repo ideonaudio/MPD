@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /*
  * Functions for controlling playback on the playlist level.
@@ -26,6 +10,7 @@
 #include "PlaylistError.hxx"
 #include "player/Control.hxx"
 #include "song/DetachedSong.hxx"
+#include "Listener.hxx"
 #include "Log.hxx"
 
 void
@@ -79,61 +64,75 @@ playlist::MoveOrderToCurrent(unsigned old_order) noexcept
 }
 
 void
-playlist::PlayPosition(PlayerControl &pc, int song)
+playlist::PlayOrder(PlayerControl &pc, unsigned order)
+{
+	playing = true;
+	queued = -1;
+
+	const DetachedSong &song = queue.GetOrder(order);
+
+	FmtDebug(playlist_domain, "play {}:{:?}", order, song.GetURI());
+
+	current = order;
+
+	pc.Play(std::make_unique<DetachedSong>(song));
+
+	SongStarted();
+}
+
+void
+playlist::PlayAny(PlayerControl &pc)
+{
+	if (queue.IsEmpty())
+		return;
+
+	if (playing) {
+		/* already playing: unpause playback, just in
+		   case it was paused, and return */
+		pc.LockSetPause(false);
+		return;
+	}
+
+	pc.LockClearError();
+	stop_on_error = false;
+	error_count = 0;
+
+	/* select a song: "current" song, or the first one */
+	unsigned order = current >= 0
+		? static_cast<unsigned>(current)
+		: 0;
+
+	PlayOrder(pc, order);
+}
+
+void
+playlist::PlayPosition(PlayerControl &pc, unsigned position)
 {
 	pc.LockClearError();
 
-	unsigned i = song;
-	if (song == -1) {
-		/* play any song ("current" song, or the first song */
-
-		if (queue.IsEmpty())
-			return;
-
-		if (playing) {
-			/* already playing: unpause playback, just in
-			   case it was paused, and return */
-			pc.LockSetPause(false);
-			return;
-		}
-
-		/* select a song: "current" song, or the first one */
-		i = current >= 0
-			? current
-			: 0;
-	} else if (!queue.IsValidPosition(song))
+	if (!queue.IsValidPosition(position))
 		throw PlaylistError::BadRange();
 
+	unsigned order = position;
 	if (queue.random) {
-		if (song >= 0)
-			/* "i" is currently the song position (which
-			   would be equal to the order number in
-			   no-random mode); convert it to a order
-			   number, because random mode is enabled */
-			i = queue.PositionToOrder(song);
-
-		i = MoveOrderToCurrent(i);
+		order = queue.PositionToOrder(position);
+		order = MoveOrderToCurrent(order);
 	}
 
 	stop_on_error = false;
 	error_count = 0;
 
-	PlayOrder(pc, i);
+	PlayOrder(pc, order);
 }
 
 void
-playlist::PlayId(PlayerControl &pc, int id)
+playlist::PlayId(PlayerControl &pc, unsigned id)
 {
-	if (id == -1) {
-		PlayPosition(pc, id);
-		return;
-	}
-
-	int song = queue.IdToPosition(id);
-	if (song < 0)
+	int position = queue.IdToPosition(id);
+	if (position < 0)
 		throw PlaylistError::NoSuchSong();
 
-	PlayPosition(pc, song);
+	PlayPosition(pc, static_cast<unsigned>(position));
 }
 
 void
@@ -178,8 +177,14 @@ playlist::PlayNext(PlayerControl &pc)
 	}
 
 	/* Consume mode removes each played songs. */
-	if (queue.consume)
+	if (queue.consume != ConsumeMode::OFF)
 		DeleteOrder(pc, old_current);
+
+	/* Disable consume mode after consuming one song in oneshot mode. */
+	if (queue.consume == ConsumeMode::ONE_SHOT) {
+		queue.consume = ConsumeMode::OFF;
+		listener.OnQueueOptionsChanged();
+	}
 }
 
 void

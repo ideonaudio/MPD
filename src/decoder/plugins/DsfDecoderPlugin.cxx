@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /* \file
  *
@@ -33,9 +17,11 @@
 #include "input/InputStream.hxx"
 #include "pcm/CheckAudioFormat.hxx"
 #include "util/BitReverse.hxx"
-#include "util/ByteOrder.hxx"
+#include "util/PackedLittleEndian.hxx"
+#include "util/SpanCast.hxx"
 #include "DsdLib.hxx"
 #include "tag/Handler.hxx"
+#include "util/Compiler.h"
 
 #include <string.h>
 
@@ -54,11 +40,11 @@ struct DsfHeader {
 	/** DSF header id: "DSD " */
 	DsdId id;
 	/** DSD chunk size, including id = 28 */
-	DsdUint64 size;
+	PackedLE64 size;
 	/** total file size */
-	DsdUint64 fsize;
+	PackedLE64 fsize;
 	/** pointer to id3v2 metadata, should be at the end of the file */
-	DsdUint64 pmeta;
+	PackedLE64 pmeta;
 };
 
 /** DSF file fmt chunk */
@@ -66,7 +52,7 @@ struct DsfFmtChunk {
 	/** id: "fmt " */
 	DsdId id;
 	/** fmt chunk size, including id, normally 52 */
-	DsdUint64 size;
+	PackedLE64 size;
 	/** version of this format = 1 */
 	uint32_t version;
 	/** 0: DSD raw */
@@ -80,7 +66,7 @@ struct DsfFmtChunk {
 	/** bits per sample 1 or 8 */
 	uint32_t bitssample;
 	/** Sample count per channel in bytes */
-	DsdUint64 scnt;
+	PackedLE64 scnt;
 	/** block size per channel = 4096 */
 	uint32_t block_size;
 	/** reserved, should be all zero */
@@ -90,7 +76,7 @@ struct DsfFmtChunk {
 struct DsfDataChunk {
 	DsdId id;
 	/** "data" chunk size, includes header (id+size) */
-	DsdUint64 size;
+	PackedLE64 size;
 };
 
 /**
@@ -101,26 +87,26 @@ dsf_read_metadata(DecoderClient *client, InputStream &is,
 		  DsfMetaData *metadata)
 {
 	DsfHeader dsf_header;
-	if (!decoder_read_full(client, is, &dsf_header, sizeof(dsf_header)) ||
+	if (!decoder_read_full(client, is, ReferenceAsWritableBytes(dsf_header)) ||
 	    !dsf_header.id.Equals("DSD "))
 		return false;
 
-	const offset_type chunk_size = dsf_header.size.Read();
+	const offset_type chunk_size = dsf_header.size;
 	if (sizeof(dsf_header) != chunk_size)
 		return false;
 
 #ifdef ENABLE_ID3TAG
-	const offset_type metadata_offset = dsf_header.pmeta.Read();
+	const offset_type metadata_offset = dsf_header.pmeta;
 #endif
 
 	/* read the 'fmt ' chunk of the DSF file */
 	DsfFmtChunk dsf_fmt_chunk;
 	if (!decoder_read_full(client, is,
-			       &dsf_fmt_chunk, sizeof(dsf_fmt_chunk)) ||
+			       ReferenceAsWritableBytes(dsf_fmt_chunk)) ||
 	    !dsf_fmt_chunk.id.Equals("fmt "))
 		return false;
 
-	const uint64_t fmt_chunk_size = dsf_fmt_chunk.size.Read();
+	const uint64_t fmt_chunk_size = dsf_fmt_chunk.size;
 	if (fmt_chunk_size != sizeof(dsf_fmt_chunk))
 		return false;
 
@@ -143,14 +129,14 @@ dsf_read_metadata(DecoderClient *client, InputStream &is,
 
 	/* read the 'data' chunk of the DSF file */
 	DsfDataChunk data_chunk;
-	if (!decoder_read_full(client, is, &data_chunk, sizeof(data_chunk)) ||
+	if (!decoder_read_full(client, is, ReferenceAsWritableBytes(data_chunk)) ||
 	    !data_chunk.id.Equals("data"))
 		return false;
 
 	/* data size of DSF files are padded to multiple of 4096,
 	   we use the actual data size as chunk size */
 
-	offset_type data_size = data_chunk.size.Read();
+	offset_type data_size = data_chunk.size;
 	if (data_size < sizeof(data_chunk))
 		return false;
 
@@ -163,7 +149,7 @@ dsf_read_metadata(DecoderClient *client, InputStream &is,
 	/* use the sample count from the DSF header as the upper
 	   bound, because some DSF files contain junk at the end of
 	   the "data" chunk */
-	const uint64_t samplecnt = dsf_fmt_chunk.scnt.Read();
+	const uint64_t samplecnt = dsf_fmt_chunk.scnt;
 	const offset_type playable_size = samplecnt * channels / 8;
 	if (data_size > playable_size)
 		data_size = playable_size;
@@ -181,15 +167,15 @@ dsf_read_metadata(DecoderClient *client, InputStream &is,
 }
 
 static void
-bit_reverse_buffer(uint8_t *p, uint8_t *end)
+bit_reverse_buffer(std::byte *p, std::byte *end)
 {
 	for (; p < end; ++p)
-		*p = bit_reverse(*p);
+		*p = BitReverse(*p);
 }
 
 static void
-InterleaveDsfBlockMono(uint8_t *gcc_restrict dest,
-		       const uint8_t *gcc_restrict src)
+InterleaveDsfBlockMono(std::byte *gcc_restrict dest,
+		       const std::byte *gcc_restrict src)
 {
 	memcpy(dest, src, DSF_BLOCK_SIZE);
 }
@@ -201,8 +187,8 @@ InterleaveDsfBlockMono(uint8_t *gcc_restrict dest,
  * order.
  */
 static void
-InterleaveDsfBlockStereo(uint8_t *gcc_restrict dest,
-			 const uint8_t *gcc_restrict src)
+InterleaveDsfBlockStereo(std::byte *gcc_restrict dest,
+			 const std::byte *gcc_restrict src)
 {
 	for (size_t i = 0; i < DSF_BLOCK_SIZE; ++i) {
 		dest[2 * i] = src[i];
@@ -211,8 +197,8 @@ InterleaveDsfBlockStereo(uint8_t *gcc_restrict dest,
 }
 
 static void
-InterleaveDsfBlockChannel(uint8_t *gcc_restrict dest,
-			  const uint8_t *gcc_restrict src,
+InterleaveDsfBlockChannel(std::byte *gcc_restrict dest,
+			  const std::byte *gcc_restrict src,
 			  unsigned channels)
 {
 	for (size_t i = 0; i < DSF_BLOCK_SIZE; ++i, dest += channels, ++src)
@@ -220,8 +206,8 @@ InterleaveDsfBlockChannel(uint8_t *gcc_restrict dest,
 }
 
 static void
-InterleaveDsfBlockGeneric(uint8_t *gcc_restrict dest,
-			  const uint8_t *gcc_restrict src,
+InterleaveDsfBlockGeneric(std::byte *gcc_restrict dest,
+			  const std::byte *gcc_restrict src,
 			  unsigned channels)
 {
 	for (unsigned c = 0; c < channels; ++c, ++dest, src += DSF_BLOCK_SIZE)
@@ -229,7 +215,7 @@ InterleaveDsfBlockGeneric(uint8_t *gcc_restrict dest,
 }
 
 static void
-InterleaveDsfBlock(uint8_t *gcc_restrict dest, const uint8_t *gcc_restrict src,
+InterleaveDsfBlock(std::byte *gcc_restrict dest, const std::byte *gcc_restrict src,
 		   unsigned channels)
 {
 	if (channels == 1)
@@ -271,22 +257,28 @@ dsf_decode_chunk(DecoderClient &client, InputStream &is,
 
 			offset_type offset =
 				start_offset + block * block_size;
-			if (dsdlib_skip_to(&client, is, offset)) {
-				client.CommandFinished();
-				i = block;
-			} else
-				client.SeekError();
+
+			try {
+				if (dsdlib_skip_to(&client, is, offset)) {
+					client.CommandFinished();
+					i = block;
+				} else
+					client.SeekError();
+			} catch (...) {
+				client.SeekError(std::current_exception());
+			}
 		}
 
 		/* worst-case buffer size */
-		uint8_t buffer[MAX_CHANNELS * DSF_BLOCK_SIZE];
-		if (!decoder_read_full(&client, is, buffer, block_size))
+		std::byte buffer[MAX_CHANNELS * DSF_BLOCK_SIZE];
+		if (!decoder_read_full(&client, is,
+				       std::span{buffer}.first(block_size)))
 			return false;
 
 		if (bitreverse)
 			bit_reverse_buffer(buffer, buffer + block_size);
 
-		uint8_t interleaved_buffer[MAX_CHANNELS * DSF_BLOCK_SIZE];
+		std::byte interleaved_buffer[MAX_CHANNELS * DSF_BLOCK_SIZE];
 		InterleaveDsfBlock(interleaved_buffer, buffer, channels);
 
 		cmd = client.SubmitAudio(is,

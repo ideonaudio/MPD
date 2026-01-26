@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Init.hxx"
 #include "Registry.hxx"
@@ -25,8 +9,8 @@
 #include "config/Block.hxx"
 #include "Log.hxx"
 #include "PluginUnavailable.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "util/Domain.hxx"
-#include "util/RuntimeError.hxx"
 
 #include <cassert>
 #include <stdexcept>
@@ -71,17 +55,17 @@ input_stream_global_init(const ConfigData &config, EventLoop &event_loop)
 			input_plugins_enabled[i] = true;
 		} catch (const PluginUnconfigured &e) {
 			FmtDebug(input_domain,
-				 "Input plugin '{}' is not configured: {}",
+				 "Input plugin {:?} is not configured: {}",
 				 plugin->name, e.what());
 			continue;
 		} catch (const PluginUnavailable &e) {
 			FmtDebug(input_domain,
-				 "Input plugin '{}' is unavailable: {}",
+				 "Input plugin {:?} is unavailable: {}",
 				 plugin->name, e.what());
 			continue;
 		} catch (...) {
-			std::throw_with_nested(FormatRuntimeError("Failed to initialize input plugin '%s'",
-								  plugin->name));
+			std::throw_with_nested(FmtRuntimeError("Failed to initialize input plugin {:?}",
+							       plugin->name));
 		}
 	}
 }
@@ -89,7 +73,7 @@ input_stream_global_init(const ConfigData &config, EventLoop &event_loop)
 void
 input_stream_global_finish() noexcept
 {
-	input_plugins_for_each_enabled(plugin)
-		if (plugin->finish != nullptr)
-			plugin->finish();
+	for (const auto &plugin : GetEnabledInputPlugins())
+		if (plugin.finish != nullptr)
+			plugin.finish();
 }

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Registry.hxx"
 #include "InputPlugin.hxx"
@@ -51,7 +35,7 @@
 #include "plugins/CdioParanoiaInputPlugin.hxx"
 #endif
 
-constexpr const InputPlugin *input_plugins[] = {
+constinit const InputPlugin *const input_plugins[] = {
 #ifdef ENABLE_ALSA
 	&input_plugin_alsa,
 #endif
@@ -86,12 +70,13 @@ static constexpr std::size_t n_input_plugins = std::size(input_plugins) - 1;
 bool input_plugins_enabled[std::max(n_input_plugins, std::size_t(1))];
 
 bool
-HasRemoteTagScanner(const char *uri) noexcept
+HasRemoteTagScanner(std::string_view uri) noexcept
 {
-	input_plugins_for_each_enabled(plugin)
-		if (plugin->scan_tags != nullptr &&
-		    plugin->SupportsUri(uri))
+	for (const auto &plugin : GetEnabledInputPlugins()) {
+		if (plugin.scan_tags != nullptr &&
+		    plugin.SupportsUri(uri))
 			return true;
+	}
 
 	return false;
 }

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_SONG_FILTER_HXX
 #define MPD_SONG_FILTER_HXX
@@ -37,6 +21,11 @@
  */
 #define SORT_TAG_PRIO (TAG_NUM_OF_ITEM_TYPES + 4)
 
+/**
+ * Special value for the db_selection_print() sort parameter.
+ */
+#define SORT_TAG_ADDED (TAG_NUM_OF_ITEM_TYPES + 5)
+
 enum TagType : uint8_t;
 struct LightSong;
 
@@ -46,7 +35,7 @@ class SongFilter {
 public:
 	SongFilter() = default;
 
-	SongFilter(TagType tag, const char *value, bool fold_case=false);
+	SongFilter(TagType tag, const char *value, bool fold_case=false, bool strip_diacritics=false);
 
 	~SongFilter();
 
@@ -60,15 +49,15 @@ public:
 	std::string ToExpression() const noexcept;
 
 private:
-	static ISongFilterPtr ParseExpression(const char *&s, bool fold_case=false);
+	static ISongFilterPtr ParseExpression(const char *&s, bool fold_case=false, bool strip_diacritics=false);
 
-	void Parse(const char *tag, const char *value, bool fold_case=false);
+	void Parse(const char *tag, const char *value, bool fold_case=false, bool strip_diacritics=false);
 
 public:
 	/**
 	 * Throws on error.
 	 */
-	void Parse(std::span<const char *const> args, bool fold_case=false);
+	void Parse(std::span<const char *const> args, bool fold_case=false, bool strip_diacritics=false);
 
 	void Optimize() noexcept;
 

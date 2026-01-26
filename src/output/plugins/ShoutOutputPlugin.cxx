@@ -1,40 +1,23 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "ShoutOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
 #include "encoder/EncoderInterface.hxx"
 #include "encoder/Configured.hxx"
-#include "util/RuntimeError.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "util/Domain.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/StringAPI.hxx"
-#include "util/StringFormat.hxx"
 #include "Log.hxx"
 
 #include <shout/shout.h>
 
+#include <fmt/format.h>
+
 #include <cassert>
 #include <memory>
 #include <stdexcept>
-
-#include <stdio.h>
 
 class ShoutConfig {
 	const char *const host;
@@ -105,8 +88,8 @@ require_block_string(const ConfigBlock &block, const char *name)
 {
 	const char *value = block.GetBlockValue(name);
 	if (value == nullptr)
-		throw FormatRuntimeError("no \"%s\" defined for shout device defined "
-					 "at line %d\n", name, block.line);
+		throw FmtRuntimeError("no {:?} defined for shout device defined "
+				      "at line {}\n", name, block.line);
 
 	return value;
 }
@@ -115,10 +98,10 @@ static void
 ShoutSetAudioInfo(shout_t *shout_conn, const AudioFormat &audio_format)
 {
 	shout_set_audio_info(shout_conn, SHOUT_AI_CHANNELS,
-			     StringFormat<11>("%u", audio_format.channels));
+			     fmt::format_int{static_cast<unsigned>(audio_format.channels)}.c_str());
 
 	shout_set_audio_info(shout_conn, SHOUT_AI_SAMPLERATE,
-			     StringFormat<11>("%u", audio_format.sample_rate));
+			     fmt::format_int{audio_format.sample_rate}.c_str());
 }
 
 #ifdef SHOUT_TLS
@@ -140,8 +123,8 @@ ParseShoutTls(const char *value)
 	else if (StringIsEqual(value, "rfc2817"))
 		return SHOUT_TLS_RFC2817;
 	else
-		throw FormatRuntimeError("invalid shout TLS option \"%s\"",
-					 value);
+		throw FmtRuntimeError("invalid shout TLS option {:?}",
+				      value);
 }
 
 #endif
@@ -163,17 +146,17 @@ ParseShoutProtocol(const char *value, const char *mime_type)
 
 	if (StringIsEqual(value, "shoutcast")) {
 		if (!StringIsEqual(mime_type, "audio/mpeg"))
-			throw FormatRuntimeError("you cannot stream \"%s\" to shoutcast, use mp3",
-						 mime_type);
+			throw FmtRuntimeError("you cannot stream {:?} to shoutcast, use mp3",
+					      mime_type);
 		return SHOUT_PROTOCOL_ICY;
 	} else if (StringIsEqual(value, "icecast1"))
 		return SHOUT_PROTOCOL_XAUDIOCAST;
 	else if (StringIsEqual(value, "icecast2"))
 		return SHOUT_PROTOCOL_HTTP;
 	else
-		throw FormatRuntimeError("shout protocol \"%s\" is not \"shoutcast\" or "
-					 "\"icecast1\"or \"icecast2\"",
-					 value);
+		throw FmtRuntimeError("shout protocol {:?} is not \"shoutcast\" or "
+				      "\"icecast1\"or \"icecast2\"",
+				      value);
 }
 
 inline
@@ -309,16 +292,16 @@ HandleShoutError(shout_t *shout_conn, int err)
 
 	case SHOUTERR_UNCONNECTED:
 	case SHOUTERR_SOCKET:
-		throw FormatRuntimeError("Lost shout connection to %s:%i: %s",
-					 shout_get_host(shout_conn),
-					 shout_get_port(shout_conn),
-					 shout_get_error(shout_conn));
+		throw FmtRuntimeError("Lost shout connection to {}:{}: {}",
+				      shout_get_host(shout_conn),
+				      shout_get_port(shout_conn),
+				      shout_get_error(shout_conn));
 
 	default:
-		throw FormatRuntimeError("connection to %s:%i error: %s",
-					 shout_get_host(shout_conn),
-					 shout_get_port(shout_conn),
-					 shout_get_error(shout_conn));
+		throw FmtRuntimeError("connection to {}:{} error: {}",
+				      shout_get_host(shout_conn),
+				      shout_get_port(shout_conn),
+				      shout_get_error(shout_conn));
 	}
 }
 
@@ -328,7 +311,7 @@ EncoderToShout(shout_t *shout_conn, Encoder &encoder)
 	while (true) {
 		std::byte buffer[32768];
 		const auto e = encoder.Read(std::span{buffer});
-		if (e.empty() == 0)
+		if (e.empty())
 			return;
 
 		int err = shout_send(shout_conn,
@@ -381,10 +364,10 @@ ShoutOpen(shout_t *shout_conn)
 		break;
 
 	default:
-		throw FormatRuntimeError("problem opening connection to shout server %s:%i: %s",
-					 shout_get_host(shout_conn),
-					 shout_get_port(shout_conn),
-					 shout_get_error(shout_conn));
+		throw FmtRuntimeError("problem opening connection to shout server {}:{}: {}",
+				      shout_get_host(shout_conn),
+				      shout_get_port(shout_conn),
+				      shout_get_error(shout_conn));
 	}
 }
 
@@ -432,15 +415,15 @@ ShoutOutput::Pause()
 	return true;
 }
 
-static void
-shout_tag_to_metadata(const Tag &tag, char *dest, size_t size) noexcept
+static std::string
+shout_tag_to_metadata(const Tag &tag) noexcept
 {
 	const char *artist = tag.GetValue(TAG_ARTIST);
 	const char *title = tag.GetValue(TAG_TITLE);
 
-	snprintf(dest, size, "%s - %s",
-		 artist != nullptr ? artist : "",
-		 title != nullptr ? title : "");
+	return fmt::format("{} - {}",
+			   artist != nullptr ? artist : "",
+			   title != nullptr ? title : "");
 }
 
 void
@@ -458,10 +441,9 @@ ShoutOutput::SendTag(const Tag &tag)
 		const auto meta = shout_metadata_new();
 		AtScopeExit(meta) { shout_metadata_free(meta); };
 
-		char song[1024];
-		shout_tag_to_metadata(tag, song, sizeof(song));
+		const auto song = shout_tag_to_metadata(tag);
 
-		if (SHOUTERR_SUCCESS != shout_metadata_add(meta, "song", song) ||
+		if (SHOUTERR_SUCCESS != shout_metadata_add(meta, "song", song.c_str()) ||
 #ifdef SHOUT_FORMAT_TEXT
 		    /* since libshout 2.4.6 */
 		    SHOUTERR_SUCCESS != shout_set_metadata_utf8(shout_conn, meta)

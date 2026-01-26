@@ -1,28 +1,12 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "FlacPcm.hxx"
 #include "pcm/CheckAudioFormat.hxx"
 #include "lib/xiph/FlacAudioFormat.hxx"
-#include "util/RuntimeError.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 
-#include <cassert>
+#include <utility> // for std::unreachable()
 
 void
 FlacPcmImport::Open(unsigned sample_rate, unsigned bits_per_sample,
@@ -30,8 +14,8 @@ FlacPcmImport::Open(unsigned sample_rate, unsigned bits_per_sample,
 {
 	auto sample_format = FlacSampleFormat(bits_per_sample);
 	if (sample_format == SampleFormat::UNDEFINED)
-		throw FormatRuntimeError("Unsupported FLAC bit depth: %u",
-					 bits_per_sample);
+		throw FmtRuntimeError("Unsupported FLAC bit depth: {}",
+				      bits_per_sample);
 
 	audio_format = CheckAudioFormat(sample_rate, sample_format, channels);
 }
@@ -103,6 +87,5 @@ FlacPcmImport::Import(const FLAC__int32 *const src[], size_t n_frames) noexcept
 		break;
 	}
 
-	assert(false);
-	gcc_unreachable();
+	std::unreachable();
 }

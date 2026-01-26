@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "NfsInputPlugin.hxx"
 #include "../AsyncInputStream.hxx"
@@ -41,9 +25,18 @@ class NfsInputStream final : NfsFileReader, public AsyncInputStream {
 	bool reconnect_on_resume = false, reconnecting = false;
 
 public:
-	NfsInputStream(const char *_uri, Mutex &_mutex)
+	NfsInputStream(std::string_view _uri, Mutex &_mutex) noexcept
 		:AsyncInputStream(NfsFileReader::GetEventLoop(),
 				  _uri, _mutex,
+				  NFS_MAX_BUFFERED,
+				  NFS_RESUME_AT) {}
+
+	NfsInputStream(NfsConnection &_connection, std::string_view _path,
+		       Mutex &_mutex) noexcept
+		:NfsFileReader(_connection, _path),
+		 AsyncInputStream(NfsFileReader::GetEventLoop(),
+				  NfsFileReader::GetAbsoluteUri(),
+				  _mutex,
 				  NFS_MAX_BUFFERED,
 				  NFS_RESUME_AT) {}
 
@@ -71,7 +64,7 @@ protected:
 private:
 	/* virtual methods from NfsFileReader */
 	void OnNfsFileOpen(uint64_t size) noexcept override;
-	void OnNfsFileRead(const void *data, size_t size) noexcept override;
+	void OnNfsFileRead(std::span<const std::byte> src) noexcept override;
 	void OnNfsFileError(std::exception_ptr &&e) noexcept override;
 };
 
@@ -135,13 +128,17 @@ NfsInputStream::DoSeek(offset_type new_offset)
 
 	next_offset = offset = new_offset;
 	SeekDone();
+
+	if (!IsIdle())
+		CancelRead();
+
 	DoRead();
 }
 
 void
 NfsInputStream::OnNfsFileOpen(uint64_t _size) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	if (reconnecting) {
 		/* reconnect has succeeded */
@@ -159,14 +156,15 @@ NfsInputStream::OnNfsFileOpen(uint64_t _size) noexcept
 }
 
 void
-NfsInputStream::OnNfsFileRead(const void *data, size_t data_size) noexcept
+NfsInputStream::OnNfsFileRead(std::span<const std::byte> src) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	assert(!IsBufferFull());
 	assert(IsBufferFull() == (GetBufferSpace() == 0));
-	AppendToBuffer(data, data_size);
 
-	next_offset += data_size;
+	AppendToBuffer(src);
+
+	next_offset += src.size();
 
 	DoRead();
 }
@@ -174,7 +172,7 @@ NfsInputStream::OnNfsFileRead(const void *data, size_t data_size) noexcept
 void
 NfsInputStream::OnNfsFileError(std::exception_ptr &&e) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	if (IsPaused()) {
 		/* while we're paused, don't report this error to the
@@ -215,7 +213,7 @@ input_nfs_finish() noexcept
 }
 
 static InputStreamPtr
-input_nfs_open(const char *uri,
+input_nfs_open(std::string_view uri,
 	       Mutex &mutex)
 {
 	auto is = std::make_unique<NfsInputStream>(uri, mutex);
@@ -236,3 +234,10 @@ const InputPlugin input_plugin_nfs = {
 	input_nfs_open,
 	nullptr
 };
+
+InputStreamPtr
+OpenNfsInputStream(NfsConnection &connection, std::string_view path,
+		   Mutex &mutex)
+{
+	return std::make_unique<NfsInputStream>(connection, path, mutex);
+}

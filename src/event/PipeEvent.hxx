@@ -1,34 +1,6 @@
-/*
- * Copyright 2007-2022 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #pragma once
 
@@ -39,7 +11,9 @@
  * A variant of #SocketEvent for pipes (and other kinds of
  * #FileDescriptor which can be used with epoll).
  */
-class PipeEvent final {
+class PipeEvent final
+	: public EventPollBackendEvents
+{
 	SocketEvent event;
 
 public:
@@ -73,6 +47,22 @@ public:
 		event.Close();
 	}
 
+	unsigned GetScheduledFlags() const noexcept {
+		return event.GetScheduledFlags();
+	}
+
+	unsigned GetReadyFlags() const noexcept {
+		return event.GetReadyFlags();
+	}
+
+	void SetReadyFlags(unsigned flags) noexcept {
+		event.SetReadyFlags(flags);
+	}
+
+	void ClearReadyFlags(unsigned flags) noexcept {
+		event.ClearReadyFlags(flags);
+	}
+
 	bool Schedule(unsigned flags) noexcept {
 		return event.Schedule(flags);
 	}
@@ -97,7 +87,27 @@ public:
 		event.CancelWrite();
 	}
 
+	void CancelOnlyRead() noexcept {
+		event.CancelOnlyRead();
+	}
+
+	void CancelOnlyWrite() noexcept {
+		event.CancelOnlyWrite();
+	}
+
 	void ScheduleImplicit() noexcept {
 		event.ScheduleImplicit();
+	}
+
+	void ScheduleAnyHangup() noexcept {
+		event.ScheduleAnyHangup();
+	}
+
+	bool IsReadPending() const noexcept {
+		return event.IsReadPending();
+	}
+
+	bool IsWritePending() const noexcept {
+		return event.IsWritePending();
 	}
 };

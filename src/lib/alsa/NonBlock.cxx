@@ -1,29 +1,35 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "NonBlock.hxx"
 #include "Error.hxx"
 #include "event/MultiSocketMonitor.hxx"
-#include "util/RuntimeError.hxx"
+
+namespace Alsa {
+
+std::span<pollfd>
+NonBlock::CopyReturnedEvents(MultiSocketMonitor &m) noexcept
+{
+	const std::span<pollfd> pfds = buffer;
+
+	for (auto &i : pfds)
+		i.revents = 0;
+
+	m.ForEachReturnedEvent([pfds](SocketDescriptor s, unsigned events){
+		for (auto &i : pfds) {
+			if (i.fd == s.Get()) {
+				i.revents = events;
+				return;
+			}
+		}
+	});
+
+	return pfds;
+
+}
 
 Event::Duration
-AlsaNonBlockPcm::PrepareSockets(MultiSocketMonitor &m, snd_pcm_t *pcm)
+NonBlockPcm::PrepareSockets(MultiSocketMonitor &m, snd_pcm_t *pcm)
 {
 	int count = snd_pcm_poll_descriptors_count(pcm);
 	if (count <= 0) {
@@ -33,9 +39,9 @@ AlsaNonBlockPcm::PrepareSockets(MultiSocketMonitor &m, snd_pcm_t *pcm)
 			throw Alsa::MakeError(count, "snd_pcm_poll_descriptors_count() failed");
 	}
 
-	struct pollfd *pfds = pfd_buffer.Get(count);
+	const auto pfds = base.Allocate(count);
 
-	count = snd_pcm_poll_descriptors(pcm, pfds, count);
+	count = snd_pcm_poll_descriptors(pcm, pfds.data(), count);
 	if (count <= 0) {
 		if (count == 0)
 			throw std::runtime_error("snd_pcm_poll_descriptors() failed");
@@ -43,38 +49,23 @@ AlsaNonBlockPcm::PrepareSockets(MultiSocketMonitor &m, snd_pcm_t *pcm)
 			throw Alsa::MakeError(count, "snd_pcm_poll_descriptors() failed");
 	}
 
-	m.ReplaceSocketList(pfds, count);
+	m.ReplaceSocketList(pfds.first(count));
 	return Event::Duration(-1);
 }
 
 void
-AlsaNonBlockPcm::DispatchSockets(MultiSocketMonitor &m,
-				 snd_pcm_t *pcm)
+NonBlockPcm::DispatchSockets(MultiSocketMonitor &m, snd_pcm_t *pcm)
 {
-	int count = snd_pcm_poll_descriptors_count(pcm);
-	if (count <= 0)
-		return;
-
-	const auto pfds = pfd_buffer.Get(count), end = pfds + count;
-
-	auto *i = pfds;
-	m.ForEachReturnedEvent([&i, end](SocketDescriptor s, unsigned events){
-			if (i >= end)
-				return;
-
-			i->fd = s.Get();
-			i->events = i->revents = events;
-			++i;
-		});
+	const auto pfds = base.CopyReturnedEvents(m);
 
 	unsigned short dummy;
-	int err = snd_pcm_poll_descriptors_revents(pcm, pfds, i - pfds, &dummy);
+	int err = snd_pcm_poll_descriptors_revents(pcm, pfds.data(), pfds.size(), &dummy);
 	if (err < 0)
 		throw Alsa::MakeError(err, "snd_pcm_poll_descriptors_revents() failed");
 }
 
 Event::Duration
-AlsaNonBlockMixer::PrepareSockets(MultiSocketMonitor &m, snd_mixer_t *mixer) noexcept
+NonBlockMixer::PrepareSockets(MultiSocketMonitor &m, snd_mixer_t *mixer) noexcept
 {
 	int count = snd_mixer_poll_descriptors_count(mixer);
 	if (count <= 0) {
@@ -82,36 +73,23 @@ AlsaNonBlockMixer::PrepareSockets(MultiSocketMonitor &m, snd_mixer_t *mixer) noe
 		return Event::Duration(-1);
 	}
 
-	struct pollfd *pfds = pfd_buffer.Get(count);
+	const auto pfds = base.Allocate(count);
 
-	count = snd_mixer_poll_descriptors(mixer, pfds, count);
+	count = snd_mixer_poll_descriptors(mixer, pfds.data(), count);
 	if (count < 0)
 		count = 0;
 
-	m.ReplaceSocketList(pfds, count);
+	m.ReplaceSocketList(pfds.first(count));
 	return Event::Duration(-1);
 }
 
 void
-AlsaNonBlockMixer::DispatchSockets(MultiSocketMonitor &m,
-				   snd_mixer_t *mixer) noexcept
+NonBlockMixer::DispatchSockets(MultiSocketMonitor &m, snd_mixer_t *mixer) noexcept
 {
-	int count = snd_mixer_poll_descriptors_count(mixer);
-	if (count <= 0)
-		return;
-
-	const auto pfds = pfd_buffer.Get(count), end = pfds + count;
-
-	auto *i = pfds;
-	m.ForEachReturnedEvent([&i, end](SocketDescriptor s, unsigned events){
-			if (i >= end)
-				return;
-
-			i->fd = s.Get();
-			i->events = i->revents = events;
-			++i;
-		});
+	const auto pfds = base.CopyReturnedEvents(m);
 
 	unsigned short dummy;
-	snd_mixer_poll_descriptors_revents(mixer, pfds, i - pfds, &dummy);
+	snd_mixer_poll_descriptors_revents(mixer, pfds.data(), pfds.size(), &dummy);
 }
+
+} // namespace Alsa

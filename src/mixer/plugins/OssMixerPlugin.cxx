@@ -1,29 +1,14 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "mixer/MixerInternal.hxx"
+#include "OssMixerPlugin.hxx"
+#include "mixer/Mixer.hxx"
 #include "config/Block.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "io/FileDescriptor.hxx"
-#include "system/Error.hxx"
+#include "lib/fmt/SystemError.hxx"
 #include "util/ASCII.hxx"
 #include "util/Domain.hxx"
-#include "util/RuntimeError.hxx"
 #include "Log.hxx"
 
 #include <cassert>
@@ -34,11 +19,7 @@
 #include <stdlib.h>
 #include <unistd.h>
 
-#if defined(__OpenBSD__) || defined(__NetBSD__)
-# include <soundcard.h>
-#else /* !(defined(__OpenBSD__) || defined(__NetBSD__) */
-# include <sys/soundcard.h>
-#endif /* !(defined(__OpenBSD__) || defined(__NetBSD__) */
+#include <sys/soundcard.h>
 
 #define VOLUME_MIXER_OSS_DEFAULT		"/dev/mixer"
 
@@ -90,8 +71,8 @@ OssMixer::Configure(const ConfigBlock &block)
 	if (control != NULL) {
 		volume_control = oss_find_mixer(control);
 		if (volume_control < 0)
-			throw FormatRuntimeError("no such mixer control: %s",
-						 control);
+			throw FmtRuntimeError("no such mixer control: {}",
+					      control);
 	} else
 		volume_control = SOUND_MIXER_PCM;
 }
@@ -116,9 +97,8 @@ OssMixer::Close() noexcept
 void
 OssMixer::Open()
 {
-	device_fd.OpenReadOnly(device);
-	if (!device_fd.IsDefined())
-		throw FormatErrno("failed to open %s", device);
+	if (!device_fd.OpenReadOnly(device))
+		throw FmtErrno("failed to open {}", device);
 
 	try {
 		if (control) {
@@ -128,8 +108,8 @@ OssMixer::Open()
 				throw MakeErrno("READ_DEVMASK failed");
 
 			if (((1 << volume_control) & devmask) == 0)
-				throw FormatErrno("mixer control \"%s\" not usable",
-						  control);
+				throw FmtErrno("mixer control {:?} not usable",
+					       control);
 		}
 	} catch (...) {
 		Close();
@@ -154,8 +134,8 @@ OssMixer::GetVolume()
 
 	if (left != right) {
 		FmtWarning(oss_mixer_domain,
-			   "volume for left and right is not the same, \"{}\" and "
-			   "\"{}\"\n", left, right);
+			   "volume for left and right is not the same, {:?} and "
+			   "{:?}\n", left, right);
 	}
 
 	return left;

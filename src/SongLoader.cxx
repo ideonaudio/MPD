@@ -1,25 +1,10 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "SongLoader.hxx"
 #include "LocateUri.hxx"
-#include "client/Client.hxx"
+#include "Partition.hxx"
+#include "client/IClient.hxx"
 #include "db/DatabaseSong.hxx"
 #include "storage/StorageInterface.hxx"
 #include "song/DetachedSong.hxx"
@@ -27,11 +12,13 @@
 #include "config.h"
 
 #include <cassert>
+#include <utility> // for std::unreachable()
 
 #ifdef ENABLE_DATABASE
 
-SongLoader::SongLoader(const Client &_client)
-	:client(&_client), db(_client.GetDatabase()),
+SongLoader::SongLoader(const IClient &_client) noexcept
+	:client(&_client),
+	 db(_client.GetDatabase()),
 	 storage(_client.GetStorage()) {}
 
 #endif
@@ -83,7 +70,7 @@ SongLoader::LoadSong(const LocatedUri &located_uri) const
 		return LoadFile(located_uri.canonical_uri, located_uri.path);
 	}
 
-	gcc_unreachable();
+	std::unreachable();
 }
 
 DetachedSong

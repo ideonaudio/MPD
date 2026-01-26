@@ -33,6 +33,7 @@ or implied, of Sebastian Gesemann.
 #include "Dsd2Pcm.hxx"
 #include "Traits.hxx"
 #include "util/BitReverse.hxx"
+#include "util/Compiler.h"
 #include "util/GenerateArray.hxx"
 
 #include <cassert>
@@ -145,7 +146,7 @@ GenerateCtable(int t) noexcept
 
 static constexpr auto ctables = GenerateArray<CTABLES>(GenerateCtable);
 
-template<typename Traits=SampleTraits<SampleFormat::S24_P32>>
+template<ArithmeticSampleTraits Traits=SampleTraits<SampleFormat::S24_P32>>
 static constexpr auto
 CalculateCtableS24Value(size_t i, size_t j) noexcept
 {
@@ -172,22 +173,17 @@ void
 Dsd2Pcm::Reset() noexcept
 {
 	/* my favorite silence pattern */
-	fifo.fill(0x69);
+	fifo.fill(SampleTraits<SampleFormat::DSD>::SILENCE);
 
 	fifopos = 0;
-	/* 0x69 = 01101001
-	 * This pattern "on repeat" makes a low energy 352.8 kHz tone
-	 * and a high energy 1.0584 MHz tone which should be filtered
-	 * out completely by any playback system --> silence
-	 */
 }
 
 inline void
-Dsd2Pcm::ApplySample(size_t ffp, uint8_t src) noexcept
+Dsd2Pcm::ApplySample(size_t ffp, std::byte src) noexcept
 {
 	fifo[ffp] = src;
-	uint8_t *p = fifo.data() + ((ffp-CTABLES) & FIFOMASK);
-	*p = bit_reverse(*p);
+	std::byte *p = fifo.data() + ((ffp-CTABLES) & FIFOMASK);
+	*p = BitReverse(*p);
 }
 
 inline float
@@ -195,15 +191,16 @@ Dsd2Pcm::CalcOutputSample(size_t ffp) const noexcept
 {
 	double acc = 0;
 	for (size_t i = 0; i < CTABLES; ++i) {
-		uint8_t bite1 = fifo[(ffp              -i) & FIFOMASK];
-		uint8_t bite2 = fifo[(ffp-(CTABLES*2-1)+i) & FIFOMASK];
-		acc += double(ctables[i][bite1] + ctables[i][bite2]);
+		std::byte bite1 = fifo[(ffp              -i) & FIFOMASK];
+		std::byte bite2 = fifo[(ffp-(CTABLES*2-1)+i) & FIFOMASK];
+		acc += double(ctables[i][static_cast<std::size_t>(bite1)]
+			      + ctables[i][static_cast<std::size_t>(bite2)]);
 	}
 	return float(acc);
 }
 
 inline float
-Dsd2Pcm::TranslateSample(size_t ffp, uint8_t src) noexcept
+Dsd2Pcm::TranslateSample(size_t ffp, std::byte src) noexcept
 {
 	ApplySample(ffp, src);
 	return CalcOutputSample(ffp);
@@ -214,15 +211,16 @@ Dsd2Pcm::CalcOutputSampleS24(size_t ffp) const noexcept
 {
 	int32_t acc = 0;
 	for (size_t i = 0; i < CTABLES; ++i) {
-		uint8_t bite1 = fifo[(ffp              -i) & FIFOMASK];
-		uint8_t bite2 = fifo[(ffp-(CTABLES*2-1)+i) & FIFOMASK];
-		acc += ctables_s24[i][bite1] + ctables_s24[i][bite2];
+		std::byte bite1 = fifo[(ffp              -i) & FIFOMASK];
+		std::byte bite2 = fifo[(ffp-(CTABLES*2-1)+i) & FIFOMASK];
+		acc += ctables_s24[i][static_cast<std::size_t>(bite1)]
+			+ ctables_s24[i][static_cast<std::size_t>(bite2)];
 	}
 	return acc;
 }
 
 inline int32_t
-Dsd2Pcm::TranslateSampleS24(size_t ffp, uint8_t src) noexcept
+Dsd2Pcm::TranslateSampleS24(size_t ffp, std::byte src) noexcept
 {
 	ApplySample(ffp, src);
 	return CalcOutputSampleS24(ffp);
@@ -230,12 +228,12 @@ Dsd2Pcm::TranslateSampleS24(size_t ffp, uint8_t src) noexcept
 
 void
 Dsd2Pcm::Translate(size_t samples,
-		   const uint8_t *gcc_restrict src, ptrdiff_t src_stride,
+		   const std::byte *gcc_restrict src, ptrdiff_t src_stride,
 		   float *dst, ptrdiff_t dst_stride) noexcept
 {
 	size_t ffp = fifopos;
 	while (samples-- > 0) {
-		uint8_t bite1 = *src;
+		std::byte bite1 = *src;
 		src += src_stride;
 		*dst = TranslateSample(ffp, bite1);
 		dst += dst_stride;
@@ -246,12 +244,12 @@ Dsd2Pcm::Translate(size_t samples,
 
 void
 Dsd2Pcm::TranslateS24(size_t samples,
-		      const uint8_t *gcc_restrict src, ptrdiff_t src_stride,
+		      const std::byte *gcc_restrict src, ptrdiff_t src_stride,
 		      int32_t *dst, ptrdiff_t dst_stride) noexcept
 {
 	size_t ffp = fifopos;
 	while (samples-- > 0) {
-		uint8_t bite1 = *src;
+		std::byte bite1 = *src;
 		src += src_stride;
 		*dst = TranslateSampleS24(ffp, bite1);
 		dst += dst_stride;
@@ -262,7 +260,7 @@ Dsd2Pcm::TranslateS24(size_t samples,
 
 void
 MultiDsd2Pcm::Translate(unsigned channels, size_t n_frames,
-			const uint8_t *src, float *dest) noexcept
+			const std::byte *src, float *dest) noexcept
 {
 	assert(channels <= per_channel.max_size());
 
@@ -280,7 +278,7 @@ MultiDsd2Pcm::Translate(unsigned channels, size_t n_frames,
 
 inline void
 MultiDsd2Pcm::TranslateStereo(size_t n_frames,
-			      const uint8_t *src, float *dest) noexcept
+			      const std::byte *src, float *dest) noexcept
 {
 	size_t ffp = fifopos;
 	while (n_frames-- > 0) {
@@ -293,7 +291,7 @@ MultiDsd2Pcm::TranslateStereo(size_t n_frames,
 
 void
 MultiDsd2Pcm::TranslateS24(unsigned channels, size_t n_frames,
-			   const uint8_t *src, int32_t *dest) noexcept
+			   const std::byte *src, int32_t *dest) noexcept
 {
 	assert(channels <= per_channel.max_size());
 
@@ -311,7 +309,7 @@ MultiDsd2Pcm::TranslateS24(unsigned channels, size_t n_frames,
 
 inline void
 MultiDsd2Pcm::TranslateStereoS24(size_t n_frames,
-				 const uint8_t *src, int32_t *dest) noexcept
+				 const std::byte *src, int32_t *dest) noexcept
 {
 	size_t ffp = fifopos;
 	while (n_frames-- > 0) {

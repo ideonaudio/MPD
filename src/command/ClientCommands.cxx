@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "ClientCommands.hxx"
 #include "Request.hxx"
@@ -23,7 +7,9 @@
 #include "client/Client.hxx"
 #include "client/Response.hxx"
 #include "TagPrint.hxx"
+#include "client/StringNormalization.hxx"
 #include "tag/ParseName.hxx"
+#include "tag/Type.hxx"
 #include "util/StringAPI.hxx"
 
 CommandResult
@@ -118,6 +104,141 @@ handle_tagtypes(Client &client, Request request, Response &r)
 		return CommandResult::OK;
 	} else if (StringIsEqual(cmd, "disable")) {
 		client.tag_mask &= ~ParseTagMask(request);
+		return CommandResult::OK;
+	} else if (StringIsEqual(cmd, "available")) {
+		tag_print_types_available(r);
+		return CommandResult::OK;
+	} else if (StringIsEqual(cmd, "reset")) {
+		client.tag_mask = TagMask::None();
+		client.tag_mask |= ParseTagMask(request);
+		return CommandResult::OK;
+	} else {
+		r.Error(ACK_ERROR_ARG, "Unknown sub command");
+		return CommandResult::ERROR;
+	}
+}
+
+static ProtocolFeature
+ParseProtocolFeature(Request request)
+{
+	if (request.empty())
+		throw ProtocolError(ACK_ERROR_ARG, "Not enough arguments");
+
+	ProtocolFeature result = ProtocolFeature::None();
+
+	for (const char *name : request) {
+		auto type = protocol_feature_parse_i(name);
+		if (type == PF_NUM_OF_ITEM_TYPES)
+			throw ProtocolError(ACK_ERROR_ARG, "Unknown protocol feature");
+
+		result |= type;
+	}
+
+	return result;
+}
+
+CommandResult
+handle_protocol(Client &client, Request request, Response &r)
+{
+	if (request.empty()) {
+		protocol_features_print(client, r);
+		return CommandResult::OK;
+	}
+
+	const char *cmd = request.shift();
+	if (StringIsEqual(cmd, "all")) {
+		if (!request.empty()) {
+			r.Error(ACK_ERROR_ARG, "Too many arguments");
+			return CommandResult::ERROR;
+		}
+
+		client.AllProtocolFeatures();
+		return CommandResult::OK;
+	} else if (StringIsEqual(cmd, "clear")) {
+		if (!request.empty()) {
+			r.Error(ACK_ERROR_ARG, "Too many arguments");
+			return CommandResult::ERROR;
+		}
+
+		client.ClearProtocolFeatures();
+		return CommandResult::OK;
+	} else if (StringIsEqual(cmd, "enable")) {
+		client.SetProtocolFeatures(ParseProtocolFeature(request), true);
+		return CommandResult::OK;
+	} else if (StringIsEqual(cmd, "disable")) {
+		client.SetProtocolFeatures(ParseProtocolFeature(request), false);
+		return CommandResult::OK;
+	} else if (StringIsEqual(cmd, "available")) {
+		if (!request.empty()) {
+			r.Error(ACK_ERROR_ARG, "Too many arguments");
+			return CommandResult::ERROR;
+		}
+
+		protocol_features_print_all(r);
+		return CommandResult::OK;
+	} else {
+		r.Error(ACK_ERROR_ARG, "Unknown sub command");
+		return CommandResult::ERROR;
+	}
+}
+
+static StringNormalization
+ParseStringNormalization(Request request)
+{
+	if (request.empty())
+		throw ProtocolError(ACK_ERROR_ARG, "Not enough arguments");
+
+	StringNormalization result = StringNormalization::None();
+
+	for (const char *name : request) {
+		auto type = string_normalization_parse_i(name);
+		if (type == SN_NUM_OF_ITEM_TYPES)
+			throw ProtocolError(ACK_ERROR_ARG, "Unknown string normalization");
+
+		result |= type;
+	}
+
+	return result;
+}
+
+CommandResult
+handle_string_normalization(Client &client, Request request, Response &r)
+{
+	if (request.empty()) {
+		string_normalizations_print(client, r);
+		return CommandResult::OK;
+	}
+
+	const char *cmd = request.shift();
+	if (StringIsEqual(cmd, "all")) {
+		if (!request.empty()) {
+			r.Error(ACK_ERROR_ARG, "Too many arguments");
+			return CommandResult::ERROR;
+		}
+
+		client.AllStringNormalizations();
+		return CommandResult::OK;
+	} else if (StringIsEqual(cmd, "enable")) {
+		client.SetStringNormalizations(ParseStringNormalization(request), true);
+		return CommandResult::OK;
+	} else if (StringIsEqual(cmd, "disable")) {
+		client.SetStringNormalizations(ParseStringNormalization(request), false);
+		return CommandResult::OK;
+	} else if (StringIsEqual(cmd, "available")) {
+		if (!request.empty()) {
+			r.Error(ACK_ERROR_ARG, "Too many arguments");
+			return CommandResult::ERROR;
+		}
+
+		string_normalizations_print_all(r);
+		return CommandResult::OK;
+	} else if (StringIsEqual(cmd, "clear")) {
+		if (!request.empty()) {
+			r.Error(ACK_ERROR_ARG, "Too many arguments");
+			return CommandResult::ERROR;
+		}
+
+		client.ClearStringNormalizations();
 		return CommandResult::OK;
 	} else {
 		r.Error(ACK_ERROR_ARG, "Unknown sub command");

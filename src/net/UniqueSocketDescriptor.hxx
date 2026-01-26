@@ -1,36 +1,14 @@
-/*
- * Copyright 2012-2019 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
-#ifndef UNIQUE_SOCKET_DESCRIPTOR_SOCKET_HXX
-#define UNIQUE_SOCKET_DESCRIPTOR_SOCKET_HXX
+#pragma once
 
 #include "SocketDescriptor.hxx"
+#include "util/TagStructs.hxx"
+
+#ifndef _WIN32
+#include "io/UniqueFileDescriptor.hxx"
+#endif
 
 #include <utility>
 
@@ -44,15 +22,26 @@ public:
 	UniqueSocketDescriptor() noexcept
 		:SocketDescriptor(SocketDescriptor::Undefined()) {}
 
-	explicit UniqueSocketDescriptor(SocketDescriptor _fd) noexcept
+	explicit UniqueSocketDescriptor(AdoptTag, SocketDescriptor _fd) noexcept
 		:SocketDescriptor(_fd) {}
-	explicit UniqueSocketDescriptor(FileDescriptor _fd) noexcept
-		:SocketDescriptor(_fd) {}
-	explicit UniqueSocketDescriptor(int _fd) noexcept
+#ifndef _WIN32
+	explicit UniqueSocketDescriptor(AdoptTag, FileDescriptor _fd) noexcept
 		:SocketDescriptor(_fd) {}
 
+	explicit UniqueSocketDescriptor(UniqueFileDescriptor &&_fd) noexcept
+		:SocketDescriptor(_fd.Release()) {}
+#endif // !_WIN32
+
+	explicit UniqueSocketDescriptor(AdoptTag, int _fd) noexcept
+		:SocketDescriptor(_fd) {}
+
+#ifdef _WIN32
+	UniqueSocketDescriptor(UniqueSocketDescriptor &&other) noexcept
+		:SocketDescriptor(std::exchange(other.fd, INVALID_SOCKET)) {}
+#else // !_WIN32
 	UniqueSocketDescriptor(UniqueSocketDescriptor &&other) noexcept
 		:SocketDescriptor(std::exchange(other.fd, -1)) {}
+#endif // !_WIN32
 
 	~UniqueSocketDescriptor() noexcept {
 		if (IsDefined())
@@ -67,6 +56,12 @@ public:
 		return std::exchange(*(SocketDescriptor *)this, Undefined());
 	}
 
+#ifndef _WIN32
+	UniqueFileDescriptor MoveToFileDescriptor() && noexcept {
+		return UniqueFileDescriptor{AdoptTag{}, Release().ToFileDescriptor()};
+	}
+#endif
+
 	UniqueSocketDescriptor &operator=(UniqueSocketDescriptor &&src) noexcept {
 		using std::swap;
 		swap(fd, src.fd);
@@ -80,15 +75,22 @@ public:
 	/**
 	 * @return an "undefined" instance on error
 	 */
+	UniqueSocketDescriptor Accept() const noexcept {
+		return UniqueSocketDescriptor{AdoptTag{}, SocketDescriptor::Accept()};
+	}
+
+	/**
+	 * @return an "undefined" instance on error
+	 */
 	UniqueSocketDescriptor AcceptNonBlock() const noexcept {
-		return UniqueSocketDescriptor(SocketDescriptor::AcceptNonBlock());
+		return UniqueSocketDescriptor{AdoptTag{}, SocketDescriptor::AcceptNonBlock()};
 	}
 
 	/**
 	 * @return an "undefined" instance on error
 	 */
 	UniqueSocketDescriptor AcceptNonBlock(StaticSocketAddress &address) const noexcept {
-		return UniqueSocketDescriptor(SocketDescriptor::AcceptNonBlock(address));
+		return UniqueSocketDescriptor{AdoptTag{}, SocketDescriptor::AcceptNonBlock(address)};
 	}
 
 #ifndef _WIN32
@@ -109,5 +111,3 @@ public:
 	}
 #endif
 };
-
-#endif

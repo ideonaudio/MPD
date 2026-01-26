@@ -1,24 +1,10 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "ServerSocket.hxx"
 #include "lib/fmt/ExceptionFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
+#include "lib/fmt/SocketAddressFormatter.hxx"
 #include "net/IPv4Address.hxx"
 #include "net/IPv6Address.hxx"
 #include "net/StaticSocketAddress.hxx"
@@ -28,10 +14,8 @@
 #include "net/UniqueSocketDescriptor.hxx"
 #include "net/Resolver.hxx"
 #include "net/AddressInfo.hxx"
-#include "net/ToString.hxx"
 #include "event/SocketEvent.hxx"
-#include "fs/AllocatedPath.hxx"
-#include "util/RuntimeError.hxx"
+#include "fs/Path.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
@@ -49,10 +33,6 @@ class ServerSocket::OneServerSocket final {
 
 	const unsigned serial;
 
-#ifdef HAVE_UN
-	AllocatedPath path;
-#endif
-
 	const AllocatedSocketAddress address;
 
 public:
@@ -63,9 +43,6 @@ public:
 		:parent(_parent),
 		 event(_loop, BIND_THIS_METHOD(OnSocketReady)),
 		 serial(_serial),
-#ifdef HAVE_UN
-		 path(nullptr),
-#endif
 		 address(std::forward<A>(_address))
 	{
 	}
@@ -81,14 +58,6 @@ public:
 		return serial;
 	}
 
-#ifdef HAVE_UN
-	void SetPath(AllocatedPath &&_path) noexcept {
-		assert(path.IsNull());
-
-		path = std::move(_path);
-	}
-#endif
-
 	[[nodiscard]] bool IsDefined() const noexcept {
 		return event.IsDefined();
 	}
@@ -99,9 +68,9 @@ public:
 		event.Close();
 	}
 
-	[[nodiscard]] [[gnu::pure]]
-	std::string ToString() const noexcept {
-		return ::ToString(address);
+	[[nodiscard]]
+	SocketAddress GetAddress() const noexcept {
+		return address;
 	}
 
 	void SetFD(UniqueSocketDescriptor _fd) noexcept {
@@ -117,36 +86,11 @@ private:
 
 static constexpr Domain server_socket_domain("server_socket");
 
-static int
-get_remote_uid(int fd)
-{
-#ifdef HAVE_STRUCT_UCRED
-	struct ucred cred;
-	socklen_t len = sizeof (cred);
-
-	if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) < 0)
-		return -1;
-
-	return cred.uid;
-#else
-#ifdef HAVE_GETPEEREID
-	uid_t euid;
-	gid_t egid;
-
-	if (getpeereid(fd, &euid, &egid) == 0)
-		return euid;
-#else
-	(void)fd;
-#endif
-	return -1;
-#endif
-}
-
 inline void
 ServerSocket::OneServerSocket::Accept() noexcept
 {
 	StaticSocketAddress peer_address;
-	UniqueSocketDescriptor peer_fd(event.GetSocket().AcceptNonBlock(peer_address));
+	UniqueSocketDescriptor peer_fd{AdoptTag{}, event.GetSocket().AcceptNonBlock(peer_address)};
 	if (!peer_fd.IsDefined()) {
 		const SocketErrorMessage msg;
 		FmtError(server_socket_domain,
@@ -161,9 +105,7 @@ ServerSocket::OneServerSocket::Accept() noexcept
 			 (const char *)msg);
 	}
 
-	const auto uid = get_remote_uid(peer_fd.Get());
-
-	parent.OnAccept(std::move(peer_fd), peer_address, uid);
+	parent.OnAccept(std::move(peer_fd), peer_address);
 }
 
 void
@@ -200,8 +142,8 @@ ServerSocket::OneServerSocket::Open()
 #ifdef HAVE_UN
 	/* allow everybody to connect */
 
-	if (!path.IsNull())
-		chmod(path.c_str(), 0666);
+	if (const char *path = address.GetLocalPath())
+		chmod(path, 0666);
 #endif
 
 	/* register in the EventLoop */	
@@ -232,7 +174,6 @@ ServerSocket::Open()
 			continue;
 
 		if (bad != nullptr && i.GetSerial() != bad->GetSerial()) {
-			Close();
 			std::rethrow_exception(last_error);
 		}
 
@@ -240,23 +181,19 @@ ServerSocket::Open()
 			i.Open();
 		} catch (...) {
 			if (good != nullptr && good->GetSerial() == i.GetSerial()) {
-				const auto address_string = i.ToString();
-				const auto good_string = good->ToString();
 				FmtError(server_socket_domain,
 					 "bind to '{}' failed "
 					 "(continuing anyway, because "
 					 "binding to '{}' succeeded): {}",
-					 address_string,
-					 good_string,
+					 i.GetAddress(),
+					 good->GetAddress(),
 					 std::current_exception());
 			} else if (bad == nullptr) {
 				bad = &i;
 
-				const auto address_string = i.ToString();
-
 				try {
-					std::throw_with_nested(FormatRuntimeError("Failed to bind to '%s'",
-										  address_string.c_str()));
+					std::throw_with_nested(FmtRuntimeError("Failed to bind to '{}'",
+									       i.GetAddress()));
 				} catch (...) {
 					last_error = std::current_exception();
 				}
@@ -277,7 +214,6 @@ ServerSocket::Open()
 	}
 
 	if (bad != nullptr) {
-		Close();
 		std::rethrow_exception(last_error);
 	}
 }
@@ -348,12 +284,7 @@ ServerSocket::AddPortIPv6(unsigned port) noexcept
 static bool
 SupportsIPv6() noexcept
 {
-	int fd = socket(AF_INET6, SOCK_STREAM, 0);
-	if (fd < 0)
-		return false;
-
-	close(fd);
-	return true;
+	return UniqueSocketDescriptor{}.Create(AF_INET6, SOCK_STREAM, 0);
 }
 
 #endif /* HAVE_IPV6 */
@@ -399,7 +330,7 @@ ServerSocket::AddHost(const char *hostname, unsigned port)
 }
 
 void
-ServerSocket::AddPath(AllocatedPath &&path)
+ServerSocket::AddPath(Path path)
 {
 #ifdef HAVE_UN
 	unlink(path.c_str());
@@ -407,8 +338,7 @@ ServerSocket::AddPath(AllocatedPath &&path)
 	AllocatedSocketAddress address;
 	address.SetLocal(path.c_str());
 
-	OneServerSocket &s = AddAddress(std::move(address));
-	s.SetPath(std::move(path));
+	AddAddress(std::move(address));
 #else /* !HAVE_UN */
 	(void)path;
 

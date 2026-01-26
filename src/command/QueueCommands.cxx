@@ -1,27 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
 #include "QueueCommands.hxx"
 #include "PositionArg.hxx"
 #include "Request.hxx"
 #include "protocol/RangeArg.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "db/DatabaseQueue.hxx"
 #include "db/Selection.hxx"
 #include "tag/ParseName.hxx"
@@ -39,7 +23,7 @@
 #include "BulkEdit.hxx"
 #include "util/Exception.hxx"
 #include "util/StringAPI.hxx"
-#include "util/NumberParser.hxx"
+#include "util/CNumberParser.hxx"
 
 #include <fmt/format.h>
 
@@ -156,7 +140,7 @@ handle_addid(Client &client, Request args, Response &r)
 
 	partition.instance.LookupRemoteTag(uri);
 
-	r.Fmt(FMT_STRING("Id: {}\n"), added_id);
+	r.Fmt("Id: {}\n", added_id);
 	return CommandResult::OK;
 }
 
@@ -292,6 +276,9 @@ ParseSortTag(const char *s)
 	if (StringIsEqualIgnoreCase(s, "Last-Modified"))
 		return TagType(SORT_TAG_LAST_MODIFIED);
 
+	if (StringIsEqualIgnoreCase(s, "Added"))
+		return TagType(SORT_TAG_ADDED);
+
 	if (StringIsEqualIgnoreCase(s, "prio"))
 		return TagType(SORT_TAG_PRIO);
 
@@ -304,7 +291,7 @@ ParseSortTag(const char *s)
 
 static CommandResult
 handle_playlist_match(Client &client, Request args, Response &r,
-		      bool fold_case)
+		      bool fold_case, bool strip_diacritics)
 {
 	RangeArg window = RangeArg::All();
 	if (args.size() >= 2 && StringIsEqual(args[args.size() - 2], "window")) {
@@ -331,7 +318,7 @@ handle_playlist_match(Client &client, Request args, Response &r,
 
 	SongFilter filter;
 	try {
-		filter.Parse(args, fold_case);
+		filter.Parse(args, fold_case, strip_diacritics);
 	} catch (...) {
 		r.Error(ACK_ERROR_ARG,
 			GetFullMessage(std::current_exception()).c_str());
@@ -352,13 +339,14 @@ handle_playlist_match(Client &client, Request args, Response &r,
 CommandResult
 handle_playlistfind(Client &client, Request args, Response &r)
 {
-	return handle_playlist_match(client, args, r, false);
+	return handle_playlist_match(client, args, r, false, false);
 }
 
 CommandResult
 handle_playlistsearch(Client &client, Request args, Response &r)
 {
-	return handle_playlist_match(client, args, r, true);
+	auto strip_diacritics = client.StringNormalizationEnabled(SN_STRIP_DIACRITICS);
+	return handle_playlist_match(client, args, r, true, strip_diacritics);
 }
 
 CommandResult

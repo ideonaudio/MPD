@@ -1,37 +1,10 @@
-/*
- * Copyright 2012-2021 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
-#ifndef ALLOCATED_SOCKET_ADDRESS_HXX
-#define ALLOCATED_SOCKET_ADDRESS_HXX
+#pragma once
 
 #include "SocketAddress.hxx" // IWYU pragma: export
-#include "Features.hxx"
+#include "net/Features.hxx" // for HAVE_TCP, HAVE_UN
 
 #include <utility>
 
@@ -94,12 +67,6 @@ public:
 		return (SocketAddress)*this == std::forward<T>(other);
 	}
 
-	template<typename T>
-	[[gnu::pure]]
-	bool operator!=(T &&other) const noexcept {
-		return !(*this == std::forward<T>(other));
-	}
-
 	[[gnu::const]]
 	static AllocatedSocketAddress Null() noexcept {
 		return AllocatedSocketAddress(nullptr, 0);
@@ -143,12 +110,22 @@ public:
 		size = 0;
 	}
 
+	bool IsInet() const noexcept {
+		return GetFamily() == AF_INET
+#ifdef HAVE_IPV6
+			|| GetFamily() == AF_INET6
+#endif
+			;
+	}
+
 #ifdef HAVE_UN
 	/**
 	 * @see SocketAddress::GetLocalRaw()
 	 */
 	[[gnu::pure]]
-	std::string_view GetLocalRaw() const noexcept;
+	std::string_view GetLocalRaw() const noexcept {
+		return static_cast<const SocketAddress>(*this).GetLocalRaw();
+	}
 
 	/**
 	 * @see SocketAddress::GetLocalPath()
@@ -164,15 +141,26 @@ public:
 	 * address.
 	 */
 	void SetLocal(const char *path) noexcept;
+	void SetLocal(std::string_view path) noexcept;
 #endif
 
-#ifdef HAVE_TCP
+#ifdef HAVE_IPV6
 	bool IsV6Any() const noexcept {
 		return ((SocketAddress)*this).IsV6Any();
 	}
 
 	bool IsV4Mapped() const noexcept {
 		return ((SocketAddress)*this).IsV4Mapped();
+	}
+#endif // HAVE_IPV6
+
+#ifdef HAVE_TCP
+	/**
+	 * Does the address family support port numbers?
+	 */
+	[[gnu::pure]]
+	bool HasPort() const noexcept {
+		return ((SocketAddress)*this).HasPort();
 	}
 
 	/**
@@ -199,10 +187,13 @@ public:
 	AllocatedSocketAddress WithPort(unsigned port) const noexcept {
 		return WithPort(*this, port);
 	}
-#endif
+#endif // HAVE_TCP
+
+	[[gnu::pure]]
+	std::span<const std::byte> GetSteadyPart() const noexcept {
+		return SocketAddress{*this}.GetSteadyPart();
+	}
 
 private:
 	void SetSize(size_type new_size) noexcept;
 };
-
-#endif

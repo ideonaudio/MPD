@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Tag.hxx"
 #include "Pool.hxx"
@@ -23,21 +7,31 @@
 
 #include <cassert>
 
+bool
+Tag::operator==(const Tag &other) const noexcept {
+	return (this == &other) ? true :
+		duration == other.duration
+		&& has_playlist == other.has_playlist
+		&& num_items == other.num_items
+		&& std::equal(begin(), end(), other.begin(), other.end());
+}
+
 void
 Tag::Clear() noexcept
 {
 	duration = SignedSongTime::Negative();
 	has_playlist = false;
 
-	{
-		const std::scoped_lock<Mutex> protect(tag_pool_lock);
+	if (num_items > 0) {
+		assert(items != nullptr);
+		const std::scoped_lock protect{tag_pool_lock};
 		for (unsigned i = 0; i < num_items; ++i)
 			tag_pool_put_item(items[i]);
+		num_items = 0;
 	}
 
 	delete[] items;
 	items = nullptr;
-	num_items = 0;
 }
 
 Tag::Tag(const Tag &other) noexcept
@@ -47,7 +41,7 @@ Tag::Tag(const Tag &other) noexcept
 	if (num_items > 0) {
 		items = new TagItem *[num_items];
 
-		const std::scoped_lock<Mutex> protect(tag_pool_lock);
+		const std::scoped_lock protect{tag_pool_lock};
 		for (unsigned i = 0; i < num_items; i++)
 			items[i] = tag_pool_dup_item(other.items[i]);
 	}

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Client.hxx"
 #include "Config.hxx"
@@ -38,7 +22,7 @@ Client::ProcessCommandList(bool list_ok,
 	for (auto &&i : list) {
 		char *cmd = &*i.begin();
 
-		FmtDebug(client_domain, "process command \"{}\"", cmd);
+		FmtDebug(client_domain, "process command {:?}", cmd);
 		auto ret = command_process(*this, n++, cmd);
 		FmtDebug(client_domain, "command returned {}", unsigned(ret));
 		if (IsExpired())
@@ -52,6 +36,13 @@ Client::ProcessCommandList(bool list_ok,
 	return CommandResult::OK;
 }
 
+[[gnu::pure]]
+static bool
+IsAsyncCommmand(const char *line) noexcept
+{
+	return StringIsEqual(line, "idle") || StringIsEqual(line, "noidle");
+}
+
 CommandResult
 Client::ProcessLine(char *line) noexcept
 {
@@ -62,8 +53,15 @@ Client::ProcessLine(char *line) noexcept
 		   letter; this could be a badly routed HTTP
 		   request */
 		FmtWarning(client_domain,
-			   "[{}] malformed command \"{}\"",
-			   num, line);
+			   "[{}] malformed command {:?}",
+			   name, line);
+		return CommandResult::CLOSE;
+	}
+
+	if (cmd_list.IsActive() && IsAsyncCommmand(line)) {
+		FmtWarning(client_domain,
+			   "[{}] not possible in command list: {:?}",
+			   name, line);
 		return CommandResult::CLOSE;
 	}
 
@@ -83,18 +81,16 @@ Client::ProcessLine(char *line) noexcept
 		/* during idle mode, clients must not send anything
 		   except "noidle" */
 		FmtWarning(client_domain,
-			   "[{}] command \"{}\" during idle",
-			   num, line);
+			   "[{}] command {:?} during idle",
+			   name, line);
 		return CommandResult::CLOSE;
 	}
 
 	if (cmd_list.IsActive()) {
 		if (StringIsEqual(line, CLIENT_LIST_MODE_END)) {
-			const unsigned id = num;
-
 			FmtDebug(client_domain,
 				 "[{}] process command list",
-				 id);
+				 name);
 
 			const bool ok_mode = cmd_list.IsOKMode();
 			auto list = cmd_list.Commit();
@@ -104,7 +100,7 @@ Client::ProcessLine(char *line) noexcept
 						      std::move(list));
 			FmtDebug(client_domain,
 				 "[{}] process command "
-				 "list returned {}", id, unsigned(ret));
+				 "list returned {}", name, unsigned(ret));
 
 			if (ret == CommandResult::OK)
 				WriteOK();
@@ -115,7 +111,7 @@ Client::ProcessLine(char *line) noexcept
 				FmtWarning(client_domain,
 					   "[{}] command list size "
 					   "is larger than the max ({})",
-					   num, client_max_command_list_size);
+					   name, client_max_command_list_size);
 				return CommandResult::CLOSE;
 			}
 
@@ -129,15 +125,13 @@ Client::ProcessLine(char *line) noexcept
 			cmd_list.Begin(true);
 			return CommandResult::OK;
 		} else {
-			const unsigned id = num;
-
 			FmtDebug(client_domain,
-				 "[{}] process command \"{}\"",
-				 id, line);
+				 "[{}] process command {:?}",
+				 name, line);
 			auto ret = command_process(*this, 0, line);
 			FmtDebug(client_domain,
 				 "[{}] command returned {}",
-				 id, unsigned(ret));
+				 name, unsigned(ret));
 
 			if (IsExpired())
 				return CommandResult::CLOSE;

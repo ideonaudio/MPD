@@ -1,34 +1,6 @@
-/*
- * Copyright 2007-2022 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #include "Publisher.hxx"
 #include "Service.hxx"
@@ -41,9 +13,10 @@
 #include <avahi-common/malloc.h>
 #include <avahi-common/alternative.h>
 
+#include <fmt/core.h>
+
 #include <cassert>
 
-#include <stdio.h>
 #include <unistd.h>
 
 namespace Avahi {
@@ -59,38 +32,54 @@ namespace Avahi {
  * AVAHI_BROWSER_NEW.
  */
 static std::string
-MakePidName(const char *prefix)
+MakePidName(const char *prefix) noexcept
 {
-	char buffer[256];
-	snprintf(buffer, sizeof(buffer), "%s[%u]", prefix, (unsigned)getpid());
-	return buffer;
+	return fmt::format("{}[{}]", prefix, getpid());
 }
 
 Publisher::Publisher(Client &_client, const char *_name,
-		     std::forward_list<Service> _services,
 		     ErrorHandler &_error_handler) noexcept
 	:error_handler(_error_handler),
 	 name(MakePidName(_name)),
-	 client(_client), services(std::move(_services))
+	 client(_client),
+	 defer_register_services(client.GetEventLoop(),
+				 BIND_THIS_METHOD(DeferredRegisterServices))
 {
-	assert(!services.empty());
-
 	client.AddListener(*this);
-
-	auto *c = client.GetClient();
-	if (c != nullptr)
-		RegisterServices(c);
 }
 
 Publisher::~Publisher() noexcept
 {
+	assert(services.empty());
+
 	client.RemoveListener(*this);
+}
+
+void
+Publisher::UpdateServices() noexcept
+{
+	if (visible && client.IsConnected())
+		defer_register_services.Schedule();
+}
+
+void
+Publisher::AddService(Service &service) noexcept
+{
+	services.push_back(service);
+	UpdateServices();
+}
+
+void
+Publisher::RemoveService(Service &service) noexcept
+{
+	services.erase(services.iterator_to(service));
+	UpdateServices();
 }
 
 inline void
 Publisher::GroupCallback(AvahiEntryGroup *g,
 			 AvahiEntryGroupState state) noexcept
-{
+try {
 	switch (state) {
 	case AVAHI_ENTRY_GROUP_ESTABLISHED:
 		break;
@@ -109,18 +98,21 @@ Publisher::GroupCallback(AvahiEntryGroup *g,
 		}
 
 		/* And recreate the services */
-		RegisterServices(avahi_entry_group_get_client(g));
+		defer_register_services.Cancel();
+		should_reset_group = false;
+		RegisterServices(*g);
 		break;
 
 	case AVAHI_ENTRY_GROUP_FAILURE:
-		error_handler.OnAvahiError(std::make_exception_ptr(MakeError(*avahi_entry_group_get_client(g),
-									     "Avahi service group failure")));
-		break;
+		throw MakeError(*avahi_entry_group_get_client(g), "Avahi service group failure");
 
 	case AVAHI_ENTRY_GROUP_UNCOMMITED:
 	case AVAHI_ENTRY_GROUP_REGISTERING:
 		break;
 	}
+} catch (...) {
+	defer_register_services.Cancel();
+	error_handler.OnAvahiError(std::current_exception());
 }
 
 void
@@ -149,38 +141,56 @@ AddService(AvahiEntryGroup &group, const Service &service,
 
 static void
 AddServices(AvahiEntryGroup &group,
-	    const std::forward_list<Service> &services, const char *name)
+	    const IntrusiveList<Service> &services, const char *name)
 {
 	for (const auto &i : services)
-		AddService(group, i, name);
-}
-
-static EntryGroupPtr
-MakeEntryGroup(AvahiClient &c,
-	       const std::forward_list<Service> &services, const char *name,
-	       AvahiEntryGroupCallback callback, void *userdata)
-{
-	EntryGroupPtr group(avahi_entry_group_new(&c, callback, userdata));
-	if (!group)
-		throw MakeError(c, "Failed to create Avahi service group");
-
-	AddServices(*group, services, name);
-
-	int error = avahi_entry_group_commit(group.get());
-	if (error != AVAHI_OK)
-		throw MakeError(error, "Failed to commit Avahi service group");
-
-	return group;
+		if (i.visible)
+			AddService(group, i, name);
 }
 
 void
-Publisher::RegisterServices(AvahiClient *c) noexcept
+Publisher::RegisterServices(AvahiEntryGroup &g)
+{
+	if (should_reset_group) {
+		should_reset_group = false;
+		avahi_entry_group_reset(&g);
+	}
+
+	AddServices(g, services, name.c_str());
+
+	if (!services.empty()) {
+		should_reset_group = true;
+
+		if (int error = avahi_entry_group_commit(&g);
+		    error != AVAHI_OK)
+			throw MakeError(error, "Failed to commit Avahi service group");
+	}
+}
+
+void
+Publisher::RegisterServices(AvahiClient *c)
 {
 	assert(visible);
 
+	if (!group) {
+		assert(!should_reset_group);
+
+		group.reset(avahi_entry_group_new(c, GroupCallback, this));
+		if (!group)
+			throw MakeError(*c, "Failed to create Avahi service group");
+	}
+
+	RegisterServices(*group);
+}
+
+void
+Publisher::DeferredRegisterServices() noexcept
+{
+	assert(visible);
+	assert(client.IsConnected());
+
 	try {
-		group = MakeEntryGroup(*c, services, name.c_str(),
-				       GroupCallback, this);
+		RegisterServices(client.GetClient());
 	} catch (...) {
 		error_handler.OnAvahiError(std::current_exception());
 	}
@@ -193,7 +203,15 @@ Publisher::HideServices() noexcept
 		return;
 
 	visible = false;
-	group.reset();
+
+	defer_register_services.Cancel();
+
+	if (group) {
+		should_reset_group = false;
+		avahi_entry_group_reset(group.get());
+	} else {
+		assert(!should_reset_group);
+	}
 }
 
 void
@@ -204,28 +222,38 @@ Publisher::ShowServices() noexcept
 
 	visible = true;
 
-	auto *c = client.GetClient();
-	if (c != nullptr)
-		RegisterServices(c);
+	if (client.IsConnected())
+		defer_register_services.Schedule();
 }
 
 void
 Publisher::OnAvahiConnect(AvahiClient *c) noexcept
 {
-	if (group == nullptr && visible)
-		RegisterServices(c);
+	assert(!group);
+	assert(!should_reset_group);
+
+	if (visible && !services.empty())
+		try {
+			RegisterServices(c);
+		} catch (...) {
+			error_handler.OnAvahiError(std::current_exception());
+		}
 }
 
 void
 Publisher::OnAvahiDisconnect() noexcept
 {
 	group.reset();
+	should_reset_group = false;
+	defer_register_services.Cancel();
 }
 
 void
 Publisher::OnAvahiChanged() noexcept
 {
 	group.reset();
+	should_reset_group = false;
+	defer_register_services.Cancel();
 }
 
 } // namespace Avahi

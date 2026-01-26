@@ -1,26 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_INSTANCE_HXX
 #define MPD_INSTANCE_HXX
 
 #include "config.h"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "event/Loop.hxx"
 #include "event/Thread.hxx"
 #include "event/MaskMonitor.hxx"
@@ -41,6 +26,7 @@ class NeighborGlue;
 #ifdef ENABLE_DATABASE
 #include "db/DatabaseListener.hxx"
 #include "db/Ptr.hxx"
+
 class Storage;
 class UpdateService;
 #ifdef ENABLE_INOTIFY
@@ -53,9 +39,11 @@ class InotifyUpdate;
 
 class ClientList;
 struct Partition;
+class AudioOutputControl;
 class StateFile;
 class RemoteTagCache;
 class StickerDatabase;
+class StickerCleanupService;
 class InputCacheManager;
 
 /**
@@ -95,10 +83,10 @@ struct Instance final
 	 * events which require low latency, e.g. for filling hardware
 	 * ring buffers.
 	 */
-	EventThread rtio_thread;
+	EventThread rtio_thread{true};
 
 #ifdef ENABLE_SYSTEMD_DAEMON
-	Systemd::Watchdog systemd_watchdog;
+	Systemd::Watchdog systemd_watchdog{event_loop};
 #endif
 
 	std::unique_ptr<InputCacheManager> input_cache;
@@ -107,7 +95,7 @@ struct Instance final
 	 * Monitor for global idle events to be broadcasted to all
 	 * partitions.
 	 */
-	MaskMonitor idle_monitor;
+	MaskMonitor idle_monitor{event_loop, BIND_THIS_METHOD(OnIdle)};
 
 #ifdef ENABLE_NEIGHBOR_PLUGINS
 	std::unique_ptr<NeighborGlue> neighbors;
@@ -141,6 +129,10 @@ struct Instance final
 
 #ifdef ENABLE_SQLITE
 	std::unique_ptr<StickerDatabase> sticker_database;
+
+	std::unique_ptr<StickerCleanupService> sticker_cleanup;
+
+	bool need_sticker_cleanup = false;
 #endif
 
 	Instance();
@@ -181,6 +173,17 @@ struct Instance final
 
 	void BeginShutdownPartitions() noexcept;
 
+	/**
+	 * Returns the (non-dummy) audio output device with the
+	 * specified name.  Returns nullptr if the name does not
+	 * exist.
+	 *
+	 * @param excluding_partition ignore this partition
+	 */
+	[[gnu::pure]]
+	AudioOutputControl *FindOutput(std::string_view name,
+				       Partition &excluding_partition) noexcept;
+
 #ifdef ENABLE_DATABASE
 	/**
 	 * Returns the global #Database instance.  May return nullptr
@@ -203,6 +206,9 @@ struct Instance final
 	bool HasStickerDatabase() const noexcept {
 		return sticker_database != nullptr;
 	}
+
+	void OnStickerCleanupDone(bool changed) noexcept;
+	void StartStickerCleanup();
 #endif
 
 	void BeginShutdownUpdate() noexcept;
@@ -216,6 +222,8 @@ struct Instance final
 #endif
 
 	void FlushCaches() noexcept;
+
+	void OnPlaylistDeleted(const char *name) const noexcept;
 
 private:
 #ifdef ENABLE_DATABASE

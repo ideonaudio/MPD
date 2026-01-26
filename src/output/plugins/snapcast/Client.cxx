@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Client.hxx"
 #include "Protocol.hxx"
@@ -25,6 +9,8 @@
 #include "event/Loop.hxx"
 #include "net/SocketError.hxx"
 #include "net/UniqueSocketDescriptor.hxx"
+#include "util/PackedBigEndian.hxx"
+#include "util/PackedLittleEndian.hxx"
 #include "util/SpanCast.hxx"
 #include "Log.hxx"
 
@@ -54,7 +40,7 @@ SnapcastClient::Close() noexcept
 void
 SnapcastClient::LockClose() noexcept
 {
-	const std::scoped_lock<Mutex> protect(output.mutex);
+	const std::scoped_lock protect{output.mutex};
 	Close();
 }
 
@@ -71,7 +57,7 @@ SnapcastClient::Push(SnapcastChunkPtr chunk) noexcept
 SnapcastChunkPtr
 SnapcastClient::LockPopQueue() noexcept
 {
-	const std::scoped_lock<Mutex> protect(output.mutex);
+	const std::scoped_lock protect{output.mutex};
 	if (chunks.empty())
 		return nullptr;
 
@@ -113,7 +99,7 @@ SnapcastClient::OnSocketReady(unsigned flags) noexcept
 static bool
 Send(SocketDescriptor s, std::span<const std::byte> buffer) noexcept
 {
-	auto nbytes = s.Write(buffer.data(), buffer.size());
+	auto nbytes = s.Send(buffer);
 	return nbytes == ssize_t(buffer.size());
 }
 
@@ -121,7 +107,7 @@ template<typename T>
 static bool
 SendT(SocketDescriptor s, const T &buffer) noexcept
 {
-	return Send(s, std::as_bytes(std::span{&buffer, 1}));
+	return Send(s, ReferenceAsBytes(buffer));
 }
 
 static bool
@@ -259,12 +245,12 @@ SnapcastClient::SendStreamTags(std::span<const std::byte> payload) noexcept
 }
 
 BufferedSocket::InputResult
-SnapcastClient::OnSocketInput(void *data, size_t length) noexcept
+SnapcastClient::OnSocketInput(std::span<std::byte> src) noexcept
 {
-	auto &base = *(SnapcastBase *)data;
+	auto &base = *(SnapcastBase *)src.data();
 
-	if (length < sizeof(base) ||
-	    length < sizeof(base) + base.size)
+	if (src.size() < sizeof(base) ||
+	    src.size() < sizeof(base) + base.size)
 		return InputResult::MORE;
 
 	base.received = ToSnapcastTimestamp(GetEventLoop().SteadyNow());

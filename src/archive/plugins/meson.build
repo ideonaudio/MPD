@@ -22,11 +22,16 @@ if libzzip_dep.found()
   found_archive_plugin = true
 endif
 
+if not found_archive_plugin
+  subdir_done()
+endif
+
 archive_plugins = static_library(
   'archive_plugins',
   archive_plugins_sources,
   include_directories: inc,
   dependencies: [
+    fmt_dep,
     libbz2_dep,
     libiso9660_dep,
     libzzip_dep,

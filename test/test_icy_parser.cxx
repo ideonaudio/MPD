@@ -2,10 +2,9 @@
  * Unit tests for class IcyMetaDataParser.
  */
 
-#include "util/ScopeExit.hxx"
-
 /* include the .cxx file to get access to internal functions */
 #include "tag/IcyMetaDataParser.cxx"
+#include "lib/icu/Converter.hxx" // for HAVE_ICU_CONVERTER
 
 #include <gtest/gtest.h>
 
@@ -13,17 +12,15 @@
 
 #include <string.h>
 
-static std::unique_ptr<Tag>
-icy_parse_tag(const char *p)
-{
-	char *q = strdup(p);
-	AtScopeExit(q) { free(q); };
-	return icy_parse_tag(
 #ifdef HAVE_ICU_CONVERTER
-			     nullptr,
-#endif
-			     q, q + strlen(q));
+
+static std::unique_ptr<Tag>
+icy_parse_tag(std::string_view p) noexcept
+{
+	return icy_parse_tag(nullptr, p);
 }
+
+#endif
 
 static void
 CompareTagTitle(const Tag &tag, const std::string &title)

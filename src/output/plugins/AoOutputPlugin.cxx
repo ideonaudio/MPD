@@ -1,28 +1,12 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "AoOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "thread/SafeSingleton.hxx"
 #include "system/Error.hxx"
 #include "util/IterableSplitString.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/Domain.hxx"
 #include "util/StringAPI.hxx"
 #include "util/StringSplit.hxx"
@@ -121,14 +105,14 @@ AoOutput::AoOutput(const ConfigBlock &block)
 		driver = ao_driver_id(value);
 
 	if (driver < 0)
-		throw FormatRuntimeError("\"%s\" is not a valid ao driver",
-					 value);
+		throw FmtRuntimeError("{:?} is not a valid ao driver",
+				      value);
 
 	ao_info *ai = ao_driver_info(driver);
 	if (ai == nullptr)
 		throw std::runtime_error("problems getting driver info");
 
-	FmtDebug(ao_output_domain, "using ao driver \"{}\" for \"{}\"\n",
+	FmtDebug(ao_output_domain, "using ao driver {:?} for {:?}\n",
 		 ai->short_name, block.GetBlockValue("name", nullptr));
 
 	value = block.GetBlockValue("options", nullptr);
@@ -136,8 +120,8 @@ AoOutput::AoOutput(const ConfigBlock &block)
 		for (const std::string_view i : IterableSplitString(value, ';')) {
 			const auto [n, v] = Split(Strip(i), '=');
 			if (n.empty() || v.data() == nullptr)
-				throw FormatRuntimeError("problems parsing option \"%.*s\"",
-							 int(i.size()), i.data());
+				throw FmtRuntimeError("problems parsing option {:?}",
+						      i);
 
 			ao_append_option(&options, std::string{n}.c_str(),
 					 std::string{v}.c_str());

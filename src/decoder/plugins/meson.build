@@ -1,6 +1,7 @@
 decoder_plugins_sources = [
   'PcmDecoderPlugin.cxx',
 ]
+decoder_plugins_dependencies = []
 
 if get_option('dsd')
   decoder_plugins_sources += [
@@ -8,6 +9,7 @@ if get_option('dsd')
     'DsfDecoderPlugin.cxx',
     'DsdLib.cxx',
   ]
+  decoder_plugins_dependencies += libid3tag_dep
 endif
 
 if ffmpeg_dep.found()
@@ -80,16 +82,23 @@ if libfaad_dep.found()
   decoder_plugins_sources += 'FaadDecoderPlugin.cxx'
 endif
 
-libgme_dep = c_compiler.find_library('gme', required: get_option('gme'))
+libgme_dep = dependency('libgme', version: '>= 0.6', required: get_option('gme'))
 decoder_features.set('ENABLE_GME', libgme_dep.found())
 if libgme_dep.found()
   decoder_plugins_sources += 'GmeDecoderPlugin.cxx'
+endif
+
+vgmstream_dep = c_compiler.find_library('vgmstream', required: get_option('vgmstream'))
+decoder_features.set('ENABLE_VGMSTREAM', vgmstream_dep.found())
+if vgmstream_dep.found()
+  decoder_plugins_sources += 'VgmstreamDecoderPlugin.cxx'
 endif
 
 libmad_dep = c_compiler.find_library('mad', required: get_option('mad'))
 decoder_features.set('ENABLE_MAD', libmad_dep.found())
 if libmad_dep.found()
   decoder_plugins_sources += 'MadDecoderPlugin.cxx'
+  decoder_plugins_dependencies += libid3tag_dep
 endif
 
 libmikmod_dep = dependency('libmikmod', version: '>= 3.2', required: get_option('mikmod'))
@@ -109,7 +118,6 @@ endif
 
 libopenmpt_dep = dependency('libopenmpt', required: get_option('openmpt'))
 decoder_features.set('ENABLE_OPENMPT', libopenmpt_dep.found())
-decoder_features.set('HAVE_LIBOPENMPT_VERSION_0_5', libopenmpt_dep.version().version_compare('>= 0.5'))
 if libopenmpt_dep.found()
   decoder_plugins_sources += [
     'OpenmptDecoderPlugin.cxx',
@@ -156,27 +164,7 @@ if wildmidi_dep.found()
   decoder_plugins_sources += 'WildmidiDecoderPlugin.cxx'
 endif
 
-if not get_option('sidplay').disabled()
-  libsidplayfp_dep = dependency('libsidplayfp', version: '>= 1.8', required: false)
-  decoder_features.set('HAVE_SIDPLAYFP', libsidplayfp_dep.found())
-
-  if libsidplayfp_dep.found()
-    libsidplay_dep = libsidplayfp_dep
-  else
-    libsidplay2_dep = dependency('libsidplay2', required: false)
-    if libsidplay2_dep.found()
-      libsidutils_dep = dependency('libsidutils')
-      libresid_builder_dep = compiler.find_library('resid-builder')
-      libsidplay_dep = declare_dependency(dependencies: [libsidplay2_dep, libsidutils_dep, libresid_builder_dep])
-    elif get_option('sidplay').enabled()
-      error('Neither libsidplayfp nor libsidplay2 found')
-    else
-      libsidplay_dep = libsidplay2_dep
-    endif
-  endif
-else
-  libsidplay_dep = dependency('', required: false)
-endif
+libsidplay_dep = dependency('libsidplayfp', version: '>= 1.8', required: get_option('sidplay'))
 decoder_features.set('ENABLE_SIDPLAY', libsidplay_dep.found())
 if libsidplay_dep.found()
   decoder_plugins_sources += 'SidplayDecoderPlugin.cxx'
@@ -187,6 +175,7 @@ decoder_plugins = static_library(
   decoder_plugins_sources,
   include_directories: inc,
   dependencies: [
+    decoder_plugins_dependencies,
     adplug_dep,
     ffmpeg_dep,
     flac_dep,
@@ -194,6 +183,7 @@ decoder_plugins = static_library(
     libaudiofile_dep,
     libfaad_dep,
     libgme_dep,
+    vgmstream_dep,
     libmad_dep,
     libmikmod_dep,
     libmodplug_dep,

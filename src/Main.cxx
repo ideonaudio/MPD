@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "Main.hxx"
@@ -32,7 +16,7 @@
 #include "command/AllCommands.hxx"
 #include "Partition.hxx"
 #include "tag/Config.hxx"
-#include "IdleFlags.hxx"
+#include "protocol/IdleFlags.hxx"
 #include "Log.hxx"
 #include "LogInit.hxx"
 #include "input/Init.hxx"
@@ -59,13 +43,13 @@
 #include "config/Domain.hxx"
 #include "config/Parser.hxx"
 #include "config/PartitionConfig.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/ScopeExit.hxx"
 
 #ifdef ENABLE_DAEMON
 #include "unix/Daemon.hxx"
 #endif
 
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #ifdef ENABLE_DATABASE
 #include "db/update/Service.hxx"
 #include "db/Configured.hxx"
@@ -86,6 +70,7 @@
 #include "sticker/Database.hxx"
 #endif
 
+#include "archive/Features.h" // for ENABLE_ARCHIVE
 #ifdef ENABLE_ARCHIVE
 #include "archive/ArchiveList.hxx"
 #endif
@@ -103,6 +88,10 @@
 
 #ifdef ENABLE_DBUS
 #include "lib/dbus/Init.hxx"
+#endif
+
+#if defined(ENABLE_DAEMON) && defined(__APPLE__)
+#include "system/Error.hxx"
 #endif
 
 #ifdef ENABLE_SYSTEMD_DAEMON
@@ -432,7 +421,10 @@ MainConfigured(const CommandLineOptions &options,
 #ifndef ANDROID
 	setup_log_output();
 
-	const ScopeSignalHandlersInit signal_handlers_init(instance);
+	const ScopeSignalHandlersInit signal_handlers_init{
+		instance,
+		options.daemon,
+	};
 #endif
 
 	instance.io_thread.Start();
@@ -540,19 +532,46 @@ MainConfigured(const CommandLineOptions &options,
 
 #ifdef ANDROID
 
+/**
+ * Wrapper for ReadConfigFile() which returns false if the file was
+ * not found.
+ */
+static bool
+TryReadConfigFile(ConfigData &config, Path path)
+{
+	if (!FileExists(path))
+		return false;
+
+	ReadConfigFile(config, path);
+	return true;
+}
+
 static void
-AndroidMain()
+LoadConfigFile(JNIEnv *env, ConfigData &config)
+{
+	/* try loading mpd.conf from
+	   "Android/data/org.musicpd/files/mpd.conf" (the app specific
+	   data directory) first */
+	if (const auto dir = context->GetExternalFilesDir(env);
+	    !dir.IsNull() &&
+	    TryReadConfigFile(config, dir / Path::FromFS("mpd.conf")))
+		return;
+
+	/* if that fails, attempt to load "mpd.conf" from the root of
+	   the SD card (pre-0.23.9, ceases to work since Android
+	   12) */
+	if (const auto dir = Environment::getExternalStorageDirectory(env);
+	    !dir.IsNull())
+		TryReadConfigFile(config, dir / Path::FromFS("mpd.conf"));
+}
+
+static void
+AndroidMain(JNIEnv *env)
 {
 	CommandLineOptions options;
 	ConfigData raw_config;
 
-	const auto sdcard = Environment::getExternalStorageDirectory();
-	if (!sdcard.IsNull()) {
-		const auto config_path =
-			sdcard / Path::FromFS("mpd.conf");
-		if (FileExists(config_path))
-			ReadConfigFile(raw_config, config_path);
-	}
+	LoadConfigFile(env, raw_config);
 
 	MainConfigured(options, raw_config);
 }
@@ -564,8 +583,11 @@ Java_org_musicpd_Bridge_run(JNIEnv *env, jclass, jobject _context, jobject _logL
 	Java::Init(env);
 	Java::Object::Initialise(env);
 	Java::File::Initialise(env);
+
 	Environment::Initialise(env);
 	AtScopeExit(env) { Environment::Deinitialise(env); };
+
+	Context::Initialise(env);
 
 	context = new Context(env, _context);
 	AtScopeExit() { delete context; };
@@ -575,7 +597,7 @@ Java_org_musicpd_Bridge_run(JNIEnv *env, jclass, jobject _context, jobject _logL
 	AtScopeExit() { delete logListener; };
 
 	try {
-		AndroidMain();
+		AndroidMain(env);
 	} catch (...) {
 		LogError(std::current_exception());
 	}
@@ -586,7 +608,7 @@ JNIEXPORT void JNICALL
 Java_org_musicpd_Bridge_shutdown(JNIEnv *, jclass)
 {
 	if (global_instance != nullptr)
-		global_instance->Break();
+		global_instance->event_loop.InjectBreak();
 }
 
 gcc_visibility_default
@@ -598,6 +620,42 @@ Java_org_musicpd_Bridge_pause(JNIEnv *, jclass)
 			partition.pc.LockSetPause(true);
 }
 
+gcc_visibility_default
+JNIEXPORT void JNICALL
+Java_org_musicpd_Bridge_playPause(JNIEnv *, jclass)
+{
+	if (global_instance != nullptr)
+		for (auto &partition : global_instance->partitions)
+			partition.pc.LockPause();
+
+}
+
+gcc_visibility_default
+JNIEXPORT void JNICALL
+Java_org_musicpd_Bridge_playNext(JNIEnv *, jclass)
+{
+	if (global_instance != nullptr)
+		BlockingCall(global_instance->event_loop, [&](){
+			for (auto &partition : global_instance->partitions)
+				if (partition.playlist.playing) {
+					partition.PlayNext();
+				}
+		});
+}
+
+gcc_visibility_default
+JNIEXPORT void JNICALL
+Java_org_musicpd_Bridge_playPrevious(JNIEnv *, jclass)
+{
+	if (global_instance != nullptr)
+		BlockingCall(global_instance->event_loop, [&](){
+			for (auto &partition : global_instance->partitions)
+				if (partition.playlist.playing) {
+					partition.PlayPrevious();
+				}
+		});
+}
+
 #else
 
 static inline void
@@ -607,6 +665,20 @@ MainOrThrow(int argc, char *argv[])
 	ConfigData raw_config;
 
 	ParseCommandLine(argc, argv, options, raw_config);
+
+#if defined(ENABLE_DAEMON) && defined(__APPLE__)
+	if (options.daemon) {
+		// Fork before any Objective-C runtime initializations
+		pid_t pid = fork();
+		if (pid < 0)
+			throw MakeErrno("fork() failed");
+
+		if (pid > 0) {
+			// Parent process: exit immediately
+			_exit(0);
+		}
+	}
+#endif
 
 	MainConfigured(options, raw_config);
 }

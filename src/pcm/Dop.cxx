@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Dop.hxx"
 #include "ChannelDefs.hxx"
@@ -24,15 +8,15 @@
 #include <functional>
 
 static constexpr uint32_t
-pcm_two_dsd_to_dop_marker1(uint8_t a, uint8_t b) noexcept
+pcm_two_dsd_to_dop_marker1(std::byte a, std::byte b) noexcept
 {
-	return 0xff050000 | (a << 8) | b;
+	return 0xff050000 | (static_cast<uint32_t>(a) << 8) | static_cast<uint32_t>(b);
 }
 
 static constexpr uint32_t
-pcm_two_dsd_to_dop_marker2(uint8_t a, uint8_t b) noexcept
+pcm_two_dsd_to_dop_marker2(std::byte a, std::byte b) noexcept
 {
-	return 0xfffa0000 | (a << 8) | b;
+	return 0xfffa0000 | (static_cast<uint32_t>(a) << 8) | static_cast<uint32_t>(b);
 }
 
 /**
@@ -41,7 +25,7 @@ pcm_two_dsd_to_dop_marker2(uint8_t a, uint8_t b) noexcept
  * in the destination buffer, one for each marker
  */
 static void
-DsdToDop(uint32_t *dest, const uint8_t *src,
+DsdToDop(uint32_t *dest, const std::byte *src,
 	 size_t num_dop_quads, unsigned channels) noexcept
 {
 	for (size_t i = num_dop_quads; i > 0; --i) {
@@ -88,7 +72,7 @@ DsdToDopConverter::Open(unsigned _channels) noexcept
 }
 
 std::span<const uint32_t>
-DsdToDopConverter::Convert(std::span<const uint8_t> src) noexcept
+DsdToDopConverter::Convert(std::span<const std::byte> src) noexcept
 {
 	return rest_buffer.Process<uint32_t>(buffer, src, 2 * channels,
 					     [this](auto && arg1, auto && arg2, auto && arg3) { return DsdToDop(arg1, arg2, arg3, channels); });

@@ -1,31 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_LOG_HXX
-#define MPD_LOG_HXX
+#pragma once
 
 #include "LogLevel.hxx"
 
 #include <fmt/core.h>
-#if FMT_VERSION < 70000 || FMT_VERSION >= 80000
-#include <fmt/format.h>
-#endif
 
 #include <exception>
 #include <string_view>
@@ -45,18 +25,8 @@ void
 LogFmt(LogLevel level, const Domain &domain,
        const S &format_str, Args&&... args) noexcept
 {
-#if FMT_VERSION >= 90000
 	return LogVFmt(level, domain, format_str,
 		       fmt::make_format_args(args...));
-#elif FMT_VERSION >= 70000
-	return LogVFmt(level, domain, fmt::to_string_view(format_str),
-		       fmt::make_args_checked<Args...>(format_str,
-						       args...));
-#else
-	/* expensive fallback for older libfmt versions */
-	const auto result = fmt::format(format_str, args...);
-	return Log(level, domain, result);
-#endif
 }
 
 template<typename S, typename... Args>
@@ -146,5 +116,3 @@ LogError(const std::exception_ptr &ep, const char *msg) noexcept
 {
 	Log(LogLevel::ERROR, ep, msg);
 }
-
-#endif /* LOG_H */

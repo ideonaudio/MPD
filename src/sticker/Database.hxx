@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /*
  * This is the sticker database library.  It is the backend of all the
@@ -44,11 +28,13 @@
 
 #include "Match.hxx"
 #include "lib/sqlite/Database.hxx"
+#include "protocol/RangeArg.hxx"
 
 #include <sqlite3.h>
 
 #include <map>
 #include <string>
+#include <list>
 
 class Path;
 struct Sticker;
@@ -57,20 +43,44 @@ class StickerDatabase {
 	enum SQL {
 		  SQL_GET,
 		  SQL_LIST,
-		  SQL_UPDATE,
-		  SQL_INSERT,
+		  SQL_SET,
 		  SQL_DELETE,
 		  SQL_DELETE_VALUE,
+		  SQL_DISTINCT_TYPE_URI,
+		  SQL_TRANSACTION_BEGIN,
+		  SQL_TRANSACTION_COMMIT,
+		  SQL_TRANSACTION_ROLLBACK,
+		  SQL_NAMES,
+		  SQL_NAMES_TYPES,
+		  SQL_NAMES_TYPES_BY_TYPE,
+		  STICKER_SQL_INC,
+		  STICKER_SQL_DEC,
+
+		  SQL_COUNT
+	};
+
+	enum SQL_FIND {
 		  SQL_FIND,
 		  SQL_FIND_VALUE,
 		  SQL_FIND_LT,
 		  SQL_FIND_GT,
 
-		  SQL_COUNT
+		  SQL_FIND_EQ_INT,
+		  SQL_FIND_LT_INT,
+		  SQL_FIND_GT_INT,
+
+		  SQL_FIND_CONTAINS,
+		  SQL_FIND_STARTS_WITH,
+
+		  SQL_FIND_COUNT
 	};
+
+	std::string path;
 
 	Sqlite::Database db;
 	sqlite3_stmt *stmt[SQL_COUNT];
+
+	explicit StickerDatabase(const char *_path);
 
 public:
 	/**
@@ -80,6 +90,17 @@ public:
 	 */
 	StickerDatabase(Path path);
 	~StickerDatabase() noexcept;
+
+	StickerDatabase(StickerDatabase &&) noexcept = default;
+	StickerDatabase &operator=(StickerDatabase &&) noexcept = default;
+
+	/**
+	 * Open another connection to the same database file.
+	 */
+	[[nodiscard]]
+	StickerDatabase Reopen() const {
+		return StickerDatabase{path.c_str()};
+	}
 
 	/**
 	 * Returns one value from an object's sticker record.  Returns an
@@ -98,6 +119,24 @@ public:
 	 */
 	void StoreValue(const char *type, const char *uri,
 			const char *name, const char *value);
+	
+	/**
+	 * Increments a sticker by value in the specified object.  Inserts
+	 * the value if object does not exist.
+	 *
+	 * Throws #SqliteError on error.
+	 */
+	void IncValue(const char *type, const char *uri,
+		      const char *name, const char *value);
+
+	/**
+	 * Decrements a sticker by value in the specified object.  Inserts
+	 * the value if object does not exist.
+	 *
+	 * Throws #SqliteError on error.
+	 */
+	void DecValue(const char *type, const char *uri,
+		      const char *name, const char *value);
 
 	/**
 	 * Deletes a sticker from the database.  All sticker values of the
@@ -138,12 +177,37 @@ public:
 	 */
 	void Find(const char *type, const char *base_uri, const char *name,
 		  StickerOperator op, const char *value,
+		  const char *sort, bool descending, RangeArg window,
 		  void (*func)(const char *uri, const char *value,
 			       void *user_data),
 		  void *user_data);
 
+	/**
+	 * Uniq and sorted list of all sticker names
+	 */
+	void Names(void (*func)(const char *value, void *user_data), void *user_data);
+
+	/**
+	 * Uniq and sorted list of all sticker names by type
+	 */
+	void NamesTypes(const char *type, void (*func)(const char *value, const char *type, void *user_data), void *user_data);
+
+	using StickerTypeUriPair = std::pair<std::string, std::string>;
+
+	/**
+	 * @return A list of unique type-uri pairs of all the stickers
+	 * in the database.
+	 */
+	std::list<StickerTypeUriPair> GetUniqueStickers();
+
+	/**
+	 * Delete stickers by type and uri
+	 * @param stickers A list of stickers to delete
+	 */
+	void BatchDeleteNoIdle(const std::list<StickerTypeUriPair> &stickers);
+
 private:
-	void ListValues(std::map<std::string, std::string> &table,
+	void ListValues(std::map<std::string, std::string, std::less<>> &table,
 			const char *type, const char *uri);
 
 	bool UpdateValue(const char *type, const char *uri,
@@ -154,7 +218,8 @@ private:
 
 	sqlite3_stmt *BindFind(const char *type, const char *base_uri,
 			       const char *name,
-			       StickerOperator op, const char *value);
+			       StickerOperator op, const char *value,
+				   const char *sort, bool descending, RangeArg window);
 };
 
 #endif

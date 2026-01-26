@@ -1,31 +1,5 @@
-/*
- * Copyright 2008-2022 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
 #include "UriExtract.hxx"
 #include "CharUtil.hxx"
@@ -107,7 +81,7 @@ uri_is_relative_path(const char *uri) noexcept
 }
 
 std::string_view
-uri_get_path(std::string_view uri) noexcept
+uri_get_path_query_fragment(std::string_view uri) noexcept
 {
 	auto ap = uri_after_scheme(uri);
 	if (ap.data() != nullptr) {
@@ -125,6 +99,23 @@ static std::string_view
 UriWithoutQueryString(std::string_view uri) noexcept
 {
 	return Split(uri, '?').first;
+}
+
+std::string_view
+uri_get_path(std::string_view uri) noexcept
+{
+	auto path = uri_get_path_query_fragment(uri);
+	if (path.data() == nullptr || path.data() == uri.data())
+		/* preserve query and fragment if this URI doesn't
+		   have a scheme; the question mark may be part of the
+		   file name, after all */
+		return path;
+
+	auto end = path.find('?');
+	if (end == std::string_view::npos)
+		end = path.find('#');
+
+	return path.substr(0, end);
 }
 
 /* suffixes should be ascii only characters */

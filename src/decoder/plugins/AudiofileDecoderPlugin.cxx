@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "AudiofileDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
@@ -58,13 +42,13 @@ struct AudioFileInputStream {
 		/* libaudiofile does not like partial reads at all,
 		   and will abort playback; therefore always force full
 		   reads */
-		return decoder_read_full(client, is, buffer, size)
+		return decoder_read_full(client, is, {reinterpret_cast<std::byte *>(buffer), size})
 			? size
 			: 0;
 	}
 };
 
-gcc_pure
+[[gnu::pure]]
 static SongTime
 audiofile_get_duration(AFfilehandle fh) noexcept
 {
@@ -140,7 +124,7 @@ setup_virtual_fops(AudioFileInputStream &afis) noexcept
 	return vf;
 }
 
-gcc_const
+[[gnu::const]]
 static SampleFormat
 audiofile_bits_to_sample_format(int bits) noexcept
 {

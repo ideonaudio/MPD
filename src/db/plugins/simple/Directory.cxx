@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Directory.hxx"
 #include "ExportedSong.hxx"
@@ -31,6 +15,7 @@
 #include "lib/icu/Collate.hxx"
 #include "fs/Traits.hxx"
 #include "util/DeleteDisposer.hxx"
+#include "util/SortList.hxx"
 #include "util/StringCompare.hxx"
 #include "util/StringSplit.hxx"
 
@@ -68,20 +53,20 @@ Directory::Delete() noexcept
 					   DeleteDisposer());
 }
 
-const char *
+std::string_view
 Directory::GetName() const noexcept
 {
 	assert(!IsRoot());
 
 	if (parent->IsRoot())
-		return path.c_str();
+		return path;
 
-	assert(StringAfterPrefix(path.c_str(), parent->path.c_str()) != nullptr);
-	assert(*StringAfterPrefix(path.c_str(), parent->path.c_str()) == PathTraitsUTF8::SEPARATOR);
+	assert(path.starts_with(parent->path));
+	assert(path[parent->path.length()] == PathTraitsUTF8::SEPARATOR);
 
 	/* strip the parent directory path and the slash separator
 	   from this directory's path, and the base name remains */
-	return path.c_str() + parent->path.length() + 1;
+	return std::string_view{path}.substr(parent->path.length() + 1);
 }
 
 Directory *
@@ -105,7 +90,7 @@ Directory::FindChild(std::string_view name) const noexcept
 	assert(holding_db_lock());
 
 	for (const auto &child : children)
-		if (name.compare(child.GetName()) == 0)
+		if (child.GetName() == name)
 			return &child;
 
 	return nullptr;
@@ -124,6 +109,18 @@ Directory::LookupTargetSong(std::string_view target) noexcept
 	/* sorry for the const_cast ... */
 	const auto lr = LookupDirectory(target);
 	return lr.directory->FindSong(lr.rest);
+}
+
+void
+Directory::ClearInPlaylist() noexcept
+{
+	assert(holding_db_lock());
+
+	for (auto &child : children)
+		child.ClearInPlaylist();
+
+	for (auto &song : songs)
+		song.in_playlist = false;
 }
 
 void
@@ -208,7 +205,7 @@ Directory::FindSong(std::string_view name_utf8) const noexcept
 	return nullptr;
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
 directory_cmp(const Directory &a, const Directory &b) noexcept
 {
@@ -220,7 +217,7 @@ Directory::Sort() noexcept
 {
 	assert(holding_db_lock());
 
-	children.sort(directory_cmp);
+	SortList(children, directory_cmp);
 	song_list_sort(songs);
 
 	for (auto &child : children)

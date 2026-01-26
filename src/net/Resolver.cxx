@@ -1,40 +1,16 @@
-/*
- * Copyright 2007-2022 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #include "Resolver.hxx"
 #include "AddressInfo.hxx"
 #include "HostParser.hxx"
-#include "util/RuntimeError.hxx"
+#include "lib/fmt/RuntimeError.hxx"
+#include "lib/fmt/ToBuffer.hxx"
 #include "util/CharUtil.hxx"
+#include "util/StringAPI.hxx"
+
+#include <algorithm> // for std:copy()
 
 #ifdef _WIN32
 #include <ws2tcpip.h>
@@ -44,9 +20,25 @@
 #include <net/if.h>
 #endif
 
-#include <cstring>
-
 #include <stdio.h>
+
+ResolverErrorCategory resolver_error_category;
+
+std::string
+ResolverErrorCategory::message(int condition) const
+{
+#ifdef _WIN32
+	return gai_strerrorA(condition);
+#else
+	return gai_strerror(condition);
+#endif
+}
+
+static std::system_error
+MakeResolverError(int error, const char *msg) noexcept
+{
+	return std::system_error{error, resolver_error_category, msg};
+}
 
 AddressInfoList
 Resolve(const char *node, const char *service,
@@ -55,10 +47,10 @@ Resolve(const char *node, const char *service,
 	struct addrinfo *ai;
 	int error = getaddrinfo(node, service, hints, &ai);
 	if (error != 0)
-		throw FormatRuntimeError("Failed to resolve '%s':'%s': %s",
-					 node == nullptr ? "" : node,
-					 service == nullptr ? "" : service,
-					 gai_strerror(error));
+		throw MakeResolverError(error,
+					FmtBuffer<512>("Failed to resolve {:?}:{:?}",
+						       node == nullptr ? "" : node,
+						       service == nullptr ? "" : service).c_str());
 
 	return AddressInfoList(ai);
 }
@@ -89,7 +81,7 @@ FindAndResolveInterfaceName(char *host, size_t size)
 
 	const unsigned i = if_nametoindex(interface);
 	if (i == 0)
-		throw FormatRuntimeError("No such interface: %s", interface);
+		throw FmtRuntimeError("No such interface: {}", interface);
 
 	sprintf(interface, "%u", i);
 }
@@ -129,7 +121,7 @@ Resolve(const char *host_and_port, int default_port,
 		} else
 			throw std::runtime_error("Garbage after host name");
 
-		if (ai_is_passive(hints) && strcmp(host, "*") == 0)
+		if (ai_is_passive(hints) && StringIsEqual(host, "*"))
 			host = nullptr;
 	} else {
 		host = nullptr;
@@ -143,6 +135,11 @@ Resolve(const char *host_and_port, int default_port,
 AddressInfoList
 Resolve(const char *host_port, unsigned default_port, int flags, int socktype)
 {
-	const auto hints = MakeAddrInfo(flags, AF_UNSPEC, socktype);
+	const struct addrinfo hints{
+		.ai_flags = flags,
+		.ai_family = AF_UNSPEC,
+		.ai_socktype = socktype,
+	};
+
 	return Resolve(host_port, default_port, &hints);
 }

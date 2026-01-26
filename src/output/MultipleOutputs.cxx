@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "MultipleOutputs.hxx"
 #include "Client.hxx"
@@ -27,7 +11,7 @@
 #include "config/Block.hxx"
 #include "config/Data.hxx"
 #include "config/Option.hxx"
-#include "util/RuntimeError.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "util/StringAPI.hxx"
 
 #include <cassert>
@@ -62,8 +46,8 @@ try {
 				mixer_listener);
 } catch (...) {
 	if (block.line > 0)
-		std::throw_with_nested(FormatRuntimeError("Failed to configure output in line %i",
-							  block.line));
+		std::throw_with_nested(FmtRuntimeError("Failed to configure output in line {}",
+						       block.line));
 	else
 		throw;
 }
@@ -99,9 +83,9 @@ MultipleOutputs::Configure(EventLoop &event_loop, EventLoop &rt_event_loop,
 						client, block, defaults,
 						&filter_factory);
 		if (HasName(output->GetName()))
-			throw FormatRuntimeError("output devices with identical "
-						 "names: %s",
-						 output->GetName().c_str());
+			throw FmtRuntimeError("output devices with identical "
+					      "names: {}",
+					      output->GetName());
 
 		outputs.emplace_back(std::move(output));
 	});
@@ -229,7 +213,11 @@ MultipleOutputs::Open(const AudioFormat audio_format)
 	std::exception_ptr first_error;
 
 	for (const auto &ao : outputs) {
-		const std::scoped_lock<Mutex> lock(ao->mutex);
+		const std::scoped_lock lock{ao->mutex};
+
+		/* can't play on this device even if it's enabled */
+		if (ao->AlwaysOff())
+			continue;
 
 		if (ao->IsEnabled())
 			enabled = true;

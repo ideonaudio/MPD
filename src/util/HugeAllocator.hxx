@@ -1,31 +1,5 @@
-/*
- * Copyright 2013-2022 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
 #pragma once
 
@@ -154,7 +128,7 @@ HugeDiscard(void *, size_t) noexcept
 template<typename T>
 class HugeArray {
 	using Buffer = std::span<T>;
-	Buffer buffer{nullptr};
+	Buffer buffer;
 
 public:
 	typedef typename Buffer::size_type size_type;
@@ -163,7 +137,7 @@ public:
 	typedef typename Buffer::const_reference const_reference;
 	typedef typename Buffer::iterator iterator;
 
-	constexpr HugeArray() = default;
+	constexpr HugeArray() noexcept = default;
 
 	explicit HugeArray(size_type _size)
 		:buffer(FromBytesFloor<value_type>(HugeAllocate(sizeof(value_type) * _size))) {}
@@ -178,7 +152,7 @@ public:
 		}
 	}
 
-	HugeArray &operator=(HugeArray &&other) noexcept {
+	constexpr HugeArray &operator=(HugeArray &&other) noexcept {
 		using std::swap;
 		swap(buffer, other.buffer);
 		return *this;
@@ -207,6 +181,14 @@ public:
 		return buffer != nullptr;
 	}
 
+	constexpr operator std::span<T>() noexcept {
+		return buffer;
+	}
+
+	constexpr operator std::span<const T>() noexcept {
+		return buffer;
+	}
+
 	/**
 	 * Returns the number of allocated elements.
 	 */
@@ -214,37 +196,37 @@ public:
 		return buffer.size();
 	}
 
-	reference front() noexcept {
+	constexpr reference front() noexcept {
 		return buffer.front();
 	}
 
-	const_reference front() const noexcept {
+	constexpr const_reference front() const noexcept {
 		return buffer.front();
 	}
 
-	reference back() noexcept {
+	constexpr reference back() noexcept {
 		return buffer.back();
 	}
 
-	const_reference back() const noexcept {
+	constexpr const_reference back() const noexcept {
 		return buffer.back();
 	}
 
 	/**
 	 * Returns one element.  No bounds checking.
 	 */
-	reference operator[](size_type i) noexcept {
+	constexpr reference operator[](size_type i) noexcept {
 		return buffer[i];
 	}
 
 	/**
 	 * Returns one constant element.  No bounds checking.
 	 */
-	const_reference operator[](size_type i) const noexcept {
+	constexpr const_reference operator[](size_type i) const noexcept {
 		return buffer[i];
 	}
 
-	iterator begin() noexcept {
+	constexpr iterator begin() noexcept {
 		return buffer.begin();
 	}
 
@@ -252,7 +234,7 @@ public:
 		return buffer.begin();
 	}
 
-	iterator end() noexcept {
+	constexpr iterator end() noexcept {
 		return buffer.end();
 	}
 

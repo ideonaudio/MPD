@@ -1,23 +1,8 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Id3Load.hxx"
+#include "Id3Parse.hxx"
 #include "RiffId3.hxx"
 #include "Aiff.hxx"
 #include "input/InputStream.hxx"
@@ -41,7 +26,7 @@ get_id3v2_footer_size(InputStream &is, std::unique_lock<Mutex> &lock,
 try {
 	id3_byte_t buf[ID3_TAG_QUERYSIZE];
 	is.Seek(lock, offset);
-	is.ReadFull(lock, buf, sizeof(buf));
+	is.ReadFull(lock, std::as_writable_bytes(std::span{buf}));
 
 	return id3_tag_query(buf, sizeof(buf));
 } catch (...) {
@@ -51,30 +36,34 @@ try {
 static UniqueId3Tag
 ReadId3Tag(InputStream &is, std::unique_lock<Mutex> &lock)
 try {
-	id3_byte_t query_buffer[ID3_TAG_QUERYSIZE];
-	is.ReadFull(lock, query_buffer, sizeof(query_buffer));
+	std::byte query_buffer[ID3_TAG_QUERYSIZE];
+	is.ReadFull(lock, query_buffer);
 
 	/* Look for a tag header */
-	long tag_size = id3_tag_query(query_buffer, sizeof(query_buffer));
-	if (tag_size <= 0) return nullptr;
+	long query = id3_tag_query(reinterpret_cast<const id3_byte_t *>(query_buffer),
+				   sizeof(query_buffer));
+	if (query <= 0)
+		return nullptr;
+
+	const std::size_t tag_size = static_cast<std::size_t>(query);
 
 	/* Found a tag.  Allocate a buffer and read it in. */
-	if (size_t(tag_size) <= sizeof(query_buffer))
+	if (tag_size <= sizeof(query_buffer))
 		/* we have enough data already */
-		return UniqueId3Tag(id3_tag_parse(query_buffer, tag_size));
+		return id3_tag_parse(std::span{query_buffer}.first(tag_size));
 
-	auto tag_buffer = std::make_unique<id3_byte_t[]>(tag_size);
+	auto tag_buffer = std::make_unique_for_overwrite<std::byte[]>(tag_size);
 
 	/* copy the start of the tag we already have to the allocated
 	   buffer */
-	id3_byte_t *end = std::copy_n(query_buffer, sizeof(query_buffer),
-				      tag_buffer.get());
+	std::byte *end = std::copy_n(query_buffer, sizeof(query_buffer),
+				     tag_buffer.get());
 
 	/* now read the remaining bytes */
 	const size_t remaining = tag_size - sizeof(query_buffer);
-	is.ReadFull(lock, end, remaining);
+	is.ReadFull(lock, std::span{end, remaining});
 
-	return UniqueId3Tag(id3_tag_parse(tag_buffer.get(), tag_size));
+	return id3_tag_parse(std::span{tag_buffer.get(), tag_size});
 } catch (...) {
 	return nullptr;
 }
@@ -92,10 +81,9 @@ try {
 static UniqueId3Tag
 ReadId3v1Tag(InputStream &is, std::unique_lock<Mutex> &lock)
 try {
-	id3_byte_t buffer[ID3V1_SIZE];
-	is.ReadFull(lock, buffer, ID3V1_SIZE);
-
-	return UniqueId3Tag(id3_tag_parse(buffer, ID3V1_SIZE));
+	std::byte buffer[ID3V1_SIZE];
+	is.ReadFull(lock, buffer);
+	return id3_tag_parse(buffer);
 } catch (...) {
 	return nullptr;
 }
@@ -194,14 +182,16 @@ try {
 		size = aiff_seek_id3(is, lock);
 	}
 
+	if (size == 0)
+		return nullptr;
+
 	if (size > 4 * 1024 * 1024)
 		/* too large, don't allocate so much memory */
 		return nullptr;
 
-	auto buffer = std::make_unique<id3_byte_t[]>(size);
-	is.ReadFull(lock, buffer.get(), size);
-
-	return UniqueId3Tag(id3_tag_parse(buffer.get(), size));
+	auto buffer = std::make_unique_for_overwrite<std::byte[]>(size);
+	is.ReadFull(lock, std::span{buffer.get(), size});
+	return id3_tag_parse(std::span{buffer.get(), size});
 } catch (...) {
 	return nullptr;
 }
@@ -209,7 +199,7 @@ try {
 UniqueId3Tag
 tag_id3_load(InputStream &is)
 try {
-	std::unique_lock<Mutex> lock(is.mutex);
+	std::unique_lock lock{is.mutex};
 
 	auto tag = tag_id3_find_from_beginning(is, lock);
 	if (tag == nullptr && is.CheapSeeking()) {

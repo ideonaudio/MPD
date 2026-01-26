@@ -1,25 +1,10 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_CONFIG_BLOCK_HXX
-#define MPD_CONFIG_BLOCK_HXX
+#pragma once
 
+#include <concepts>
+#include <chrono>
 #include <string>
 #include <vector>
 
@@ -49,6 +34,11 @@ struct BlockParam {
 
 	bool GetBoolValue() const;
 
+	double GetDoubleValue() const;
+
+	std::chrono::steady_clock::duration
+	GetDuration(std::chrono::steady_clock::duration min_value) const;
+
 	/**
 	 * Call this method in a "catch" block to throw a nested
 	 * exception showing the location of this setting in the
@@ -61,7 +51,7 @@ struct BlockParam {
 	 * Invoke a function with the configured value; if the
 	 * function throws, call ThrowWithNested().
 	 */
-	template<typename F>
+	template<std::regular_invocable<const char *> F>
 	auto With(F &&f) const {
 		try {
 			return f(value.c_str());
@@ -138,6 +128,13 @@ struct ConfigBlock {
 
 	bool GetBlockValue(const char *name, bool default_value) const;
 
+	double GetBlockValue(const char *name, double default_value) const;
+
+	std::chrono::steady_clock::duration
+	GetDuration(const char *name,
+		    std::chrono::steady_clock::duration min_value,
+		    std::chrono::steady_clock::duration default_value) const;
+
 	/**
 	 * Call this method in a "catch" block to throw a nested
 	 * exception showing the location of this block in the
@@ -146,5 +143,3 @@ struct ConfigBlock {
 	[[noreturn]]
 	void ThrowWithNested() const;
 };
-
-#endif

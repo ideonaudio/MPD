@@ -1,26 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "SmbclientStorage.hxx"
 #include "storage/StoragePlugin.hxx"
 #include "storage/StorageInterface.hxx"
 #include "storage/FileInfo.hxx"
+#include "input/InputStream.hxx"
 #include "lib/smbclient/Init.hxx"
 #include "lib/smbclient/Context.hxx"
 #include "fs/Traits.hxx"
@@ -79,6 +64,8 @@ public:
 	[[nodiscard]] std::string MapUTF8(std::string_view uri_utf8) const noexcept override;
 
 	[[nodiscard]] std::string_view MapToRelativeUTF8(std::string_view uri_utf8) const noexcept override;
+
+	InputStreamPtr OpenFile(std::string_view uri_utf8, Mutex &file_mutex) override;
 };
 
 std::string
@@ -102,7 +89,7 @@ GetInfo(SmbclientContext &ctx, Mutex &mutex, const char *path)
 	struct stat st;
 
 	{
-		const std::scoped_lock<Mutex> protect(mutex);
+		const std::scoped_lock protect{mutex};
 		if (ctx.Stat(path, st) != 0)
 			throw MakeErrno("Failed to access file");
 	}
@@ -129,6 +116,12 @@ SmbclientStorage::GetInfo(std::string_view uri_utf8, [[maybe_unused]] bool follo
 	return ::GetInfo(ctx, mutex, mapped.c_str());
 }
 
+InputStreamPtr
+SmbclientStorage::OpenFile(std::string_view uri_utf8, Mutex &file_mutex)
+{
+	return InputStream::Open(MapUTF8(uri_utf8), file_mutex);
+}
+
 std::unique_ptr<StorageDirectoryReader>
 SmbclientStorage::OpenDirectory(std::string_view uri_utf8)
 {
@@ -137,7 +130,7 @@ SmbclientStorage::OpenDirectory(std::string_view uri_utf8)
 	SMBCFILE *handle;
 
 	{
-		const std::scoped_lock<Mutex> protect(mutex);
+		const std::scoped_lock protect{mutex};
 		handle = ctx.OpenDirectory(mapped.c_str());
 	}
 
@@ -149,7 +142,7 @@ SmbclientStorage::OpenDirectory(std::string_view uri_utf8)
 							  handle);
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
 SkipNameFS(PathTraitsFS::const_pointer name) noexcept
 {
@@ -158,14 +151,14 @@ SkipNameFS(PathTraitsFS::const_pointer name) noexcept
 
 SmbclientDirectoryReader::~SmbclientDirectoryReader()
 {
-	const std::scoped_lock<Mutex> lock(storage.mutex);
+	const std::scoped_lock lock{storage.mutex};
 	storage.ctx.CloseDirectory(handle);
 }
 
 const char *
 SmbclientDirectoryReader::Read() noexcept
 {
-	const std::scoped_lock<Mutex> protect(storage.mutex);
+	const std::scoped_lock protect{storage.mutex};
 
 	while (auto e = storage.ctx.ReadDirectory(handle)) {
 		name = e->name;

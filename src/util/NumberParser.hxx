@@ -1,91 +1,51 @@
-/*
- * Copyright 2009-2022 Max Kellermann <max.kellermann@gmail.com>
- * http://www.musicpd.org
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
 #pragma once
 
-#include <cassert>
-#include <cstdint>
+#include <charconv>
+#include <concepts>
+#include <optional>
 #include <string_view>
 
-#include <stdlib.h>
-
-static inline unsigned
-ParseUnsigned(const char *p, char **endptr=nullptr, int base=10) noexcept
+/**
+ * A std::from_chars() wrapper taking a std::string_view.  How
+ * annoying that the C++ standard library doesn't allow this!
+ */
+inline std::from_chars_result
+FromChars(std::string_view s, std::integral auto &value, int base=10) noexcept
 {
-	assert(p != nullptr);
-
-	return (unsigned)strtoul(p, endptr, base);
+	return std::from_chars(s.data(), s.data() + s.size(), value, base);
 }
 
-static inline int
-ParseInt(const char *p, char **endptr=nullptr, int base=10) noexcept
+/**
+ * A wrapper for FromChars() which translates the #from_chars_result
+ * to a boolean (true on success, false on error).
+ */
+inline bool
+ParseIntegerTo(std::string_view s, std::integral auto &value, int base=10) noexcept
 {
-	assert(p != nullptr);
-
-	return (int)strtol(p, endptr, base);
+	auto [ptr, ec] = FromChars(s, value, base);
+	return ptr == s.data() + s.size() && ec == std::errc{};
 }
 
-static inline uint64_t
-ParseUint64(const char *p, char **endptr=nullptr, int base=10) noexcept
+template<std::integral T>
+[[gnu::pure]]
+std::optional<T>
+ParseInteger(const char *first, const char *last, int base=10) noexcept
 {
-	assert(p != nullptr);
-
-	return strtoull(p, endptr, base);
+	T value;
+	auto [ptr, ec] = std::from_chars(first, last, value, base);
+	if (ptr == last && ec == std::errc{})
+		return value;
+	else
+		return std::nullopt;
 }
 
-static inline int64_t
-ParseInt64(const char *p, char **endptr=nullptr, int base=10) noexcept
+template<std::integral T>
+[[gnu::pure]]
+std::optional<T>
+ParseInteger(std::string_view src, int base=10) noexcept
 {
-	assert(p != nullptr);
-
-	return strtoll(p, endptr, base);
-}
-
-int64_t
-ParseInt64(std::string_view s, const char **endptr_r=nullptr, int base=10) noexcept;
-
-static inline double
-ParseDouble(const char *p, char **endptr=nullptr) noexcept
-{
-	assert(p != nullptr);
-
-	return (double)strtod(p, endptr);
-}
-
-static inline float
-ParseFloat(const char *p, char **endptr=nullptr) noexcept
-{
-#if defined(__BIONIC__) && __ANDROID_API__ < 21
-	/* strtof() requires API level 21 */
-	return (float)ParseDouble(p, endptr);
-#else
-	return strtof(p, endptr);
-#endif
+	return ParseInteger<T>(src.data(), src.data() + src.size(), base);
 }

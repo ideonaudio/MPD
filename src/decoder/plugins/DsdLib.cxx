@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /* \file
  *
@@ -45,19 +29,13 @@ DsdId::Equals(const char *s) const noexcept
 	return memcmp(value, s, sizeof(value)) == 0;
 }
 
-/**
- * Skip the #InputStream to the specified offset.
- */
 bool
 dsdlib_skip_to(DecoderClient *client, InputStream &is,
 	       offset_type offset)
 {
 	if (is.IsSeekable()) {
-		try {
-			is.LockSeek(offset);
-		} catch (...) {
-			return false;
-		}
+		is.LockSeek(offset);
+		return true;
 	}
 
 	if (is.GetOffset() > offset)
@@ -66,9 +44,6 @@ dsdlib_skip_to(DecoderClient *client, InputStream &is,
 	return dsdlib_skip(client, is, offset - is.GetOffset());
 }
 
-/**
- * Skip some bytes from the #InputStream.
- */
 bool
 dsdlib_skip(DecoderClient *client, InputStream &is,
 	    offset_type delta)
@@ -77,11 +52,8 @@ dsdlib_skip(DecoderClient *client, InputStream &is,
 		return true;
 
 	if (is.IsSeekable()) {
-		try {
-			is.LockSeek(is.GetOffset() + delta);
-		} catch (...) {
-			return false;
-		}
+		is.LockSeek(is.GetOffset() + delta);
+		return true;
 	}
 
 	if (delta > 1024 * 1024)
@@ -137,7 +109,8 @@ dsdlib_tag_id3(InputStream &is, TagHandler &handler,
 	if (id3_buf == nullptr)
 		return;
 
-	if (!decoder_read_full(nullptr, is, id3_buf, count)) {
+	if (!decoder_read_full(nullptr, is,
+			       {reinterpret_cast<std::byte *>(id3_buf), count})) {
 		delete[] id3_buf;
 		return;
 	}

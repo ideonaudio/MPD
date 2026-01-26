@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_FS_TRAITS_HXX
 #define MPD_FS_TRAITS_HXX
@@ -109,6 +93,14 @@ struct PathTraitsFS {
 	}
 
 	[[gnu::pure]]
+	static string_view GetFilenameSuffix(string_view filename) noexcept {
+		const auto dot = filename.rfind('.');
+		return dot != filename.npos && dot > 0
+			? filename.substr(dot + 1)
+			: string_view{};
+	}
+
+	[[gnu::pure]]
 	static const_pointer GetPathSuffix(const_pointer path) noexcept {
 		return GetFilenameSuffix(GetBase(path));
 	}
@@ -136,6 +128,15 @@ struct PathTraitsFS {
 			return true;
 #endif
 		return IsSeparator(*p);
+	}
+
+	[[gnu::pure]]
+	static bool IsAbsolute(string_view p) noexcept {
+#ifdef _WIN32
+		if (IsDrive(p) && IsSeparator(p[2]))
+			return true;
+#endif
+		return !p.empty() && IsSeparator(p.front());
 	}
 
 	[[gnu::pure]] [[gnu::nonnull]]
@@ -245,6 +246,14 @@ struct PathTraitsUTF8 {
 	}
 
 	[[gnu::pure]]
+	static string_view GetFilenameSuffix(string_view filename) noexcept {
+		const auto dot = filename.rfind('.');
+		return dot != filename.npos && dot > 0
+			? filename.substr(dot + 1)
+			: string_view{};
+	}
+
+	[[gnu::pure]]
 	static const_pointer GetPathSuffix(const_pointer path) noexcept {
 		return GetFilenameSuffix(GetBase(path));
 	}
@@ -272,6 +281,15 @@ struct PathTraitsUTF8 {
 			return true;
 #endif
 		return IsSeparator(*p);
+	}
+
+	[[gnu::pure]]
+	static bool IsAbsolute(string_view p) noexcept {
+#ifdef _WIN32
+		if (IsDrive(p) && IsSeparator(p[2]))
+			return true;
+#endif
+		return !p.empty() && IsSeparator(p.front());
 	}
 
 	/**

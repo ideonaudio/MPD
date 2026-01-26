@@ -1,39 +1,23 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
 #include "PlayerCommands.hxx"
 #include "Request.hxx"
 #include "queue/Playlist.hxx"
 #include "PlaylistPrint.hxx"
+#include "ConsumeMode.hxx"
 #include "SingleMode.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
-#include "mixer/Volume.hxx"
 #include "Partition.hxx"
 #include "Instance.hxx"
-#include "IdleFlags.hxx"
+#include "protocol/IdleFlags.hxx"
+#include "lib/fmt/AudioFormatFormatter.hxx"
 #include "util/StringBuffer.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/Exception.hxx"
-#include "util/Math.hxx"
 
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #ifdef ENABLE_DATABASE
 #include "db/update/Service.hxx"
 #endif
@@ -59,22 +43,31 @@
 #define COMMAND_STATUS_MIXRAMPDELAY	"mixrampdelay"
 #define COMMAND_STATUS_AUDIO		"audio"
 #define COMMAND_STATUS_UPDATING_DB	"updating_db"
+#define COMMAND_STATUS_LOADED_PLAYLIST  "lastloadedplaylist"
 
 CommandResult
 handle_play(Client &client, Request args, [[maybe_unused]] Response &r)
 {
-	int song = args.ParseOptional(0, -1);
+	auto &partition = client.GetPartition();
 
-	client.GetPartition().PlayPosition(song);
+	if (args.size() > 0)
+		partition.PlayPosition(args.ParseUnsigned(0));
+	else
+		partition.PlayAny();
+
 	return CommandResult::OK;
 }
 
 CommandResult
 handle_playid(Client &client, Request args, [[maybe_unused]] Response &r)
 {
-	int id = args.ParseOptional(0, -1);
+	auto &partition = client.GetPartition();
 
-	client.GetPartition().PlayId(id);
+	if (args.size() > 0)
+		partition.PlayId(args.ParseUnsigned(0));
+	else
+		partition.PlayAny();
+
 	return CommandResult::OK;
 }
 
@@ -131,48 +124,50 @@ handle_status(Client &client, [[maybe_unused]] Request args, Response &r)
 
 	const auto &playlist = partition.playlist;
 
-	const auto volume = volume_level_get(partition.outputs);
+	const auto volume = partition.mixer_memento.GetVolume(partition.outputs);
 	if (volume >= 0)
-		r.Fmt(FMT_STRING("volume: {}\n"), volume);
+		r.Fmt("volume: {}\n", volume);
 
-	r.Fmt(FMT_STRING(COMMAND_STATUS_REPEAT ": {}\n"
-			 COMMAND_STATUS_RANDOM ": {}\n"
-			 COMMAND_STATUS_SINGLE ": {}\n"
-			 COMMAND_STATUS_CONSUME ": {}\n"
-			 "partition: {}\n"
-			 COMMAND_STATUS_PLAYLIST ": {}\n"
-			 COMMAND_STATUS_PLAYLIST_LENGTH ": {}\n"
-			 COMMAND_STATUS_MIXRAMPDB ": {}\n"
-			 COMMAND_STATUS_STATE ": {}\n"),
+	r.Fmt(COMMAND_STATUS_REPEAT ": {}\n"
+	      COMMAND_STATUS_RANDOM ": {}\n"
+	      COMMAND_STATUS_SINGLE ": {}\n"
+	      COMMAND_STATUS_CONSUME ": {}\n"
+	      "partition: {}\n"
+	      COMMAND_STATUS_PLAYLIST ": {}\n"
+	      COMMAND_STATUS_PLAYLIST_LENGTH ": {}\n"
+	      COMMAND_STATUS_MIXRAMPDB ": {}\n"
+	      COMMAND_STATUS_STATE ": {}\n"
+	      COMMAND_STATUS_LOADED_PLAYLIST ": {}\n",
 	      (unsigned)playlist.GetRepeat(),
 	      (unsigned)playlist.GetRandom(),
 	      SingleToString(playlist.GetSingle()),
-	      (unsigned)playlist.GetConsume(),
+	      ConsumeToString(playlist.GetConsume()),
 	      partition.name.c_str(),
 	      playlist.GetVersion(),
 	      playlist.GetLength(),
 	      pc.GetMixRampDb(),
-	      state);
+	      state,
+	      playlist.GetLastLoadedPlaylist());
 
 	if (pc.GetCrossFade() > FloatDuration::zero())
-		r.Fmt(FMT_STRING(COMMAND_STATUS_CROSSFADE ": {}\n"),
-		      lround(pc.GetCrossFade().count()));
+		r.Fmt(COMMAND_STATUS_CROSSFADE ": {}\n",
+		      std::lround(pc.GetCrossFade().count()));
 
 	if (pc.GetMixRampDelay() > FloatDuration::zero())
-		r.Fmt(FMT_STRING(COMMAND_STATUS_MIXRAMPDELAY ": {}\n"),
+		r.Fmt(COMMAND_STATUS_MIXRAMPDELAY ": {}\n",
 		      pc.GetMixRampDelay().count());
 
 	song = playlist.GetCurrentPosition();
 	if (song >= 0) {
-		r.Fmt(FMT_STRING(COMMAND_STATUS_SONG ": {}\n"
-				 COMMAND_STATUS_SONGID ": {}\n"),
+		r.Fmt(COMMAND_STATUS_SONG ": {}\n"
+		      COMMAND_STATUS_SONGID ": {}\n",
 		      song, playlist.PositionToId(song));
 	}
 
 	if (player_status.state != PlayerState::STOP) {
-		r.Fmt(FMT_STRING(COMMAND_STATUS_TIME ": {}:{}\n"
-				 "elapsed: {:1.3f}\n"
-				 COMMAND_STATUS_BITRATE ": {}\n"),
+		r.Fmt(COMMAND_STATUS_TIME ": {}:{}\n"
+		      "elapsed: {:1.3f}\n"
+		      COMMAND_STATUS_BITRATE ": {}\n",
 		      player_status.elapsed_time.RoundS(),
 		      player_status.total_time.IsNegative()
 		      ? 0U
@@ -181,12 +176,12 @@ handle_status(Client &client, [[maybe_unused]] Request args, Response &r)
 		      player_status.bit_rate);
 
 		if (!player_status.total_time.IsNegative())
-			r.Fmt(FMT_STRING("duration: {:1.3f}\n"),
+			r.Fmt("duration: {:1.3f}\n",
 				 player_status.total_time.ToDoubleS());
 
 		if (player_status.audio_format.IsDefined())
-			r.Fmt(FMT_STRING(COMMAND_STATUS_AUDIO ": {}\n"),
-			      ToString(player_status.audio_format));
+			r.Fmt(COMMAND_STATUS_AUDIO ": {}\n",
+			      player_status.audio_format);
 	}
 
 #ifdef ENABLE_DATABASE
@@ -195,7 +190,7 @@ handle_status(Client &client, [[maybe_unused]] Request args, Response &r)
 		? update_service->GetId()
 		: 0;
 	if (updateJobId != 0) {
-		r.Fmt(FMT_STRING(COMMAND_STATUS_UPDATING_DB ": {}\n"),
+		r.Fmt(COMMAND_STATUS_UPDATING_DB ": {}\n",
 		      updateJobId);
 	}
 #endif
@@ -203,14 +198,14 @@ handle_status(Client &client, [[maybe_unused]] Request args, Response &r)
 	try {
 		pc.LockCheckRethrowError();
 	} catch (...) {
-		r.Fmt(FMT_STRING(COMMAND_STATUS_ERROR ": {}\n"),
+		r.Fmt(COMMAND_STATUS_ERROR ": {}\n",
 		      GetFullMessage(std::current_exception()));
 	}
 
 	song = playlist.GetNextPosition();
 	if (song >= 0)
-		r.Fmt(FMT_STRING(COMMAND_STATUS_NEXTSONG ": {}\n"
-				 COMMAND_STATUS_NEXTSONGID ": {}\n"),
+		r.Fmt(COMMAND_STATUS_NEXTSONG ": {}\n"
+		      COMMAND_STATUS_NEXTSONGID ": {}\n",
 		      song, playlist.PositionToId(song));
 
 	return CommandResult::OK;
@@ -261,8 +256,8 @@ handle_single(Client &client, Request args, [[maybe_unused]] Response &r)
 CommandResult
 handle_consume(Client &client, Request args, [[maybe_unused]] Response &r)
 {
-	bool status = args.ParseBool(0);
-	client.GetPartition().SetConsume(status);
+	auto new_mode = ConsumeFromString(args.front());
+	client.GetPartition().SetConsume(new_mode);
 	return CommandResult::OK;
 }
 
@@ -353,7 +348,7 @@ CommandResult
 handle_replay_gain_status(Client &client, [[maybe_unused]] Request args,
 			  Response &r)
 {
-	r.Fmt(FMT_STRING("replay_gain_mode: {}\n"),
+	r.Fmt("replay_gain_mode: {}\n",
 	      ToString(client.GetPartition().replay_gain_mode));
 	return CommandResult::OK;
 }

@@ -1,58 +1,69 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_UPNP_ACTION_HXX
-#define MPD_UPNP_ACTION_HXX
+#pragma once
 
-#include "util/Compiler.h"
+#include "config.h" // for USING_PUPNP
 
-#include <upnptools.h>
+#include <upnp.h> // for UpnpClient_Handle
 
-static constexpr unsigned
-CountNameValuePairs() noexcept
-{
-	return 0;
-}
-
-template<typename... Args>
-static constexpr unsigned
-CountNameValuePairs([[maybe_unused]] const char *name, [[maybe_unused]] const char *value,
-		    Args... args) noexcept
-{
-	return 1 + CountNameValuePairs(args...);
-}
+#include <utility> // for std::pair
 
 #ifdef USING_PUPNP
-/**
- * A wrapper for UpnpMakeAction() that counts the number of name/value
- * pairs and adds the nullptr sentinel.
- */
-template<typename... Args>
-static inline IXML_Document *
-MakeActionHelper(const char *action_name, const char *service_type,
-		 Args... args) noexcept
-{
-	const unsigned n = CountNameValuePairs(args...);
-	return UpnpMakeAction(action_name, service_type, n,
-			      args...,
-			      nullptr, nullptr);
-}
-#endif
 
-#endif
+#include <initializer_list>
+
+class UpnpActionResponse {
+	IXML_Document *document;
+
+public:
+	explicit UpnpActionResponse(IXML_Document *_document) noexcept
+		:document(_document) {}
+
+	~UpnpActionResponse() noexcept {
+		ixmlDocument_free(document);
+	}
+
+	UpnpActionResponse(const UpnpActionResponse &) = delete;
+	UpnpActionResponse &operator=(const UpnpActionResponse &) = delete;
+
+	[[gnu::pure]]
+	const char *GetValue(const char *name) const noexcept;
+};
+
+UpnpActionResponse
+UpnpSendAction(UpnpClient_Handle handle, const char *url,
+	       const char *action_name, const char *service_type,
+	       std::initializer_list<std::pair<const char *, const char *>> args);
+
+#else // USING_PUPNP
+
+#include <string>
+#include <vector>
+
+class UpnpActionResponse {
+	std::vector<std::pair<std::string, std::string>> data;
+
+public:
+	explicit UpnpActionResponse(std::vector<std::pair<std::string, std::string>> &&_data) noexcept
+		:data(_data) {}
+
+	UpnpActionResponse(const UpnpActionResponse &) = delete;
+	UpnpActionResponse &operator=(const UpnpActionResponse &) = delete;
+
+	[[gnu::pure]]
+	const char *GetValue(std::string_view name) const noexcept {
+		for (const auto &i : data)
+			if (i.first == name)
+				return i.second.c_str();
+
+		return nullptr;
+	}
+};
+
+UpnpActionResponse
+UpnpSendAction(UpnpClient_Handle handle, const char *url,
+	       const char *action_name, const char *service_type,
+	       const std::vector<std::pair<std::string, std::string>> &args);
+
+#endif // !USING_PUPNP

@@ -1,28 +1,15 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "UdisksStorage.hxx"
 #include "LocalStorage.hxx"
 #include "storage/StoragePlugin.hxx"
 #include "storage/StorageInterface.hxx"
 #include "storage/FileInfo.hxx"
+#include "input/InputStream.hxx"
+#include "input/LocalOpen.hxx"
 #include "lib/fmt/ExceptionFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "lib/dbus/Glue.hxx"
 #include "lib/dbus/AsyncRequest.hxx"
 #include "lib/dbus/Message.hxx"
@@ -38,7 +25,6 @@
 #include "fs/AllocatedPath.hxx"
 #include "util/Domain.hxx"
 #include "util/StringCompare.hxx"
-#include "util/RuntimeError.hxx"
 #include "Log.hxx"
 
 #include <stdexcept>
@@ -92,7 +78,7 @@ public:
 			UnmountWait();
 		} catch (...) {
 			FmtError(udisks_domain,
-				 "Failed to unmount '{}': {}",
+				 "Failed to unmount {:?}: {}",
 				 base_uri, std::current_exception());
 		}
 	}
@@ -129,6 +115,12 @@ public:
 
 	std::string_view MapToRelativeUTF8(std::string_view uri_utf8) const noexcept override;
 
+	InputStreamPtr OpenFile(std::string_view uri_utf8, Mutex &file_mutex) override {
+		MountWait();
+		const auto path = mounted_storage->MapFS(uri_utf8);
+		return OpenLocalInputStream(path, file_mutex);
+	}
+
 private:
 	void SetMountPoint(Path mount_point);
 	void LockSetMountPoint(Path mount_point);
@@ -159,7 +151,7 @@ UdisksStorage::SetMountPoint(Path mount_point)
 void
 UdisksStorage::LockSetMountPoint(Path mount_point)
 {
-	const std::scoped_lock<Mutex> lock(mutex);
+	const std::scoped_lock lock{mutex};
 	SetMountPoint(mount_point);
 }
 
@@ -180,8 +172,8 @@ UdisksStorage::OnListReply(ODBus::Message reply) noexcept
 		});
 
 		if (dbus_path.empty())
-			throw FormatRuntimeError("No such UDisks2 object: %s",
-						 id.c_str());
+			throw FmtRuntimeError("No such UDisks2 object: {}",
+					      id);
 
 		if (!mount_point.empty()) {
 			/* already mounted: don't attempt to mount
@@ -191,7 +183,7 @@ UdisksStorage::OnListReply(ODBus::Message reply) noexcept
 			return;
 		}
 	} catch (...) {
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		mount_error = std::current_exception();
 		want_mount = false;
 		cond.notify_all();
@@ -204,7 +196,7 @@ UdisksStorage::OnListReply(ODBus::Message reply) noexcept
 void
 UdisksStorage::MountWait()
 {
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 
 	if (mounted_storage)
 		/* already mounted */
@@ -247,7 +239,7 @@ try {
 	mount_request.Send(connection, *msg.Get(),
 			   [this](auto o) { return OnMountNotify(std::move(o)); });
 } catch (...) {
-	const std::scoped_lock<Mutex> lock(mutex);
+	const std::scoped_lock lock{mutex};
 	mount_error = std::current_exception();
 	want_mount = false;
 	cond.notify_all();
@@ -266,7 +258,7 @@ try {
 	const char *mount_path = i.GetString();
 	LockSetMountPoint(Path::FromFS(mount_path));
 } catch (...) {
-	const std::scoped_lock<Mutex> lock(mutex);
+	const std::scoped_lock lock{mutex};
 	mount_error = std::current_exception();
 	want_mount = false;
 	cond.notify_all();
@@ -275,7 +267,7 @@ try {
 void
 UdisksStorage::UnmountWait()
 {
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 
 	if (!mounted_storage)
 		/* not mounted */
@@ -304,7 +296,7 @@ try {
 	mount_request.Send(connection, *msg.Get(),
 			   [this](auto u) { return OnUnmountNotify(std::move(u)); });
 } catch (...) {
-	const std::scoped_lock<Mutex> lock(mutex);
+	const std::scoped_lock lock{mutex};
 	mount_error = std::current_exception();
 	mounted_storage.reset();
 	cond.notify_all();
@@ -316,12 +308,12 @@ try {
 	using namespace ODBus;
 	reply.CheckThrowError();
 
-	const std::scoped_lock<Mutex> lock(mutex);
+	const std::scoped_lock lock{mutex};
 	mount_error = {};
 	mounted_storage.reset();
 	cond.notify_all();
 } catch (...) {
-	const std::scoped_lock<Mutex> lock(mutex);
+	const std::scoped_lock lock{mutex};
 	mount_error = std::current_exception();
 	mounted_storage.reset();
 	cond.notify_all();

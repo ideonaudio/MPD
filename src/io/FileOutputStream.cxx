@@ -1,41 +1,17 @@
-/*
- * Copyright 2014-2022 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
 #include "FileOutputStream.hxx"
-#include "system/Error.hxx"
-#include "util/StringFormat.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/SystemError.hxx"
 
 #ifdef _WIN32
 #include <tchar.h>
 #endif
 
 #ifdef __linux__
+#include "FileAt.hxx"
+#include "io/linux/ProcPath.hxx"
 #include <fcntl.h>
 #endif
 
@@ -106,8 +82,7 @@ FileOutputStream::OpenCreate(bool visible)
 			    FILE_ATTRIBUTE_NORMAL|FILE_FLAG_WRITE_THROUGH,
 			    nullptr);
 	if (!IsDefined())
-		throw FormatLastError("Failed to create %s",
-				      path.ToUTF8().c_str());
+		throw FmtLastError("Failed to create {}", path);
 }
 
 inline void
@@ -118,14 +93,12 @@ FileOutputStream::OpenAppend(bool create)
 			    FILE_ATTRIBUTE_NORMAL|FILE_FLAG_WRITE_THROUGH,
 			    nullptr);
 	if (!IsDefined())
-		throw FormatLastError("Failed to append to %s",
-				      path.ToUTF8().c_str());
+		throw FmtLastError("Failed to append to {}", path);
 
 	if (!SeekEOF()) {
 		auto code = GetLastError();
 		Close();
-		throw FormatLastError(code, "Failed seek end-of-file of %s",
-				      path.ToUTF8().c_str());
+		throw FmtLastError(code, "Failed seek end-of-file of {}", path);
 	}
 
 }
@@ -142,18 +115,18 @@ FileOutputStream::Tell() const noexcept
 }
 
 void
-FileOutputStream::Write(const void *data, size_t size)
+FileOutputStream::Write(std::span<const std::byte> src)
 {
 	assert(IsDefined());
 
 	DWORD nbytes;
-	if (!WriteFile(handle, data, size, &nbytes, nullptr))
-		throw FormatLastError("Failed to write to %s",
-				      GetPath().c_str());
+	if (!WriteFile(handle, src.data(), src.size(), &nbytes, nullptr))
+		throw FmtLastError("Failed to write to {}", GetPath());
 
-	if (size_t(nbytes) != size)
-		throw FormatLastError(ERROR_DISK_FULL, "Failed to write to %s",
-				      GetPath().c_str());
+	if (size_t(nbytes) != src.size())
+		throw FmtLastError(DWORD{ERROR_DISK_FULL},
+				   "Failed to write to {}",
+				   GetPath());
 }
 
 void
@@ -162,7 +135,7 @@ FileOutputStream::Sync()
 	assert(IsDefined());
 
 	if (!FlushFileBuffers(handle))
-		throw FormatLastError("Failed to sync %s", GetPath().c_str());
+		throw FmtLastError("Failed to sync {}", GetPath());
 }
 
 void
@@ -203,7 +176,7 @@ OpenTempFile(FileDescriptor directory_fd,
 	     FileDescriptor &fd, Path path) noexcept
 {
 	if (directory_fd != FileDescriptor(AT_FDCWD))
-		return fd.Open(directory_fd, ".", O_TMPFILE|O_WRONLY, 0666);
+		return fd.Open({directory_fd, "."}, O_TMPFILE|O_WRONLY, 0666);
 
 	const auto directory = path.GetDirectoryName();
 	if (directory.IsNull())
@@ -215,7 +188,7 @@ OpenTempFile(FileDescriptor directory_fd,
 #endif /* HAVE_O_TMPFILE */
 
 inline void
-FileOutputStream::OpenCreate([[maybe_unused]] bool visible)
+FileOutputStream::OpenCreate(bool visible)
 {
 #ifdef HAVE_O_TMPFILE
 	/* try Linux's O_TMPFILE first */
@@ -232,9 +205,13 @@ FileOutputStream::OpenCreate([[maybe_unused]] bool visible)
 
 		if (fd.Open(
 #ifdef __linux__
-			    directory_fd,
+			    {
+				    directory_fd,
 #endif
-			    tmp_path.c_str(),
+				    tmp_path.c_str(),
+#ifdef __linux__
+			    },
+#endif
 			    O_WRONLY|O_CREAT|O_EXCL,
 			    0666))
 			return;
@@ -244,13 +221,16 @@ FileOutputStream::OpenCreate([[maybe_unused]] bool visible)
 	/* fall back to plain POSIX */
 	if (!fd.Open(
 #ifdef __linux__
-		    directory_fd,
+		     {
+			    directory_fd,
 #endif
-		    GetPath().c_str(),
+			    GetPath().c_str(),
+#ifdef __linux__
+		    },
+#endif
 		    O_WRONLY|O_CREAT|O_TRUNC,
 		    0666))
-		throw FormatErrno("Failed to create %s",
-				  GetPath().c_str());
+		throw FmtErrno("Failed to create {}", GetPath());
 }
 
 inline void
@@ -262,11 +242,15 @@ FileOutputStream::OpenAppend(bool create)
 
 	if (!fd.Open(
 #ifdef __linux__
-		     directory_fd,
+		     {
+			     directory_fd,
 #endif
-		     path.c_str(), flags))
-		throw FormatErrno("Failed to append to %s",
-				  path.c_str());
+			     path.c_str(),
+#ifdef __linux__
+		     },
+#endif
+		     flags))
+		throw FmtErrno("Failed to append to {}", path);
 }
 
 uint64_t
@@ -276,16 +260,15 @@ FileOutputStream::Tell() const noexcept
 }
 
 void
-FileOutputStream::Write(const void *data, size_t size)
+FileOutputStream::Write(std::span<const std::byte> src)
 {
 	assert(IsDefined());
 
-	ssize_t nbytes = fd.Write(data, size);
+	ssize_t nbytes = fd.Write(src);
 	if (nbytes < 0)
-		throw FormatErrno("Failed to write to %s", GetPath().c_str());
-	else if ((size_t)nbytes < size)
-		throw FormatErrno(ENOSPC, "Failed to write to %s",
-				  GetPath().c_str());
+		throw FmtErrno("Failed to write to {}", GetPath());
+	else if ((size_t)nbytes < src.size())
+		throw FmtErrno(ENOSPC, "Failed to write to {}", GetPath());
 }
 
 void
@@ -299,7 +282,7 @@ FileOutputStream::Sync()
 	const bool success = fsync(fd.Get()) == 0;
 #endif
 	if (!success)
-		throw FormatErrno("Failed to sync %s", GetPath().c_str());
+		throw FmtErrno("Failed to sync {}", GetPath());
 }
 
 void
@@ -312,17 +295,15 @@ try {
 		unlinkat(directory_fd.Get(), GetPath().c_str(), 0);
 
 		/* hard-link the temporary file to the final path */
-		if (linkat(AT_FDCWD,
-			   StringFormat<64>("/proc/self/fd/%d", fd.Get()),
+		if (linkat(-1, ProcFdPath(fd),
 			   directory_fd.Get(), path.c_str(),
 			   AT_SYMLINK_FOLLOW) < 0)
-			throw FormatErrno("Failed to commit %s",
-					  path.c_str());
+			throw FmtErrno("Failed to commit {}", path);
 	}
 #endif
 
 	if (!Close()) {
-		throw FormatErrno("Failed to commit %s", path.c_str());
+		throw FmtErrno("Failed to commit {}", path);
 	}
 
 	if (tmp_path != nullptr)

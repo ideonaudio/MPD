@@ -1,24 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_DECODER_LIST_HXX
-#define MPD_DECODER_LIST_HXX
+#pragma once
+
+#include "util/DereferenceIterator.hxx"
+#include "util/FilteredContainer.hxx"
+#include "util/TerminatedArray.hxx"
 
 #include <string_view>
 
@@ -53,43 +40,28 @@ public:
 	}
 };
 
+static inline auto
+GetAllDecoderPlugins() noexcept
+{
+	return DereferenceContainerAdapter{TerminatedArray<const DecoderPlugin *const, nullptr>{decoder_plugins}};
+}
+
+static inline auto
+GetEnabledDecoderPlugins() noexcept
+{
+	const auto all = GetAllDecoderPlugins();
+	return FilteredContainer{all.begin(), all.end(), decoder_plugins_enabled};
+}
+
 template<typename F>
 static inline const DecoderPlugin *
 decoder_plugins_find(F f) noexcept
 {
-	for (unsigned i = 0; decoder_plugins[i] != nullptr; ++i)
-		if (decoder_plugins_enabled[i] && f(*decoder_plugins[i]))
-			return decoder_plugins[i];
+	for (const auto &plugin : GetEnabledDecoderPlugins())
+		if (f(plugin))
+			return &plugin;
 
 	return nullptr;
-}
-
-template<typename F>
-static inline bool
-decoder_plugins_try(F f)
-{
-	for (unsigned i = 0; decoder_plugins[i] != nullptr; ++i)
-		if (decoder_plugins_enabled[i] && f(*decoder_plugins[i]))
-			return true;
-
-	return false;
-}
-
-template<typename F>
-static inline void
-decoder_plugins_for_each(F f)
-{
-	for (auto i = decoder_plugins; *i != nullptr; ++i)
-		f(**i);
-}
-
-template<typename F>
-static inline void
-decoder_plugins_for_each_enabled(F f)
-{
-	for (unsigned i = 0; decoder_plugins[i] != nullptr; ++i)
-		if (decoder_plugins_enabled[i])
-			f(*decoder_plugins[i]);
 }
 
 /**
@@ -99,5 +71,3 @@ decoder_plugins_for_each_enabled(F f)
 [[gnu::pure]]
 bool
 decoder_plugins_supports_suffix(std::string_view suffix) noexcept;
-
-#endif

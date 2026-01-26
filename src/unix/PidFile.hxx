@@ -1,86 +1,66 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_PID_FILE_HXX
-#define MPD_PID_FILE_HXX
+#pragma once
 
+#include "lib/fmt/PathFormatter.hxx"
 #include "fs/FileSystem.hxx"
 #include "fs/AllocatedPath.hxx"
-#include "system/Error.hxx"
+#include "lib/fmt/SystemError.hxx"
+#include "lib/fmt/Unsafe.hxx"
+#include "io/FileDescriptor.hxx"
+#include "util/SpanCast.hxx"
 
 #include <cassert>
 
-#include <string.h>
-#include <unistd.h>
-#include <stdlib.h>
 #include <fcntl.h>
 
 class PidFile {
-	int fd;
+	FileDescriptor fd;
 
 public:
 	PidFile(const AllocatedPath &path):fd(-1) {
 		if (path.IsNull())
 			return;
 
-		fd = OpenFile(path, O_WRONLY|O_CREAT|O_TRUNC, 0666).Steal();
-		if (fd < 0) {
-			const std::string utf8 = path.ToUTF8();
-			throw FormatErrno("Failed to create pid file \"%s\"",
-					  utf8.c_str());
-		}
+		fd = OpenFile(path, O_WRONLY|O_CREAT|O_TRUNC, 0666).Release();
+		if (!fd.IsDefined())
+			throw FmtErrno("Failed to create pid file {:?}",
+				       path);
 	}
 
 	PidFile(const PidFile &) = delete;
 
 	void Close() noexcept {
-		if (fd < 0)
+		if (!fd.IsDefined())
 			return;
 
-		close(fd);
+		fd.Close();
 	}
 
 	void Delete(const AllocatedPath &path) noexcept {
-		if (fd < 0) {
+		if (!fd.IsDefined()) {
 			assert(path.IsNull());
 			return;
 		}
 
 		assert(!path.IsNull());
 
-		close(fd);
+		fd.Close();
 		unlink(path.c_str());
 	}
 
 	void Write(pid_t pid) noexcept {
-		if (fd < 0)
+		if (!fd.IsDefined())
 			return;
 
-		char buffer[64];
-		sprintf(buffer, "%lu\n", (unsigned long)pid);
-
-		write(fd, buffer, strlen(buffer));
-		close(fd);
+		char buffer[32];
+		(void)fd.Write(AsBytes(FmtUnsafeSV(buffer, "{}\n", pid)));
+		fd.Close();
 	}
 
 	void Write() noexcept {
-		if (fd < 0)
+		if (!fd.IsDefined())
 			return;
 
 		Write(getpid());
@@ -98,7 +78,7 @@ ReadPidFile(Path path) noexcept
 	pid_t pid = -1;
 
 	char buffer[32];
-	auto nbytes = fd.Read(buffer, sizeof(buffer) - 1);
+	auto nbytes = fd.Read(std::as_writable_bytes(std::span{buffer, sizeof(buffer) - 1}));
 	if (nbytes > 0) {
 		buffer[nbytes] = 0;
 
@@ -110,5 +90,3 @@ ReadPidFile(Path path) noexcept
 
 	return pid;
 }
-
-#endif

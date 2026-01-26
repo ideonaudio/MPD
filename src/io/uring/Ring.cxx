@@ -1,34 +1,6 @@
-/*
- * Copyright 2020-2022 CM4all GmbH
- * All rights reserved.
- *
- * author: Max Kellermann <mk@cm4all.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// Copyright CM4all GmbH
+// author: Max Kellermann <max.kellermann@ionos.com>
 
 #include "Ring.hxx"
 #include "system/Error.hxx"
@@ -37,16 +9,51 @@ namespace Uring {
 
 Ring::Ring(unsigned entries, unsigned flags)
 {
-	int error = io_uring_queue_init(entries, &ring, flags);
-	if (error < 0)
+	if (int error = io_uring_queue_init(entries, &ring, flags);
+	    error < 0)
 		throw MakeErrno(-error, "io_uring_queue_init() failed");
+#ifdef IO_URING_CHECK_VERSION
+#if !IO_URING_CHECK_VERSION(2, 10)
+	// Intentionally ignore the error code, as this is only supported on Linux 6.15+
+	(void) io_uring_set_iowait(&ring, false);
+#endif
+#endif
+}
+
+Ring::Ring(unsigned entries, struct io_uring_params &params)
+{
+	if (int error = io_uring_queue_init_params(entries, &ring, &params);
+	    error < 0)
+		throw MakeErrno(-error, "io_uring_queue_init_params() failed");
+#ifdef IO_URING_CHECK_VERSION
+#if !IO_URING_CHECK_VERSION(2, 10)
+	// Intentionally ignore the error code, as this is only supported on Linux 6.15+
+	(void) io_uring_set_iowait(&ring, false);
+#endif
+#endif
+}
+
+void
+Ring::SetMaxWorkers(unsigned values[2])
+{
+	if (int error = io_uring_register_iowq_max_workers(&ring, values);
+	    error < 0)
+		throw MakeErrno(-error, "io_uring_register_iowq_max_workers() failed");
 }
 
 void
 Ring::Submit()
 {
-	int error = io_uring_submit(&ring);
-	if (error < 0)
+	if (int error = io_uring_submit(&ring);
+	    error < 0)
+		throw MakeErrno(-error, "io_uring_submit() failed");
+}
+
+void
+Ring::SubmitAndGetEvents()
+{
+	if (int error = io_uring_submit_and_get_events(&ring);
+	    error < 0)
 		throw MakeErrno(-error, "io_uring_submit() failed");
 }
 
@@ -54,9 +61,9 @@ struct io_uring_cqe *
 Ring::WaitCompletion()
 {
 	struct io_uring_cqe *cqe;
-	int error = io_uring_wait_cqe(&ring, &cqe);
-	if (error < 0) {
-		if (error == -EAGAIN)
+	if (int error = io_uring_wait_cqe(&ring, &cqe);
+	    error < 0) {
+		if (error == -EAGAIN || error == -EINTR)
 			return nullptr;
 
 		throw MakeErrno(-error, "io_uring_wait_cqe() failed");
@@ -66,12 +73,26 @@ Ring::WaitCompletion()
 }
 
 struct io_uring_cqe *
+Ring::SubmitAndWaitCompletion(struct __kernel_timespec *timeout)
+{
+	struct io_uring_cqe *cqe;
+	if (int error = io_uring_submit_and_wait_timeout(&ring, &cqe, 1, timeout, nullptr);
+	    error < 0) {
+		if (error == -ETIME || error == -EAGAIN || error == -EINTR)
+			return nullptr;
+
+		throw MakeErrno(-error, "io_uring_submit_and_wait_timeout() failed");
+	}
+
+	return cqe;
+}
+
+struct io_uring_cqe *
 Ring::PeekCompletion()
 {
 	struct io_uring_cqe *cqe;
-	int error = io_uring_peek_cqe(&ring, &cqe);
-	if (error < 0) {
-		if (error == -EAGAIN)
+	if (int error = io_uring_peek_cqe(&ring, &cqe); error < 0) {
+		if (error == -EAGAIN || error == -EINTR)
 			return nullptr;
 
 		throw MakeErrno(-error, "io_uring_peek_cqe() failed");

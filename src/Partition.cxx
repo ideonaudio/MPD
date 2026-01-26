@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "Partition.hxx"
@@ -24,8 +8,7 @@
 #include "config/PartitionConfig.hxx"
 #include "lib/fmt/ExceptionFormatter.hxx"
 #include "song/DetachedSong.hxx"
-#include "mixer/Volume.hxx"
-#include "IdleFlags.hxx"
+#include "protocol/IdleFlags.hxx"
 #include "client/Listener.hxx"
 #include "client/Client.hxx"
 #include "input/cache/Manager.hxx"
@@ -66,13 +49,13 @@ PrefetchSong(InputCacheManager &cache, const char *uri) noexcept
 	if (cache.Contains(uri))
 		return;
 
-	FmtDebug(cache_domain, "Prefetch '{}'", uri);
+	FmtDebug(cache_domain, "Prefetch {:?}", uri);
 
 	try {
 		cache.Prefetch(uri);
 	} catch (...) {
 		FmtError(cache_domain,
-			 "Prefetch '{}' failed: {}",
+			 "Prefetch {:?} failed: {}",
 			 uri, std::current_exception());
 	}
 }
@@ -196,6 +179,12 @@ Partition::OnPlayerStateChanged() noexcept
 }
 
 void
+Partition::OnPlayerOptionsChanged() noexcept
+{
+	EmitIdle(IDLE_OPTIONS);
+}
+
+void
 Partition::OnPlayerSync() noexcept
 {
 	EmitGlobalEvent(SYNC_WITH_PLAYER);
@@ -220,8 +209,15 @@ Partition::OnBorderPause() noexcept
 void
 Partition::OnMixerVolumeChanged(Mixer &, int) noexcept
 {
-	InvalidateHardwareVolume();
+	mixer_memento.InvalidateHardwareVolume();
 
+	/* notify clients */
+	EmitIdle(IDLE_MIXER);
+}
+
+void
+Partition::OnMixerChanged() noexcept
+{
 	/* notify clients */
 	EmitIdle(IDLE_MIXER);
 }

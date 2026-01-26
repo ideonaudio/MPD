@@ -1,34 +1,7 @@
-/*
- * Copyright 2016-2021 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
-#ifndef NET_ADDRESS_INFO_HXX
-#define NET_ADDRESS_INFO_HXX
+#pragma once
 
 #include "SocketAddress.hxx"
 
@@ -40,17 +13,6 @@
 #else
 #include <netdb.h> // IWYU pragma: export
 #endif
-
-constexpr struct addrinfo
-MakeAddrInfo(int flags, int family, int socktype, int protocol=0) noexcept
-{
-	struct addrinfo ai{};
-	ai.ai_flags = flags;
-	ai.ai_family = family;
-	ai.ai_socktype = socktype;
-	ai.ai_protocol = protocol;
-	return ai;
-}
 
 class AddressInfo : addrinfo {
 	/* this class cannot be instantiated, it can only be cast from
@@ -71,8 +33,23 @@ public:
 		return ai_protocol;
 	}
 
+	constexpr bool IsInet() const noexcept {
+		return ai_family == AF_INET || ai_family == AF_INET6;
+	}
+
+	constexpr bool IsTCP() const noexcept {
+		return IsInet() && GetType() == SOCK_STREAM;
+	}
+
 	constexpr operator SocketAddress() const noexcept {
 		return {ai_addr, (SocketAddress::size_type)ai_addrlen};
+	}
+
+	/**
+	 * Cast a #addrinfo reference to an #AddressInfo reference.
+	 */
+	static constexpr const AddressInfo &Cast(const struct addrinfo &ai) noexcept {
+		return static_cast<const AddressInfo &>(ai);
 	}
 };
 
@@ -130,10 +107,6 @@ public:
 			return cursor == other.cursor;
 		}
 
-		constexpr bool operator!=(const_iterator other) const noexcept {
-			return cursor != other.cursor;
-		}
-
 		const_iterator &operator++() noexcept {
 			cursor = cursor->ai_next;
 			return *this;
@@ -156,5 +129,3 @@ public:
 		return const_iterator(nullptr);
 	}
 };
-
-#endif

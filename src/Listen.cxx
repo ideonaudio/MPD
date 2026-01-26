@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "Listen.hxx"
@@ -27,15 +11,15 @@
 #include "config/Net.hxx"
 #include "lib/fmt/ExceptionFormatter.hxx"
 #include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "net/AllocatedSocketAddress.hxx"
 #include "net/UniqueSocketDescriptor.hxx"
 #include "net/SocketUtil.hxx"
 #include "system/Error.hxx"
 #include "fs/AllocatedPath.hxx"
-#include "fs/StandardDirectory.hxx"
+#include "fs/glue/StandardDirectory.hxx"
 #include "fs/XDG.hxx"
 #include "util/Domain.hxx"
-#include "util/RuntimeError.hxx"
 
 #include <sys/stat.h>
 
@@ -65,7 +49,7 @@ listen_systemd_activation(ClientListener &listener)
 
 	for (int i = SD_LISTEN_FDS_START, end = SD_LISTEN_FDS_START + n;
 	     i != end; ++i)
-		listener.AddFD(UniqueSocketDescriptor(i));
+		listener.AddFD(UniqueSocketDescriptor{AdoptTag{}, i});
 
 	return true;
 }
@@ -104,7 +88,7 @@ ListenXdgRuntimeDir(ClientListener &listener) noexcept
 		return true;
 	} catch (...) {
 		FmtError(listen_domain,
-			 "Failed to listen on '{}' (not fatal): {}",
+			 "Failed to listen on {:?} (not fatal): {}",
 			 socket_path, std::current_exception());
 		return false;
 	}
@@ -129,9 +113,9 @@ listen_global_init(const ConfigData &config, ClientListener &listener)
 			ServerSocketAddGeneric(listener, param.value.c_str(),
 					       port);
 		} catch (...) {
-			std::throw_with_nested(FormatRuntimeError("Failed to listen on %s (line %i)",
-								  param.value.c_str(),
-								  param.line));
+			std::throw_with_nested(FmtRuntimeError("Failed to listen on {} (line {})",
+							       param.value,
+							       param.line));
 		}
 	}
 
@@ -146,7 +130,8 @@ listen_global_init(const ConfigData &config, ClientListener &listener)
 		try {
 			listener.AddPort(port);
 		} catch (...) {
-			std::throw_with_nested(FormatRuntimeError("Failed to listen on *:%d: ", port));
+			std::throw_with_nested(FmtRuntimeError("Failed to listen on *:{}",
+							       port));
 		}
 	}
 

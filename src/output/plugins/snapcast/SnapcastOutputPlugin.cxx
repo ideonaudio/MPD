@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "SnapcastOutputPlugin.hxx"
 #include "Internal.hxx"
@@ -38,8 +22,8 @@
 #include "zeroconf/Helper.hxx"
 #endif
 
-#ifdef HAVE_YAJL
-#include "lib/yajl/Gen.hxx"
+#ifdef HAVE_NLOHMANN_JSON
+#include <nlohmann/json.hpp>
 #endif
 
 #include <cassert>
@@ -111,12 +95,12 @@ SnapcastOutput::AddClient(UniqueSocketDescriptor fd) noexcept
 
 void
 SnapcastOutput::OnAccept(UniqueSocketDescriptor fd,
-			 SocketAddress, int) noexcept
+			 SocketAddress) noexcept
 {
 	/* the listener socket has become readable - a client has
 	   connected */
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	/* can we allow additional client */
 	if (open)
@@ -146,7 +130,7 @@ SnapcastOutput::Open(AudioFormat &audio_format)
 	assert(!open);
 	assert(clients.empty());
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	OpenEncoder(audio_format);
 
@@ -168,7 +152,7 @@ SnapcastOutput::Close() noexcept
 	BlockingCall(GetEventLoop(), [this](){
 		inject_event.Cancel();
 
-		const std::scoped_lock<Mutex> protect(mutex);
+		const std::scoped_lock protect{mutex};
 		open = false;
 		clients.clear_and_dispose(DeleteDisposer{});
 	});
@@ -182,7 +166,7 @@ SnapcastOutput::Close() noexcept
 void
 SnapcastOutput::OnInject() noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	while (!chunks.empty()) {
 		const auto chunk = std::move(chunks.front());
@@ -225,7 +209,7 @@ SnapcastOutput::Delay() const noexcept
 		: std::chrono::steady_clock::duration::zero();
 }
 
-#ifdef HAVE_YAJL
+#ifdef HAVE_NLOHMANN_JSON
 
 static constexpr struct {
 	TagType type;
@@ -240,7 +224,7 @@ static constexpr struct {
 };
 
 static bool
-TranslateTagType(Yajl::Gen &gen, const Tag &tag, TagType type,
+TranslateTagType(nlohmann::json &json, const Tag &tag, TagType type,
 		 const char *name) noexcept
 {
 	// TODO: support multiple values?
@@ -248,29 +232,19 @@ TranslateTagType(Yajl::Gen &gen, const Tag &tag, TagType type,
 	if (value == nullptr)
 		return false;
 
-	gen.String(name);
-	gen.String(value);
+	json.emplace(name, value);
 	return true;
 }
 
-static std::string
+static nlohmann::json
 ToJson(const Tag &tag) noexcept
 {
-	Yajl::Gen gen(nullptr);
-	gen.OpenMap();
-
-	bool empty = true;
+	auto json = nlohmann::json::object();
 
 	for (const auto [type, name] : snapcast_tags)
-		if (TranslateTagType(gen, tag, type, name))
-			empty = false;
+		TranslateTagType(json, tag, type, name);
 
-	if (empty)
-		return {};
-
-	gen.CloseMap();
-
-	return std::string{ToStringView(gen.GetBuffer())};
+	return json;
 }
 
 #endif
@@ -278,7 +252,7 @@ ToJson(const Tag &tag) noexcept
 void
 SnapcastOutput::SendTag(const Tag &tag)
 {
-#ifdef HAVE_YAJL
+#ifdef HAVE_NLOHMANN_JSON
 	if (!LockHasClients())
 		return;
 
@@ -286,12 +260,12 @@ SnapcastOutput::SendTag(const Tag &tag)
 	if (json.empty())
 		return;
 
-	const auto payload = std::as_bytes(std::span{json});
+	const auto payload = json.dump();
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	// TODO: enqueue StreamTags, don't send directly
 	for (auto &client : clients)
-		client.SendStreamTags(payload);
+		client.SendStreamTags(AsBytes(payload));
 #else
 	(void)tag;
 #endif
@@ -336,7 +310,7 @@ SnapcastOutput::Play(std::span<const std::byte> src)
 
 		unflushed_input = 0;
 
-		const std::scoped_lock<Mutex> protect(mutex);
+		const std::scoped_lock protect{mutex};
 		if (chunks.empty())
 			inject_event.Schedule();
 
@@ -366,14 +340,14 @@ SnapcastOutput::IsDrained() const noexcept
 void
 SnapcastOutput::Drain()
 {
-	std::unique_lock<Mutex> protect(mutex);
+	std::unique_lock protect{mutex};
 	drain_cond.wait(protect, [this]{ return IsDrained(); });
 }
 
 void
 SnapcastOutput::Cancel() noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	ClearQueue(chunks);
 

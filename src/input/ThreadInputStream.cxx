@@ -1,24 +1,7 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "ThreadInputStream.hxx"
-#include "CondHandler.hxx"
 #include "thread/Name.hxx"
 
 #include <cassert>
@@ -26,14 +9,13 @@
 #include <string.h>
 
 ThreadInputStream::ThreadInputStream(const char *_plugin,
-				     const char *_uri,
+				     std::string_view _uri,
 				     Mutex &_mutex,
 				     size_t _buffer_size) noexcept
 	:InputStream(_uri, _mutex),
 	 plugin(_plugin),
 	 thread(BIND_THIS_METHOD(ThreadFunc)),
-	 allocation(_buffer_size),
-	 buffer(&allocation.front(), allocation.size())
+	 allocation(_buffer_size)
 {
 	allocation.SetName("InputStream");
 	allocation.ForkCow(false);
@@ -46,7 +28,7 @@ ThreadInputStream::Stop() noexcept
 		return;
 
 	{
-		const std::scoped_lock<Mutex> lock(mutex);
+		const std::scoped_lock lock{mutex};
 		close = true;
 		wake_cond.notify_one();
 	}
@@ -64,12 +46,20 @@ ThreadInputStream::Start()
 	thread.Start();
 }
 
+void
+ThreadInputStream::ThreadSeek([[maybe_unused]] offset_type new_offset)
+{
+	assert(!IsSeekable());
+
+	throw std::runtime_error{"Not seekable"};
+}
+
 inline void
 ThreadInputStream::ThreadFunc() noexcept
 {
-	FormatThreadName("input:%s", plugin);
+	FmtThreadName("input:{}", plugin);
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 
 	try {
 		Open();
@@ -85,6 +75,24 @@ ThreadInputStream::ThreadFunc() noexcept
 	while (!close) {
 		assert(!postponed_exception);
 
+		if (IsSeeking()) {
+			const auto seek_offset_copy = offset = seek_offset;
+			seek_offset = UNKNOWN_SIZE;
+			eof = false;
+			buffer.Clear();
+
+			try {
+				const ScopeUnlock unlock(mutex);
+				ThreadSeek(seek_offset_copy);
+			} catch (...) {
+				postponed_exception = std::current_exception();
+				InvokeOnAvailable();
+				break;
+			}
+
+			offset = seek_offset_copy;
+		}
+
 		auto w = buffer.Write();
 		if (w.empty()) {
 			wake_cond.wait(lock);
@@ -93,13 +101,15 @@ ThreadInputStream::ThreadFunc() noexcept
 
 			try {
 				const ScopeUnlock unlock(mutex);
-				nbytes = ThreadRead(w.data(), w.size());
+				nbytes = ThreadRead(w);
 			} catch (...) {
 				postponed_exception = std::current_exception();
+				caller_cond.notify_one();
 				InvokeOnAvailable();
 				break;
 			}
 
+			caller_cond.notify_one();
 			InvokeOnAvailable();
 
 			if (nbytes == 0) {
@@ -128,36 +138,58 @@ ThreadInputStream::IsAvailable() const noexcept
 {
 	assert(!thread.IsInside());
 
-	return !buffer.empty() || eof || postponed_exception;
+	return !IsEOF() || postponed_exception;
 }
 
-inline size_t
+void
+ThreadInputStream::Seek([[maybe_unused]] std::unique_lock<Mutex> &lock,
+			offset_type new_offset)
+{
+	seek_offset = new_offset;
+	wake_cond.notify_one();
+}
+
+inline std::size_t
+ThreadInputStream::ReadFromBuffer(std::span<std::byte> dest) noexcept
+{
+	const size_t nbytes = buffer.MoveTo(dest);
+	if (nbytes == 0)
+		return 0;
+
+	if (buffer.empty())
+		/* when the buffer becomes empty, reset its head and
+		   tail so the next write can fill the whole buffer
+		   and not just the part after the tail */
+		buffer.Clear();
+
+	offset += (offset_type)nbytes;
+	return nbytes;
+}
+
+size_t
 ThreadInputStream::Read(std::unique_lock<Mutex> &lock,
-			void *ptr, size_t read_size)
+			std::span<std::byte> dest)
 {
 	assert(!thread.IsInside());
-
-	CondInputStreamHandler cond_handler;
 
 	while (true) {
 		if (postponed_exception)
 			std::rethrow_exception(postponed_exception);
 
-		auto r = buffer.Read();
-		if (!r.empty()) {
-			size_t nbytes = std::min(read_size, r.size());
-			memcpy(ptr, r.data(), nbytes);
-			buffer.Consume(nbytes);
-			wake_cond.notify_all();
-			offset += nbytes;
+		if (IsSeeking()) {
+			caller_cond.wait(lock);
+			continue;
+		}
+
+		if (std::size_t nbytes = ReadFromBuffer(dest); nbytes > 0) {
+			wake_cond.notify_one();
 			return nbytes;
 		}
 
 		if (eof)
 			return 0;
 
-		const ScopeExchangeInputStreamHandler h(*this, &cond_handler);
-		cond_handler.cond.wait(lock);
+		caller_cond.wait(lock);
 	}
 }
 
@@ -166,5 +198,5 @@ ThreadInputStream::IsEOF() const noexcept
 {
 	assert(!thread.IsInside());
 
-	return eof;
+	return eof && buffer.empty() && !IsSeeking();
 }

@@ -1,34 +1,20 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_REMOTE_TAG_CACHE_HXX
-#define MPD_REMOTE_TAG_CACHE_HXX
+#pragma once
 
 #include "input/RemoteTagScanner.hxx"
 #include "tag/Tag.hxx"
 #include "event/InjectEvent.hxx"
 #include "thread/Mutex.hxx"
+#include "util/IntrusiveList.hxx"
+#include "util/IntrusiveHashSet.hxx"
 
-#include <boost/intrusive/list.hpp>
-#include <boost/intrusive/unordered_set.hpp>
-
+#include <array>
+#include <functional>
+#include <memory>
 #include <string>
+#include <utility>
 
 class RemoteTagCacheHandler;
 
@@ -45,8 +31,8 @@ class RemoteTagCache final {
 	Mutex mutex;
 
 	struct Item final
-		: public boost::intrusive::unordered_set_base_hook<boost::intrusive::link_mode<boost::intrusive::normal_link>>,
-		  public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::normal_link>>,
+		: public IntrusiveHashSetHook<>,
+		  public IntrusiveListHook<>,
 		  RemoteTagHandler
 	{
 		RemoteTagCache &parent;
@@ -65,32 +51,15 @@ class RemoteTagCache final {
 		void OnRemoteTag(Tag &&tag) noexcept override;
 		void OnRemoteTagError(std::exception_ptr e) noexcept override;
 
-		struct Hash : std::hash<std::string> {
-			using std::hash<std::string>::operator();
-
+		struct GetUri {
 			[[gnu::pure]]
-			std::size_t operator()(const Item &item) const noexcept {
-				return std::hash<std::string>::operator()(item.uri);
-			}
-		};
-
-		struct Equal {
-			[[gnu::pure]]
-			bool operator()(const Item &a,
-					const Item &b) const noexcept {
-				return a.uri == b.uri;
-			}
-
-			[[gnu::pure]]
-			bool operator()(const std::string &a,
-					const Item &b) const noexcept {
-				return a == b.uri;
+			std::string_view operator()(const Item &item) const noexcept {
+				return item.uri;
 			}
 		};
 	};
 
-	typedef boost::intrusive::list<Item,
-				       boost::intrusive::constant_time_size<false>> ItemList;
+	using ItemList = IntrusiveList<Item>;
 
 	/**
 	 * These items have been resolved completely (successful or
@@ -114,14 +83,13 @@ class RemoteTagCache final {
 	 */
 	ItemList invoke_list;
 
-	typedef boost::intrusive::unordered_set<Item,
-						boost::intrusive::hash<Item::Hash>,
-						boost::intrusive::equal<Item::Equal>,
-						boost::intrusive::constant_time_size<true>> KeyMap;
-
-	std::array<typename KeyMap::bucket_type, 127> buckets;
-
-	KeyMap map;
+	IntrusiveHashSet<
+		Item, 127,
+		IntrusiveHashSetOperators<Item, Item::GetUri,
+					  std::hash<std::string_view>,
+					  std::equal_to<std::string_view>>,
+		IntrusiveHashSetBaseHookTraits<Item>,
+		IntrusiveHashSetOptions{.constant_time_size = true}> map;
 
 public:
 	RemoteTagCache(EventLoop &event_loop,
@@ -139,5 +107,3 @@ private:
 
 	void ItemResolved(Item &item) noexcept;
 };
-
-#endif

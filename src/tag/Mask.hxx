@@ -1,38 +1,26 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_TAG_MASK_HXX
-#define MPD_TAG_MASK_HXX
+#pragma once
 
-#include "Type.h"
+#include "Type.hxx"
 
 #include <cstdint>
 
 class TagMask {
-	typedef uint_least32_t mask_t;
+	using mask_t = uint_least64_t;
+
+	/* the mask must have enough bits to represent all tags
+	   supported by MPD */
+	static_assert(TAG_NUM_OF_ITEM_TYPES <= sizeof(mask_t) * 8);
+
 	mask_t value;
 
-	explicit constexpr TagMask(uint_least32_t _value) noexcept
+	explicit constexpr TagMask(mask_t _value) noexcept
 		:value(_value) {}
 
 public:
-	TagMask() = default;
+	constexpr TagMask() noexcept = default;
 
 	constexpr TagMask(TagType tag) noexcept
 		:value(mask_t(1) << mask_t(tag)) {}
@@ -61,17 +49,17 @@ public:
 		return TagMask(value ^ other.value);
 	}
 
-	TagMask &operator&=(TagMask other) noexcept {
+	constexpr TagMask &operator&=(TagMask other) noexcept {
 		value &= other.value;
 		return *this;
 	}
 
-	TagMask &operator|=(TagMask other) noexcept {
+	constexpr TagMask &operator|=(TagMask other) noexcept {
 		value |= other.value;
 		return *this;
 	}
 
-	TagMask &operator^=(TagMask other) noexcept {
+	constexpr TagMask &operator^=(TagMask other) noexcept {
 		value ^= other.value;
 		return *this;
 	}
@@ -84,13 +72,11 @@ public:
 		return (*this & tag).TestAny();
 	}
 
-	void Set(TagType tag) noexcept {
+	constexpr void Set(TagType tag) noexcept {
 		*this |= tag;
 	}
 
-	void Unset(TagType tag) noexcept {
+	constexpr void Unset(TagType tag) noexcept {
 		*this &= ~TagMask(tag);
 	}
 };
-
-#endif

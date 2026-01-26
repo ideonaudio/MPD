@@ -1,31 +1,16 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_INPUT_STREAM_HXX
-#define MPD_INPUT_STREAM_HXX
+#pragma once
 
 #include "Offset.hxx"
 #include "Ptr.hxx"
 #include "thread/Mutex.hxx"
 
 #include <cassert>
+#include <cstddef>
 #include <memory>
+#include <span>
 #include <string>
 #include <utility>
 
@@ -94,10 +79,12 @@ private:
 	std::string mime;
 
 public:
-	InputStream(const char *_uri, Mutex &_mutex) noexcept
-		:uri(_uri),
-		 mutex(_mutex) {
-		assert(_uri != nullptr);
+	template<typename U>
+	[[nodiscard]]
+	InputStream(U &&_uri, Mutex &_mutex) noexcept
+		:uri(std::forward<U>(_uri)),
+		 mutex(_mutex)
+	{
 	}
 
 	/**
@@ -118,18 +105,17 @@ public:
 	 *
 	 * @param mutex a mutex that is used to protect this object; must be
 	 * locked before calling any of the public methods
-	 * @param cond a cond that gets signalled when the state of
-	 * this object changes; may be nullptr if the caller doesn't want to get
-	 * notifications
 	 * @return an #InputStream object on success
 	 */
-	static InputStreamPtr Open(const char *uri, Mutex &mutex);
+	[[nodiscard]]
+	static InputStreamPtr Open(std::string_view uri, Mutex &mutex);
 
 	/**
 	 * Just like Open(), but waits for the stream to become ready.
 	 * It is a wrapper for Open(), WaitReady() and Check().
 	 */
-	static InputStreamPtr OpenReady(const char *uri, Mutex &mutex);
+	[[nodiscard]]
+	static InputStreamPtr OpenReady(std::string_view uri, Mutex &mutex);
 
 	/**
 	 * Install a new handler.
@@ -145,6 +131,7 @@ public:
 	 *
 	 * The caller must lock the mutex.
 	 */
+	[[nodiscard]]
 	InputStreamHandler *ExchangeHandler(InputStreamHandler *new_handler) noexcept {
 		return std::exchange(handler, new_handler);
 	}
@@ -154,8 +141,14 @@ public:
 	 *
 	 * No lock necessary for this method.
 	 */
+	[[nodiscard]]
 	const char *GetURI() const noexcept {
 		return uri.c_str();
+	}
+
+	[[nodiscard]]
+	std::string_view GetUriView() const noexcept {
+		return uri;
 	}
 
 	/**
@@ -178,18 +171,19 @@ public:
 	 *
 	 * The caller must lock the mutex.
 	 */
+	[[nodiscard]]
 	bool IsReady() const {
 		return ready;
 	}
 
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	bool HasMimeType() const noexcept {
 		assert(ready);
 
 		return !mime.empty();
 	}
 
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	const char *GetMimeType() const noexcept {
 		assert(ready);
 
@@ -213,14 +207,14 @@ public:
 		mime = std::move(_mime);
 	}
 
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	bool KnownSize() const noexcept {
 		assert(ready);
 
 		return size != UNKNOWN_SIZE;
 	}
 
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	offset_type GetSize() const noexcept {
 		assert(ready);
 		assert(KnownSize());
@@ -234,14 +228,14 @@ public:
 		offset += delta;
 	}
 
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	offset_type GetOffset() const noexcept {
 		assert(ready);
 
 		return offset;
 	}
 
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	offset_type GetRest() const noexcept {
 		assert(ready);
 		assert(KnownSize());
@@ -249,7 +243,7 @@ public:
 		return size - offset;
 	}
 
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	bool IsSeekable() const noexcept {
 		assert(ready);
 
@@ -259,7 +253,7 @@ public:
 	/**
 	 * Determines whether seeking is cheap.  This is true for local files.
 	 */
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	bool CheapSeeking() const noexcept;
 
 	/**
@@ -292,7 +286,7 @@ public:
 	}
 
 	void LockRewind() {
-		std::unique_lock<Mutex> lock(mutex);
+		std::unique_lock lock{mutex};
 		Rewind(lock);
 	}
 
@@ -311,14 +305,14 @@ public:
 	 *
 	 * The caller must lock the mutex.
 	 */
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	virtual bool IsEOF() const noexcept = 0;
 
 	/**
 	 * Wrapper for IsEOF() which locks and unlocks the mutex; the
 	 * caller must not be holding it already.
 	 */
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	bool LockIsEOF() const noexcept;
 
 	/**
@@ -329,12 +323,14 @@ public:
 	 * @return a tag object or nullptr if the tag has not changed
 	 * since the last call
 	 */
+	[[nodiscard]]
 	virtual std::unique_ptr<Tag> ReadTag() noexcept;
 
 	/**
 	 * Wrapper for ReadTag() which locks and unlocks the mutex;
 	 * the caller must not be holding it already.
 	 */
+	[[nodiscard]]
 	std::unique_ptr<Tag> LockReadTag() noexcept;
 
 	/**
@@ -344,7 +340,7 @@ public:
 	 *
 	 * The caller must lock the mutex.
 	 */
-	[[gnu::pure]]
+	[[nodiscard]] [[gnu::pure]]
 	virtual bool IsAvailable() const noexcept;
 
 	/**
@@ -361,9 +357,9 @@ public:
 	 * @param size the maximum number of bytes to read
 	 * @return the number of bytes read
 	 */
-	[[gnu::nonnull]]
-	virtual size_t Read(std::unique_lock<Mutex> &lock,
-			    void *ptr, size_t size) = 0;
+	[[nodiscard]]
+	virtual std::size_t Read(std::unique_lock<Mutex> &lock,
+				 std::span<std::byte> dest) = 0;
 
 	/**
 	 * Wrapper for Read() which locks and unlocks the mutex;
@@ -371,8 +367,8 @@ public:
 	 *
 	 * Throws std::runtime_error on error.
 	 */
-	[[gnu::nonnull]]
-	size_t LockRead(void *ptr, size_t size);
+	[[nodiscard]]
+	std::size_t LockRead(std::span<std::byte> dest);
 
 	/**
 	 * Reads the whole data from the stream into the caller-supplied buffer.
@@ -385,8 +381,7 @@ public:
 	 * @param size the number of bytes to read
 	 * @return true if the whole data was read, false otherwise.
 	 */
-	[[gnu::nonnull]]
-	void ReadFull(std::unique_lock<Mutex> &lock, void *ptr, size_t size);
+	void ReadFull(std::unique_lock<Mutex> &lock, std::span<std::byte> dest);
 
 	/**
 	 * Wrapper for ReadFull() which locks and unlocks the mutex;
@@ -394,8 +389,7 @@ public:
 	 *
 	 * Throws std::runtime_error on error.
 	 */
-	[[gnu::nonnull]]
-	void LockReadFull(void *ptr, size_t size);
+	void LockReadFull(std::span<std::byte> dest);
 
 protected:
 	void InvokeOnReady() noexcept;
@@ -411,6 +405,7 @@ class ScopeExchangeInputStreamHandler {
 	InputStreamHandler *const old_handler;
 
 public:
+	[[nodiscard]]
 	ScopeExchangeInputStreamHandler(InputStream &_is,
 					InputStreamHandler *new_handler) noexcept
 		:is(_is), old_handler(is.ExchangeHandler(new_handler)) {}
@@ -421,5 +416,3 @@ public:
 		is.SetHandler(old_handler);
 	}
 };
-
-#endif

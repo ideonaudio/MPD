@@ -1,37 +1,12 @@
-gtest_compile_args = [
-  '-Wno-undef',
-]
-
-if compiler.get_id() == 'gcc'
-  gtest_compile_args += [
-    '-Wno-suggest-attribute=format',
-    '-Wno-suggest-attribute=noreturn',
-    '-Wno-missing-declarations',
-  ]
-endif
-
-if compiler.get_id() == 'clang' and compiler.version().version_compare('>=9')
-  gtest_compile_args += [
-    # work around clang warning caused by GTest's wrong "-lpthread"
-    # compiler flag
-    '-Wno-unused-command-line-argument',
-
-    # work around "error: 'ScopedTrace' was marked unused but was
-    # used"
-    '-Wno-used-but-marked-unused',
-  ]
-endif
-
-gtest_main_dep = dependency('gtest', main: true, fallback: ['gtest', 'gtest_main_dep'])
-gtest_dep = declare_dependency(
-  dependencies: [gtest_main_dep],
-  compile_args: gtest_compile_args,
-)
+gtest_dep = dependency('gtest', main: true,
+                       include_type: 'system',
+                       fallback: ['gtest', 'gtest_main_dep'])
 
 subdir('util')
 subdir('net')
 subdir('time')
 subdir('tag')
+subdir('playlist')
 
 executable(
   'read_conf',
@@ -39,6 +14,7 @@ executable(
   include_directories: inc,
   dependencies: [
     config_dep,
+    fmt_dep,
   ],
 )
 
@@ -65,6 +41,7 @@ test(
     include_directories: inc,
     dependencies: [
       gtest_dep,
+      fmt_dep,
     ],
   ),
   protocol: 'gtest',
@@ -108,6 +85,7 @@ if zeroconf_dep.found()
     include_directories: inc,
     dependencies: [
       zeroconf_dep,
+      event_dep,
       util_dep,
     ],
   )
@@ -132,6 +110,7 @@ executable(
   'run_resolver.cxx',
   include_directories: inc,
   dependencies: [
+    fmt_dep,
     net_dep,
     util_dep,
   ],
@@ -147,6 +126,7 @@ executable(
   include_directories: inc,
   dependencies: [
     fs_dep,
+    io_fs_dep,
   ],
 )
 
@@ -177,6 +157,8 @@ if zlib_dep.found()
     include_directories: inc,
     dependencies: [
       fs_dep,
+      io_fs_dep,
+      zlib_dep,
     ],
   )
 endif
@@ -199,6 +181,7 @@ test(
   'TestSongFilter',
   executable(
     'TestSongFilter',
+    'TestStringFilter.cxx',
     'TestTagSongFilter.cxx',
     include_directories: inc,
     dependencies: [
@@ -221,6 +204,7 @@ if neighbor_glue_dep.found()
     include_directories: inc,
     dependencies: [
       neighbor_glue_dep,
+      event_dep,
     ],
   )
 endif
@@ -233,16 +217,20 @@ if enable_database
   executable(
     'run_storage',
     'run_storage.cxx',
+    '../src/TagSave.cxx',
     include_directories: inc,
     dependencies: [
       event_dep,
       storage_glue_dep,
+      cmdline_dep,
     ],
   )
 
   executable(
     'DumpDatabase',
     'DumpDatabase.cxx',
+    '../src/db/Configured.cxx',
+    '../src/db/DatabaseGlue.cxx',
     '../src/db/Registry.cxx',
     '../src/db/Selection.cxx',
     '../src/db/PlaylistVector.cxx',
@@ -251,11 +239,28 @@ if enable_database
     '../src/TagSave.cxx',
     include_directories: inc,
     dependencies: [
+      fmt_dep,
       pcm_basic_dep,
       song_dep,
       fs_dep,
       event_dep,
       db_plugins_dep,
+    ],
+  )
+
+  executable(
+    'LoadDatabase',
+    'LoadDatabase.cxx',
+    '../src/db/PlaylistVector.cxx',
+    '../src/SongSave.cxx',
+    '../src/TagSave.cxx',
+    include_directories: inc,
+    dependencies: [
+      fmt_dep,
+      pcm_basic_dep,
+      song_dep,
+      db_plugins_dep,
+      zlib_dep,
     ],
   )
 
@@ -269,9 +274,11 @@ if enable_database
       '../src/LocateUri.cxx',
       include_directories: inc,
       dependencies: [
+        event_dep,
         log_dep,
         tag_dep,
-        storage_glue_dep,
+        fs_dep,
+        storage_plugins_dep,
         gtest_dep,
       ],
     ),
@@ -292,6 +299,7 @@ run_input = executable(
     log_dep,
     input_glue_dep,
     archive_glue_dep,
+    cmdline_dep,
   ],
 )
 
@@ -303,11 +311,7 @@ if curl_dep.found()
     include_directories: inc,
     dependencies: [
       curl_dep,
-
-      # Explicitly linking with zlib here works around a linker
-      # failure on Windows, because our Windows CURL build is
-      # statically linked and thus declares no dependency on zlib
-      zlib_dep,
+      event_dep,
     ],
   )
 
@@ -383,6 +387,7 @@ executable(
   '../src/TagFile.cxx',
   include_directories: inc,
   dependencies: [
+    fmt_dep,
     playlist_glue_dep,
     input_glue_dep,
     archive_glue_dep,
@@ -405,6 +410,7 @@ if chromaprint_dep.found()
       input_glue_dep,
       archive_glue_dep,
       chromaprint_dep,
+      cmdline_dep,
     ],
   )
 endif
@@ -423,6 +429,7 @@ executable(
     decoder_glue_dep,
     input_glue_dep,
     archive_glue_dep,
+    cmdline_dep,
   ],
 )
 
@@ -434,6 +441,7 @@ executable(
     decoder_glue_dep,
     input_glue_dep,
     archive_glue_dep,
+    cmdline_dep,
   ],
 )
 
@@ -444,6 +452,7 @@ executable(
   '../src/TagSave.cxx',
   include_directories: inc,
   dependencies: [
+      fmt_dep,
     decoder_glue_dep,
     input_glue_dep,
     archive_glue_dep,
@@ -470,6 +479,7 @@ if libid3tag_dep.found()
       tag_dep,
       input_glue_dep,
       archive_glue_dep,
+      libid3tag_dep,
     ],
   )
 endif
@@ -480,6 +490,7 @@ if ogg_dep.found()
     'DumpOgg.cxx',
     include_directories: inc,
     dependencies: [
+      fmt_dep,
       ogg_dep,
       input_glue_dep,
       archive_glue_dep,
@@ -520,6 +531,7 @@ executable(
   include_directories: inc,
   dependencies: [
     filter_glue_dep,
+    cmdline_dep,
   ],
 )
 
@@ -549,6 +561,7 @@ executable(
     log_dep,
     pcm_dep,
     config_dep,
+    cmdline_dep,
   ],
 )
 
@@ -607,9 +620,10 @@ executable(
   'run_output.cxx',
   include_directories: inc,
   dependencies: [
-    output_glue_dep,
+    output_registry_dep,
     encoder_glue_dep,
     event_dep,
+    cmdline_dep,
   ],
 )
 
@@ -625,7 +639,7 @@ if alsa_dep.found()
     'read_mixer.cxx',
     include_directories: inc,
     dependencies: [
-      mixer_glue_dep,
+      mixer_plugins_dep,
     ],
   )
 endif

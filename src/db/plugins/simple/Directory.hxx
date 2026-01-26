@@ -1,32 +1,15 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_DIRECTORY_HXX
 #define MPD_DIRECTORY_HXX
 
 #include "Ptr.hxx"
+#include "Song.hxx" // TODO eliminate this include, forward-declare only
 #include "db/Visitor.hxx"
 #include "db/PlaylistVector.hxx"
 #include "db/Ptr.hxx"
-#include "Song.hxx"
-
-#include <boost/intrusive/list.hpp>
+#include "util/IntrusiveList.hxx"
 
 #include <string>
 #include <string_view>
@@ -52,25 +35,12 @@ static constexpr unsigned DEVICE_PLAYLIST = -3;
 
 class SongFilter;
 
-struct Directory {
-	static constexpr auto link_mode = boost::intrusive::normal_link;
-	typedef boost::intrusive::link_mode<link_mode> LinkMode;
-	typedef boost::intrusive::list_member_hook<LinkMode> Hook;
+struct Directory : IntrusiveListHook<> {
+	/* Note: the #IntrusiveListHook is protected with the global
+	   #db_mutex.  Read access in the update thread does not need
+	   protection. */
 
-	/**
-	 * Pointers to the siblings of this directory within the
-	 * parent directory.  It is unused (undefined) in the root
-	 * directory.
-	 *
-	 * This attribute is protected with the global #db_mutex.
-	 * Read access in the update thread does not need protection.
-	 */
-	Hook siblings;
-
-	typedef boost::intrusive::member_hook<Directory, Hook,
-					      &Directory::siblings> SiblingsHook;
-	typedef boost::intrusive::list<Directory, SiblingsHook,
-				       boost::intrusive::constant_time_size<false>> List;
+	using List = IntrusiveList<Directory>;
 
 	/**
 	 * A doubly linked list of child directories.
@@ -86,7 +56,7 @@ struct Directory {
 	 * This attribute is protected with the global #db_mutex.
 	 * Read access in the update thread does not need protection.
 	 */
-	SongList songs;
+	IntrusiveList<Song> songs;
 
 	PlaylistVector playlists;
 
@@ -104,6 +74,12 @@ struct Directory {
 	 * exist, but is a mount point for another #Database.
 	 */
 	DatabasePtr mounted_database;
+
+	/**
+	 * This field is used by the database update to check whether
+	 * an item has disappeared.
+	 */
+	bool mark;
 
 public:
 	Directory(std::string &&_path_utf8, Directory *_parent) noexcept;
@@ -232,7 +208,7 @@ public:
 	 * Returns the base name of the directory.
 	 */
 	[[gnu::pure]]
-	const char *GetName() const noexcept;
+	std::string_view GetName() const noexcept;
 
 	/**
 	 * Is this the root directory of the music database?
@@ -286,6 +262,14 @@ public:
 	 * stale), and return ownership to the caller.
 	 */
 	SongPtr RemoveSong(Song *song) noexcept;
+
+	/**
+	 * Recursively walk through the whole tree and set all
+	 * `Song::in_playlist` fields to `false`.
+	 *
+	 * Caller must lock the #db_mutex.
+	 */
+	void ClearInPlaylist() noexcept;
 
 	/**
 	 * Caller must lock the #db_mutex.

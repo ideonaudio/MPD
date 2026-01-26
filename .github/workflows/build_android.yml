@@ -1,0 +1,72 @@
+---
+on:
+  workflow_dispatch:
+  push:
+    paths-ignore:
+      - 'AUTHORS'
+      - 'COPYING'
+      - 'LICENSES/**'
+      - 'NEWS'
+      - 'README.md'
+      - 'build/**'
+      - 'doc/**'
+      - 'subprojects/**'
+      - 'systemd/**'
+      - 'win32/**'
+    branches:
+      - master
+      - v0.24.x
+  pull_request:
+    paths-ignore:
+      - 'AUTHORS'
+      - 'COPYING'
+      - 'LICENSES/**'
+      - 'NEWS'
+      - 'README.md'
+      - 'build/**'
+      - 'doc/**'
+      - 'subprojects/**'
+      - 'systemd/**'
+      - 'win32/**'
+    branches:
+      - master
+      - v0.24.x
+
+permissions:
+  contents: read #  to fetch code (actions/checkout)
+
+jobs:
+  build-android:
+    runs-on: ubuntu-24.04
+    steps:
+      - id: checkout
+        uses: actions/checkout@v6
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            meson \
+            ccache \
+            quilt 
+
+      - id: cache-ccache
+        uses: hendrikmuhs/ccache-action@v1
+        with:
+          key: android
+
+      - name: Build
+        run: |
+          mkdir -p output/android
+          cd ./output/android
+          ../../android/build.py \
+            $ANDROID_SDK_ROOT $ANDROID_NDK_LATEST_HOME \
+            arm64-v8a \
+            --buildtype=debugoptimized -Db_ndebug=true \
+            -Dwrap_mode=forcefallback 
+
+          cd -
+          cd ./android
+          export JAVA_HOME=$JAVA_HOME_17_X64
+          ./gradlew assembleDebug
+

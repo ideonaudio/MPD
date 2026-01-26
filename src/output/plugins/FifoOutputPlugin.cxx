@@ -1,30 +1,16 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "FifoOutputPlugin.hxx"
 #include "../OutputAPI.hxx"
 #include "../Timer.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "fs/FileSystem.hxx"
 #include "fs/FileInfo.hxx"
+#include "lib/fmt/SystemError.hxx"
 #include "util/Domain.hxx"
-#include "util/RuntimeError.hxx"
 #include "Log.hxx"
 #include "open.h"
 
@@ -35,7 +21,6 @@
 
 class FifoOutput final : AudioOutput {
 	const AllocatedPath path;
-	std::string path_utf8;
 
 	int input = -1;
 	int output = -1;
@@ -82,8 +67,6 @@ FifoOutput::FifoOutput(const ConfigBlock &block)
 	if (path.IsNull())
 		throw std::runtime_error("No \"path\" parameter specified");
 
-	path_utf8 = path.ToUTF8();
-
 	OpenFifo();
 }
 
@@ -91,7 +74,7 @@ inline void
 FifoOutput::Delete()
 {
 	FmtDebug(fifo_output_domain,
-		 "Removing FIFO \"{}\"", path_utf8);
+		 "Removing FIFO {:?}", path);
 
 	try {
 		RemoveFile(path);
@@ -125,8 +108,7 @@ inline void
 FifoOutput::Create()
 {
 	if (!MakeFifo(path, 0666))
-		throw FormatErrno("Couldn't create FIFO \"%s\"",
-				  path_utf8.c_str());
+		throw FmtErrno("Couldn't create FIFO {:?}", path);
 
 	created = true;
 }
@@ -142,13 +124,12 @@ FifoOutput::Check()
 			return;
 		}
 
-		throw FormatErrno("Failed to stat FIFO \"%s\"",
-				  path_utf8.c_str());
+		throw FmtErrno("Failed to stat FIFO {:?}", path);
 	}
 
 	if (!S_ISFIFO(st.st_mode))
-		throw FormatRuntimeError("\"%s\" already exists, but is not a FIFO",
-					 path_utf8.c_str());
+		throw FmtRuntimeError("{:?} already exists, but is not a FIFO",
+				      path);
 }
 
 inline void
@@ -158,13 +139,12 @@ try {
 
 	input = OpenFile(path, O_RDONLY|O_NONBLOCK|O_BINARY, 0).Steal();
 	if (input < 0)
-		throw FormatErrno("Could not open FIFO \"%s\" for reading",
-				  path_utf8.c_str());
+		throw FmtErrno("Could not open FIFO {:?} for reading",
+			       path);
 
 	output = OpenFile(path, O_WRONLY|O_NONBLOCK|O_BINARY, 0).Steal();
 	if (output < 0)
-		throw FormatErrno("Could not open FIFO \"%s\" for writing",
-				  path_utf8.c_str());
+		throw FmtErrno("Could not open FIFO {:?} for writing");
 } catch (...) {
 	CloseFifo();
 	throw;
@@ -195,8 +175,8 @@ FifoOutput::Cancel() noexcept
 
 	if (bytes < 0 && errno != EAGAIN) {
 		FmtError(fifo_output_domain,
-			 "Flush of FIFO \"{}\" failed: {}",
-			 path_utf8, strerror(errno));
+			 "Flush of FIFO {:?} failed: {}",
+			 path, strerror(errno));
 	}
 }
 
@@ -230,8 +210,7 @@ FifoOutput::Play(std::span<const std::byte> src)
 				continue;
 			}
 
-			throw FormatErrno("Failed to write to FIFO %s",
-					  path_utf8.c_str());
+			throw FmtErrno("Failed to write to FIFO {}", path);
 		}
 	}
 }

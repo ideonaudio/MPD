@@ -1,44 +1,18 @@
-/*
- * Copyright 2010-2018 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
-#ifndef STRING_BUFFER_HXX
-#define STRING_BUFFER_HXX
+#pragma once
 
 #include <array>
 
 /**
- * A statically allocated string buffer.
+ * A statically allocated string buffer.  It is designed to hold
+ * null-terminated strings.
  */
 template<typename T, std::size_t CAPACITY>
 class BasicStringBuffer {
 public:
-	typedef T value_type;
+	using value_type = T;
 	using reference = T &;
 	using pointer = T *;
 	using const_pointer = const T *;
@@ -51,6 +25,7 @@ protected:
 	Array the_data;
 
 public:
+	using iterator = typename Array::iterator;
 	using const_iterator = typename Array::const_iterator;
 
 	static constexpr size_type capacity() noexcept {
@@ -61,7 +36,7 @@ public:
 		return front() == SENTINEL;
 	}
 
-	void clear() noexcept {
+	constexpr void clear() noexcept {
 		the_data[0] = SENTINEL;
 	}
 
@@ -69,7 +44,11 @@ public:
 		return the_data.data();
 	}
 
-	pointer data() noexcept {
+	constexpr pointer data() noexcept {
+		return the_data.data();
+	}
+
+	constexpr const_pointer data() const noexcept {
 		return the_data.data();
 	}
 
@@ -80,15 +59,23 @@ public:
 	/**
 	 * Returns one character.  No bounds checking.
 	 */
-	value_type operator[](size_type i) const noexcept {
+	constexpr value_type operator[](size_type i) const noexcept {
 		return the_data[i];
 	}
 
 	/**
 	 * Returns one writable character.  No bounds checking.
 	 */
-	reference operator[](size_type i) noexcept {
+	constexpr reference operator[](size_type i) noexcept {
 		return the_data[i];
+	}
+
+	constexpr iterator begin() noexcept {
+		return the_data.begin();
+	}
+
+	constexpr iterator end() noexcept {
+		return the_data.end();
 	}
 
 	constexpr const_iterator begin() const noexcept {
@@ -106,5 +93,3 @@ public:
 
 template<std::size_t CAPACITY>
 class StringBuffer : public BasicStringBuffer<char, CAPACITY> {};
-
-#endif

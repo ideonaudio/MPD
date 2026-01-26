@@ -1,23 +1,6 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
 #include "FileCommands.hxx"
 #include "Request.hxx"
 #include "protocol/Ack.hxx"
@@ -31,6 +14,7 @@
 #include "tag/Handler.hxx"
 #include "tag/Generic.hxx"
 #include "TagAny.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "db/Interface.hxx"
 #include "song/LightSong.hxx"
 #include "storage/StorageInterface.hxx"
@@ -50,14 +34,16 @@
 #include <cassert>
 #include <array>
 
-gcc_pure
+using std::string_view_literals::operator""sv;
+
+[[gnu::pure]]
 static bool
 SkipNameFS(PathTraitsFS::const_pointer name_fs) noexcept
 {
 	return PathTraitsFS::IsSpecialFilename(name_fs);
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
 skip_path(Path name_fs) noexcept
 {
@@ -84,12 +70,12 @@ handle_listfiles_local(Response &r, Path path_fs)
 			continue;
 
 		if (fi.IsRegular())
-			r.Fmt(FMT_STRING("file: {}\n"
-					 "size: {}\n"),
+			r.Fmt("file: {}\n"
+			      "size: {}\n",
 			      name_utf8,
 			      fi.GetSize());
 		else if (fi.IsDirectory())
-			r.Fmt(FMT_STRING("directory: {}\n"), name_utf8);
+			r.Fmt("directory: {}\n", name_utf8);
 		else
 			continue;
 
@@ -99,11 +85,7 @@ handle_listfiles_local(Response &r, Path path_fs)
 	return CommandResult::OK;
 }
 
-#if defined(_WIN32) && GCC_CHECK_VERSION(4,6)
-#pragma GCC diagnostic pop
-#endif
-
-gcc_pure
+[[gnu::pure]]
 static bool
 IsValidName(const std::string_view s) noexcept
 {
@@ -115,7 +97,7 @@ IsValidName(const std::string_view s) noexcept
 	});
 }
 
-gcc_pure
+[[gnu::pure]]
 static bool
 IsValidValue(const std::string_view s) noexcept
 {
@@ -131,7 +113,7 @@ public:
 
 	void OnPair(std::string_view key, std::string_view value) noexcept override {
 		if (IsValidName(key) && IsValidValue(value))
-			response.Fmt(FMT_STRING("{}: {}\n"), key, value);
+			response.Fmt("{}: {}\n", key, value);
 	}
 };
 
@@ -166,7 +148,7 @@ find_stream_art(std::string_view directory, Mutex &mutex)
 		std::string art_file = PathTraitsUTF8::Build(directory, name);
 
 		try {
-			return InputStream::OpenReady(art_file.c_str(), mutex);
+			return InputStream::OpenReady(art_file, mutex);
 		} catch (...) {
 			auto e = std::current_exception();
 			if (!IsFileNotFound(e))
@@ -211,16 +193,28 @@ read_stream_art(Response &r, const std::string_view art_directory,
 		std::min<offset_type>(art_file_size - offset,
 				      r.GetClient().binary_limit);
 
-	auto buffer = std::make_unique<std::byte[]>(buffer_size);
+	auto buffer = std::make_unique_for_overwrite<std::byte[]>(buffer_size);
 
 	std::size_t read_size = 0;
 	if (buffer_size > 0) {
-		std::unique_lock<Mutex> lock(is->mutex);
+		std::unique_lock lock{is->mutex};
 		is->Seek(lock, offset);
-		read_size = is->Read(lock, buffer.get(), buffer_size);
+
+		const bool was_ready = is->IsReady();
+
+		read_size = is->Read(lock, {buffer.get(), buffer_size});
+
+		if (was_ready && read_size < buffer_size / 2)
+			/* the InputStream was ready before, but we
+			   got only very little data; probably just
+			   some data left in the buffer without doing
+			   any I/O; let's wait for the next low-level
+			   read to complete to get more data for the
+			   client */
+			read_size += is->Read(lock, {buffer.get() + read_size, buffer_size - read_size});
 	}
 
-	r.Fmt(FMT_STRING("size: {}\n"), art_file_size);
+	r.Fmt("size: {}\n", art_file_size);
 
 	r.WriteBinary({buffer.get(), read_size});
 
@@ -337,7 +331,7 @@ public:
 			throw ProtocolError(ACK_ERROR_ARG, "Bad file offset");
 	}
 
-	void OnPicture(const char *mime_type,
+	void OnPicture(std::string_view mime_type,
 		       std::span<const std::byte> buffer) noexcept override {
 		if (found)
 			/* only use the first picture */
@@ -350,10 +344,10 @@ public:
 			return;
 		}
 
-		response.Fmt(FMT_STRING("size: {}\n"), buffer.size());
+		response.Fmt("size: {}\n"sv, buffer.size());
 
-		if (mime_type != nullptr)
-			response.Fmt(FMT_STRING("type: {}\n"), mime_type);
+		if (mime_type.data() != nullptr)
+			response.Fmt("type: {}\n", mime_type);
 
 		buffer = buffer.subspan(offset);
 

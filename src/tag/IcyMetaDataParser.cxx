@@ -1,31 +1,18 @@
-/*yes
-
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "IcyMetaDataParser.hxx"
 #include "tag/Builder.hxx"
 #include "util/AllocatedString.hxx"
+#include "util/StringSplit.hxx"
 
 #include <algorithm>
 #include <cassert>
+#include <string_view>
 
 #include <string.h>
+
+using std::string_view_literals::operator""sv;
 
 #ifdef HAVE_ICU_CONVERTER
 
@@ -89,9 +76,9 @@ icy_parse_tag_item(TagBuilder &tag,
 #ifdef HAVE_ICU_CONVERTER
 		   const IcuConverter *icu_converter,
 #endif
-		   const char *name, const char *value) noexcept
+		   std::string_view name, std::string_view value) noexcept
 {
-	if (strcmp(name, "StreamTitle") == 0) {
+	if (name == "StreamTitle"sv) {
 #ifdef HAVE_ICU_CONVERTER
 		if (icu_converter != nullptr) {
 			try {
@@ -113,24 +100,21 @@ icy_parse_tag_item(TagBuilder &tag,
  * of the string).  If that fails, return the first single quote.  If
  * that also fails, return #end.
  */
-static char *
-find_end_quote(char *p, char *const end) noexcept
+static constexpr std::pair<std::string_view, std::string_view>
+SplitEndQuote(std::string_view s) noexcept
 {
-	char *fallback = std::find(p, end, '\'');
-	if (fallback >= end - 1 || fallback[1] == ';')
-		return fallback;
+	auto quote = s.find('\'');
+	if (quote == s.npos)
+		return {};
 
-	p = fallback + 1;
-	while (true) {
-		p = std::find(p, end, '\'');
-		if (p == end)
-			return fallback;
+	if (const auto i = s.find("';"sv, quote); i != s.npos)
+		quote = i;
+	else
+		quote = s.rfind('\'');
 
-		if (p == end - 1 || p[1] == ';')
-			return p;
+	assert(quote != s.npos);
 
-		++p;
-	}
+	return {s.substr(0, quote), s.substr(quote + 1)};
 }
 
 static std::unique_ptr<Tag>
@@ -138,42 +122,27 @@ icy_parse_tag(
 #ifdef HAVE_ICU_CONVERTER
 	      const IcuConverter *icu_converter,
 #endif
-	      char *p, char *const end) noexcept
+	      std::string_view src) noexcept
 {
-	assert(p != nullptr);
-	assert(end != nullptr);
-	assert(p <= end);
-
 	TagBuilder tag;
 
-	while (p != end) {
-		const char *const name = p;
-		char *eq = std::find(p, end, '=');
-		if (eq == end)
+	while (!src.empty()) {
+		const auto [name, rest] = Split(src, '=');
+		if (rest.empty())
 			break;
 
-		*eq = 0;
-		p = eq + 1;
-
-		if (*p != '\'') {
+		if (rest.front() != '\'') {
 			/* syntax error; skip to the next semicolon,
 			   try to recover */
-			char *semicolon = std::find(p, end, ';');
-			if (semicolon == end)
-				break;
-			p = semicolon + 1;
+			src = Split(rest, ';').second;
 			continue;
 		}
 
-		++p;
+		src = rest.substr(1);
 
-		const char *const value = p;
-		char *quote = find_end_quote(p, end);
-		if (quote == end)
+		const auto [value, after_value] = SplitEndQuote(rest.substr(1));
+		if (after_value.data() == nullptr)
 			break;
-
-		*quote = 0;
-		p = quote + 1;
 
 		icy_parse_tag_item(tag,
 #ifdef HAVE_ICU_CONVERTER
@@ -181,37 +150,35 @@ icy_parse_tag(
 #endif
 				   name, value);
 
-		char *semicolon = std::find(p, end, ';');
-		if (semicolon == end)
-			break;
-		p = semicolon + 1;
+		src = Split(after_value, ';').second;
 	}
 
 	return tag.CommitNew();
 }
 
-size_t
-IcyMetaDataParser::Meta(const void *data, size_t length) noexcept
+std::size_t
+IcyMetaDataParser::Meta(std::span<const std::byte> src) noexcept
 {
-	const auto *p = (const unsigned char *)data;
-
 	assert(IsDefined());
 	assert(data_rest == 0);
-	assert(length > 0);
+	assert(!src.empty());
+
+	std::size_t consumed = 0;
 
 	if (meta_size == 0) {
 		/* read meta_size from the first byte of a meta
 		   block */
-		meta_size = *p++ * 16;
+		meta_size = static_cast<std::size_t>(src.front()) * 16;
 		if (meta_size == 0) {
 			/* special case: no metadata */
 			data_rest = data_size;
 			return 1;
 		}
 
-		/* 1 byte was consumed (must be re-added later for the
-		   return value */
-		--length;
+		src = src.subspan(1);
+
+		/* 1 byte was consumed */
+		++consumed;
 
 		/* initialize metadata reader, allocate enough
 		   memory (+1 for the null terminator) */
@@ -221,15 +188,12 @@ IcyMetaDataParser::Meta(const void *data, size_t length) noexcept
 
 	assert(meta_position < meta_size);
 
-	if (length > meta_size - meta_position)
-		length = meta_size - meta_position;
+	if (src.size() > meta_size - meta_position)
+		src = src.first(meta_size - meta_position);
 
-	memcpy(meta_data + meta_position, p, length);
-	meta_position += length;
-
-	if (p != data)
-		/* re-add the first byte (which contained meta_size) */
-		++length;
+	memcpy(meta_data + meta_position, src.data(), src.size());
+	meta_position += src.size();
+	consumed += src.size();
 
 	if (meta_position == meta_size) {
 		/* parse */
@@ -238,7 +202,7 @@ IcyMetaDataParser::Meta(const void *data, size_t length) noexcept
 #ifdef HAVE_ICU_CONVERTER
 				    icu_converter.get(),
 #endif
-				    meta_data, meta_data + meta_size);
+				    {meta_data, meta_size});
 		delete[] meta_data;
 
 		/* change back to normal data mode */
@@ -247,34 +211,29 @@ IcyMetaDataParser::Meta(const void *data, size_t length) noexcept
 		data_rest = data_size;
 	}
 
-	return length;
+	return consumed;
 }
 
 size_t
-IcyMetaDataParser::ParseInPlace(void *data, size_t length) noexcept
+IcyMetaDataParser::ParseInPlace(std::span<std::byte> buffer) noexcept
 {
-	auto *const dest0 = (uint8_t *)data;
-	uint8_t *dest = dest0;
-	const uint8_t *src = dest0;
+	const auto begin = buffer.begin();
+	auto dest = begin;
+	auto src = buffer;
 
-	while (length > 0) {
-		size_t chunk = Data(length);
+	while (!src.empty()) {
+		std::size_t chunk = Data(src.size());
 		if (chunk > 0) {
-			memmove(dest, src, chunk);
-			dest += chunk;
-			src += chunk;
-			length -= chunk;
-
-			if (length == 0)
+			dest = std::copy_n(src.begin(), chunk, dest);
+			src = src.subspan(chunk);
+			if (src.empty())
 				break;
 		}
 
-		chunk = Meta(src, length);
-		if (chunk > 0) {
-			src += chunk;
-			length -= chunk;
-		}
+		chunk = Meta(src);
+		if (chunk > 0)
+			src = src.subspan(chunk);
 	}
 
-	return dest - dest0;
+	return std::distance(begin, dest);
 }

@@ -1,28 +1,24 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "MakeTag.hxx"
 #include "song/TagSongFilter.hxx"
 #include "song/LightSong.hxx"
-#include "tag/Type.h"
+#include "tag/Type.hxx"
+#include "lib/icu/Init.hxx"
 
 #include <gtest/gtest.h>
+
+class TagSongFilterTest : public ::testing::Test {
+protected:
+	void SetUp() override {
+		IcuInit();
+	}
+
+	void TearDown() override {
+		IcuFinish();
+	}
+};
 
 static bool
 InvokeFilter(const TagSongFilter &f, const Tag &tag) noexcept
@@ -30,10 +26,12 @@ InvokeFilter(const TagSongFilter &f, const Tag &tag) noexcept
 	return f.Match(LightSong("dummy", tag));
 }
 
-TEST(TagSongFilter, Basic)
+TEST_F(TagSongFilterTest, Basic)
 {
-	const TagSongFilter f(TAG_TITLE,
-			      StringFilter("needle", false, false, false));
+	const TagSongFilter f{
+		TAG_TITLE,
+		{"needle", false, false, StringFilter::Position::FULL, false},
+	};
 
 	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_TITLE, "needle")));
 	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_TITLE, "foo", TAG_TITLE, "needle")));
@@ -51,10 +49,12 @@ TEST(TagSongFilter, Basic)
  * Test with empty string.  This matches tags where the given tag type
  * does not exist.
  */
-TEST(TagSongFilter, Empty)
+TEST_F(TagSongFilterTest, Empty)
 {
-	const TagSongFilter f(TAG_TITLE,
-			      StringFilter("", false, false, false));
+	const TagSongFilter f{
+		TAG_TITLE,
+		{"", false, false, StringFilter::Position::FULL, false},
+	};
 
 	EXPECT_TRUE(InvokeFilter(f, MakeTag()));
 
@@ -62,10 +62,12 @@ TEST(TagSongFilter, Empty)
 	EXPECT_FALSE(InvokeFilter(f, MakeTag(TAG_TITLE, "foo", TAG_TITLE, "bar")));
 }
 
-TEST(TagSongFilter, Substring)
+TEST_F(TagSongFilterTest, Substring)
 {
-	const TagSongFilter f(TAG_TITLE,
-			      StringFilter("needle", false, true, false));
+	const TagSongFilter f{
+		TAG_TITLE,
+		{"needle", false, false, StringFilter::Position::ANYWHERE, false},
+	};
 
 	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_TITLE, "needle")));
 	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_TITLE, "needleBAR")));
@@ -76,10 +78,28 @@ TEST(TagSongFilter, Substring)
 	EXPECT_FALSE(InvokeFilter(f, MakeTag(TAG_TITLE, "eedle")));
 }
 
-TEST(TagSongFilter, Negated)
+TEST_F(TagSongFilterTest, Startswith)
 {
-	const TagSongFilter f(TAG_TITLE,
-			      StringFilter("needle", false, false, true));
+	const TagSongFilter f{
+		TAG_TITLE,
+		{"needle", false, false, StringFilter::Position::PREFIX, false},
+	};
+
+	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_TITLE, "needle")));
+	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_TITLE, "needleBAR")));
+	EXPECT_FALSE(InvokeFilter(f, MakeTag(TAG_TITLE, "FOOneedle")));
+	EXPECT_FALSE(InvokeFilter(f, MakeTag(TAG_TITLE, "FOOneedleBAR")));
+
+	EXPECT_FALSE(InvokeFilter(f, MakeTag()));
+	EXPECT_FALSE(InvokeFilter(f, MakeTag(TAG_TITLE, "eedle")));
+}
+
+TEST_F(TagSongFilterTest, Negated)
+{
+	const TagSongFilter f{
+		TAG_TITLE,
+		{"needle", false, false, StringFilter::Position::FULL, true},
+	};
 
 	EXPECT_TRUE(InvokeFilter(f, MakeTag()));
 	EXPECT_FALSE(InvokeFilter(f, MakeTag(TAG_TITLE, "needle")));
@@ -89,10 +109,12 @@ TEST(TagSongFilter, Negated)
 /**
  * Combine the "Empty" and "Negated" tests.
  */
-TEST(TagSongFilter, EmptyNegated)
+TEST_F(TagSongFilterTest, EmptyNegated)
 {
-	const TagSongFilter f(TAG_TITLE,
-			      StringFilter("", false, false, true));
+	const TagSongFilter f{
+		TAG_TITLE,
+		{"", false, false, StringFilter::Position::FULL, true},
+	};
 
 	EXPECT_FALSE(InvokeFilter(f, MakeTag()));
 	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_TITLE, "foo")));
@@ -101,10 +123,12 @@ TEST(TagSongFilter, EmptyNegated)
 /**
  * Negation with multiple tag values.
  */
-TEST(TagSongFilter, MultiNegated)
+TEST_F(TagSongFilterTest, MultiNegated)
 {
-	const TagSongFilter f(TAG_TITLE,
-			      StringFilter("needle", false, false, true));
+	const TagSongFilter f{
+		TAG_TITLE,
+		{"needle", false, false, StringFilter::Position::FULL, true},
+	};
 
 	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_TITLE, "foo", TAG_TITLE, "bar")));
 	EXPECT_FALSE(InvokeFilter(f, MakeTag(TAG_TITLE, "needle", TAG_TITLE, "bar")));
@@ -115,10 +139,12 @@ TEST(TagSongFilter, MultiNegated)
  * Check whether fallback tags work, e.g. AlbumArtist falls back to
  * just Artist if there is no AlbumArtist.
  */
-TEST(TagSongFilter, Fallback)
+TEST_F(TagSongFilterTest, Fallback)
 {
-	const TagSongFilter f(TAG_ALBUM_ARTIST,
-			      StringFilter("needle", false, false, false));
+	const TagSongFilter f{
+		TAG_ALBUM_ARTIST,
+		{"needle", false, false, StringFilter::Position::FULL, false},
+	};
 
 	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_ALBUM_ARTIST, "needle")));
 	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_ARTIST, "needle")));
@@ -135,10 +161,12 @@ TEST(TagSongFilter, Fallback)
 /**
  * Combine the "Empty" and "Fallback" tests.
  */
-TEST(TagSongFilter, EmptyFallback)
+TEST_F(TagSongFilterTest, EmptyFallback)
 {
-	const TagSongFilter f(TAG_ALBUM_ARTIST,
-			      StringFilter("", false, false, false));
+	const TagSongFilter f{
+		TAG_ALBUM_ARTIST,
+		{"", false, false, StringFilter::Position::FULL, false},
+	};
 
 	EXPECT_TRUE(InvokeFilter(f, MakeTag()));
 
@@ -149,10 +177,12 @@ TEST(TagSongFilter, EmptyFallback)
 /**
  * Combine the "Negated" and "Fallback" tests.
  */
-TEST(TagSongFilter, NegatedFallback)
+TEST_F(TagSongFilterTest, NegatedFallback)
 {
-	const TagSongFilter f(TAG_ALBUM_ARTIST,
-			      StringFilter("needle", false, false, true));
+	const TagSongFilter f{
+		TAG_ALBUM_ARTIST,
+		{"needle", false, false, StringFilter::Position::FULL, true},
+	};
 
 	EXPECT_TRUE(InvokeFilter(f, MakeTag()));
 	EXPECT_TRUE(InvokeFilter(f, MakeTag(TAG_ALBUM_ARTIST, "foo")));

@@ -1,28 +1,14 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
+#include "config.h" // for ENABLE_FFMPEG
 #include "DecoderList.hxx"
 #include "DecoderPlugin.hxx"
 #include "Domain.hxx"
 #include "decoder/Features.h"
+#include "pcm/Features.h" // for ENABLE_DSD
 #include "lib/fmt/ExceptionFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "config/Data.hxx"
 #include "config/Block.hxx"
 #include "plugins/AudiofileDecoderPlugin.hxx"
@@ -36,6 +22,7 @@
 #include "plugins/WavpackDecoderPlugin.hxx"
 #include "plugins/FfmpegDecoderPlugin.hxx"
 #include "plugins/GmeDecoderPlugin.hxx"
+#include "plugins/VgmstreamDecoderPlugin.hxx"
 #include "plugins/FaadDecoderPlugin.hxx"
 #include "plugins/MadDecoderPlugin.hxx"
 #include "plugins/SndfileDecoderPlugin.hxx"
@@ -47,20 +34,20 @@
 #include "plugins/MpcdecDecoderPlugin.hxx"
 #include "plugins/FluidsynthDecoderPlugin.hxx"
 #include "plugins/SidplayDecoderPlugin.hxx"
-#include "util/RuntimeError.hxx"
 #include "Log.hxx"
 #include "PluginUnavailable.hxx"
 
+#include <algorithm> // for std::any_of()
 #include <iterator>
 
 #include <string.h>
 
-constexpr const struct DecoderPlugin *decoder_plugins[] = {
-#ifdef ENABLE_MAD
-	&mad_decoder_plugin,
-#endif
+constinit const struct DecoderPlugin *const decoder_plugins[] = {
 #ifdef ENABLE_MPG123
 	&mpg123_decoder_plugin,
+#endif
+#ifdef ENABLE_MAD
+	&mad_decoder_plugin,
 #endif
 #ifdef ENABLE_VORBIS_DECODER
 	&vorbis_decoder_plugin,
@@ -71,12 +58,6 @@ constexpr const struct DecoderPlugin *decoder_plugins[] = {
 #endif
 #ifdef ENABLE_OPUS
 	&opus_decoder_plugin,
-#endif
-#ifdef ENABLE_SNDFILE
-	&sndfile_decoder_plugin,
-#endif
-#ifdef ENABLE_AUDIOFILE
-	&audiofile_decoder_plugin,
 #endif
 #ifdef ENABLE_DSD
 	&dsdiff_decoder_plugin,
@@ -112,12 +93,28 @@ constexpr const struct DecoderPlugin *decoder_plugins[] = {
 #ifdef ENABLE_ADPLUG
 	&adplug_decoder_plugin,
 #endif
-#ifdef ENABLE_FFMPEG
-	&ffmpeg_decoder_plugin,
-#endif
 #ifdef ENABLE_GME
 	&gme_decoder_plugin,
 #endif
+#ifdef ENABLE_VGMSTREAM
+	&vgmstream_decoder_plugin,
+#endif
+#ifdef ENABLE_FFMPEG
+	&ffmpeg_decoder_plugin,
+#endif
+
+	/* these WAV-decoding plugins are below ffmpeg_decoder_plugin
+	   to give FFmpeg a chance to decode DTS-WAV files which is
+	   technically DTS Coherent Acoustics (DCA) stream wrapped in
+	   fake 16-bit stereo samples; neither libsndfile nor
+	   libaudiofile detect this, but FFmpeg does */
+#ifdef ENABLE_SNDFILE
+	&sndfile_decoder_plugin,
+#endif
+#ifdef ENABLE_AUDIOFILE
+	&audiofile_decoder_plugin,
+#endif
+
 	&pcm_decoder_plugin,
 	nullptr
 };
@@ -161,11 +158,11 @@ decoder_plugin_init_all(const ConfigData &config)
 				decoder_plugins_enabled[i] = true;
 		} catch (const PluginUnavailable &e) {
 			FmtError(decoder_domain,
-				 "Decoder plugin '{}' is unavailable: {}",
+				 "Decoder plugin {:?} is unavailable: {}",
 				 plugin.name, std::current_exception());
 		} catch (...) {
-			std::throw_with_nested(FormatRuntimeError("Failed to initialize decoder plugin '%s'",
-								  plugin.name));
+			std::throw_with_nested(FmtRuntimeError("Failed to initialize decoder plugin {:?}",
+							       plugin.name));
 		}
 	}
 }
@@ -173,15 +170,17 @@ decoder_plugin_init_all(const ConfigData &config)
 void
 decoder_plugin_deinit_all() noexcept
 {
-	decoder_plugins_for_each_enabled([=](const DecoderPlugin &plugin){
-			plugin.Finish();
-		});
+	for (const auto &plugin : GetEnabledDecoderPlugins())
+		plugin.Finish();
 }
 
 bool
 decoder_plugins_supports_suffix(std::string_view suffix) noexcept
 {
-	return decoder_plugins_try([suffix](const DecoderPlugin &plugin){
-			return plugin.SupportsSuffix(suffix);
-		});
+	for (const auto &plugin : GetEnabledDecoderPlugins()) {
+		if (plugin.SupportsSuffix(suffix))
+			return true;
+	}
+
+	return false;
 }

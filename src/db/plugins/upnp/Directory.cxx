@@ -1,28 +1,12 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Directory.hxx"
 #include "lib/expat/ExpatParser.hxx"
 #include "Tags.hxx"
 #include "tag/Builder.hxx"
 #include "tag/Table.hxx"
-#include "util/NumberParser.hxx"
+#include "util/CNumberParser.hxx"
 
 #include <algorithm>
 #include <string>
@@ -188,7 +172,7 @@ protected:
 		if (tag_type != TAG_NUM_OF_ITEM_TYPES) {
 			assert(object.type != UPnPDirObject::Type::UNKNOWN);
 
-			tag.AddItem(tag_type, value.c_str());
+			tag.AddItem(tag_type, value);
 
 			if (tag_type == TAG_TITLE)
 				object.name = TitleToPathSegment(std::move(value));
@@ -207,12 +191,12 @@ protected:
 		state = NONE;
 	}
 
-	void CharacterData(const XML_Char *s, int len) override
+	void CharacterData(std::string_view s) override
 	{
 		if (tag_type != TAG_NUM_OF_ITEM_TYPES) {
 			assert(object.type != UPnPDirObject::Type::UNKNOWN);
 
-			value.append(s, len);
+			value.append(s);
 			return;
 		}
 
@@ -221,19 +205,19 @@ protected:
 			break;
 
 		case RES:
-			object.url.assign(s, len);
+			object.url.assign(s);
 			break;
 
 		case CLASS:
-			object.item_class = ParseItemClass(std::string_view(s, len));
+			object.item_class = ParseItemClass(s);
 			break;
 		}
 	}
 };
 
 void
-UPnPDirContent::Parse(const char *input)
+UPnPDirContent::Parse(std::string_view input)
 {
 	UPnPDirParser parser(*this);
-	parser.Parse(input, strlen(input), true);
+	parser.Parse(input, true);
 }

@@ -1,29 +1,10 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "MadDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "tag/Id3Scan.hxx"
-#include "tag/Id3ReplayGain.hxx"
-#include "tag/Id3MixRamp.hxx"
 #include "tag/Handler.hxx"
 #include "tag/ReplayGainParser.hxx"
 #include "tag/MixRampParser.hxx"
@@ -36,10 +17,14 @@
 #include <mad.h>
 
 #ifdef ENABLE_ID3TAG
+#include "tag/Id3MixRamp.hxx"
+#include "tag/Id3Parse.hxx"
+#include "tag/Id3ReplayGain.hxx"
+#include "tag/Id3Scan.hxx"
 #include "tag/Id3Unique.hxx"
-#include <id3tag.h>
 #endif
 
+#include <algorithm> // for std::copy_n()
 #include <cassert>
 
 #include <stdlib.h>
@@ -66,7 +51,7 @@ static constexpr unsigned DECODERDELAY = 529;
 
 static constexpr Domain mad_domain("mad");
 
-gcc_const
+[[gnu::const]]
 static SongTime
 ToSongTime(mad_timer_t t) noexcept
 {
@@ -146,15 +131,19 @@ public:
 	bool RunScan(TagHandler &handler) noexcept;
 
 private:
-	bool Seek(long offset) noexcept;
+	/**
+	 * Throws on error.
+	 */
+	void Seek(long offset);
+
 	bool FillBuffer() noexcept;
 	void ParseId3(size_t tagsize, Tag *tag) noexcept;
 	MadDecoderAction DecodeNextFrame(bool skip, Tag *tag) noexcept;
 
-	[[nodiscard]] gcc_pure
+	[[nodiscard]] [[gnu::pure]]
 	offset_type ThisFrameOffset() const noexcept;
 
-	[[nodiscard]] gcc_pure
+	[[nodiscard]] [[gnu::pure]]
 	offset_type RestIncludingThisFrame() const noexcept;
 
 	/**
@@ -173,7 +162,7 @@ private:
 		times = new mad_timer_t[max_frames];
 	}
 
-	[[nodiscard]] gcc_pure
+	[[nodiscard]] [[gnu::pure]]
 	size_t TimeToFrame(SongTime t) const noexcept;
 
 	/**
@@ -216,19 +205,13 @@ MadDecoder::MadDecoder(DecoderClient *_client,
 	mad_timer_reset(&timer);
 }
 
-inline bool
-MadDecoder::Seek(long offset) noexcept
+inline void
+MadDecoder::Seek(long offset)
 {
-	try {
-		input_stream.LockSeek(offset);
-	} catch (...) {
-		return false;
-	}
+	input_stream.LockSeek(offset);
 
 	mad_stream_buffer(&stream, input_buffer, 0);
 	stream.error = MAD_ERROR_NONE;
-
-	return true;
 }
 
 inline bool
@@ -253,7 +236,7 @@ MadDecoder::FillBuffer() noexcept
 		return false;
 
 	size_t nbytes = decoder_read(client, input_stream,
-				     dest, max_read_size);
+				     {reinterpret_cast<std::byte *>(dest), max_read_size});
 	if (nbytes == 0) {
 		if (was_eof || max_read_size < MAD_BUFFER_GUARD)
 			return false;
@@ -273,21 +256,19 @@ inline void
 MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 {
 #ifdef ENABLE_ID3TAG
-	std::unique_ptr<id3_byte_t[]> allocated;
+	std::unique_ptr<std::byte[]> allocated;
 
 	const id3_length_t count = stream.bufend - stream.this_frame;
 
-	const id3_byte_t *id3_data;
+	const std::byte *id3_data = reinterpret_cast<const std::byte *>(stream.this_frame);
 	if (tagsize <= count) {
-		id3_data = stream.this_frame;
 		mad_stream_skip(&(stream), tagsize);
 	} else {
-		allocated = std::make_unique<id3_byte_t[]>(tagsize);
-		memcpy(allocated.get(), stream.this_frame, count);
+		allocated = std::make_unique_for_overwrite<std::byte[]>(tagsize);
+		std::byte *dest = std::copy_n(id3_data, count, allocated.get());
 		mad_stream_skip(&(stream), count);
 
-		if (!decoder_read_full(client, input_stream,
-				       allocated.get() + count, tagsize - count)) {
+		if (!decoder_read_full(client, input_stream, {dest, tagsize - count})) {
 			LogDebug(mad_domain, "error parsing ID3 tag");
 			return;
 		}
@@ -295,7 +276,7 @@ MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 		id3_data = allocated.get();
 	}
 
-	const UniqueId3Tag id3_tag(id3_tag_parse(id3_data, tagsize));
+	const UniqueId3Tag id3_tag = id3_tag_parse(std::span{id3_data, tagsize});
 	if (id3_tag == nullptr)
 		return;
 
@@ -545,7 +526,7 @@ parse_lame(struct lame *lame, struct mad_bitptr *ptr, int *bitlen) noexcept
 	           &lame->version.major, &lame->version.minor) != 2)
 		return false;
 
-	FmtDebug(mad_domain, "detected LAME version {}.{} (\"{}\")",
+	FmtDebug(mad_domain, "detected LAME version {}.{} ({:?})",
 		 lame->version.major, lame->version.minor, lame->encoder);
 
 	/* The reference volume was changed from the 83dB used in the
@@ -562,7 +543,21 @@ parse_lame(struct lame *lame, struct mad_bitptr *ptr, int *bitlen) noexcept
 
 	mad_bit_skip(ptr, 16);
 
-	lame->peak = MAD_F(mad_bit_read(ptr, 32) << 5); /* peak */
+	/* The lame peak value is a float multiplied by 2^23 and stored as an
+	 * unsigned integer (it is always positive). MAD's fixed-point format uses
+	 * 28 bits for the fractional part, so shift the 23 bit fraction up before
+	 * converting to a float.
+	 */
+	unsigned long peak_int = mad_bit_read(ptr, 32);
+
+#define LAME_PEAK_FRACBITS 23
+#if MAD_F_FRACBITS > LAME_PEAK_FRACBITS
+	peak_int <<= (MAD_F_FRACBITS - LAME_PEAK_FRACBITS);
+#elif LAME_PEAK_FRACBITS > MAD_F_FRACBITS
+	peak_int >>= (LAME_PEAK_FRACBITS - MAD_F_FRACBITS);
+#endif
+
+	lame->peak = mad_f_todouble(peak_int); /* peak */
 	FmtDebug(mad_domain, "LAME peak found: {}", lame->peak);
 
 	lame->track_gain = 0;
@@ -663,11 +658,6 @@ inline bool
 MadDecoder::DecodeFirstFrame(Tag *tag) noexcept
 {
 	struct xing xing;
-
-#if GCC_CHECK_VERSION(10,0)
-	/* work around bogus -Wuninitialized in GCC 10 */
-	xing.frames = 0;
-#endif
 
 	while (true) {
 		const auto action = DecodeNextFrame(false, tag);
@@ -798,6 +788,8 @@ MadDecoder::UpdateTimerNextFrame() noexcept
 DecoderCommand
 MadDecoder::SubmitPCM(size_t i, size_t pcm_length) noexcept
 {
+	assert(i <= pcm_length);
+
 	size_t num_samples = pcm_length - i;
 
 	mad_fixed_to_24_buffer(output_buffer, synth.pcm,
@@ -843,7 +835,7 @@ MadDecoder::SynthAndSubmit() noexcept
 	size_t pcm_length = synth.pcm.length;
 	if (drop_end_samples &&
 	    current_frame == max_frames - drop_end_frames - 1) {
-		if (drop_end_samples >= pcm_length)
+		if (i + drop_end_samples >= pcm_length)
 			return DecoderCommand::STOP;
 
 		pcm_length -= drop_end_samples;
@@ -883,12 +875,14 @@ MadDecoder::HandleCurrentFrame() noexcept
 			const auto t = client->GetSeekTime();
 			size_t j = TimeToFrame(t);
 			if (j < highest_frame) {
-				if (Seek(frame_offsets[j])) {
+				try {
+					Seek(frame_offsets[j]);
 					current_frame = j;
 					was_eof = false;
 					client->CommandFinished();
-				} else
-					client->SeekError();
+				} catch (...) {
+					client->SeekError(std::current_exception());
+				}
 			} else {
 				seek_time = t;
 				mute_frame = MadDecoderMuteFrame::SEEK;

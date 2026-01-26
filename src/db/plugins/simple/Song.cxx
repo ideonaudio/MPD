@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Song.hxx"
 #include "ExportedSong.hxx"
@@ -35,6 +19,7 @@ Song::Song(DetachedSong &&other, Directory &_parent) noexcept
 	 filename(other.GetURI()),
 	 tag(std::move(other.WritableTag())),
 	 mtime(other.GetLastModified()),
+	 added(other.GetAdded()),
 	 start_time(other.GetStartTime()),
 	 end_time(other.GetEndTime()),
 	 audio_format(other.GetAudioFormat())
@@ -63,7 +48,7 @@ Song::GetURI() const noexcept
 /**
  * Path name traversal of a #Directory.
  */
-gcc_pure
+[[gnu::pure]]
 static const Directory *
 FindTargetDirectory(const Directory &base, std::string_view path) noexcept
 {
@@ -85,7 +70,7 @@ FindTargetDirectory(const Directory &base, std::string_view path) noexcept
 /**
  * Path name traversal of a #Song.
  */
-gcc_pure
+[[gnu::pure]]
 static const Song *
 FindTargetSong(const Directory &_directory, std::string_view target) noexcept
 {
@@ -133,6 +118,9 @@ Song::Export() const noexcept
 	dest.mtime = IsNegative(mtime) && target_song != nullptr
 		? target_song->mtime
 		: mtime;
+	dest.added = IsNegative(added) && target_song != nullptr
+		? target_song->added
+		: added;
 	dest.start_time = start_time.IsZero() && target_song != nullptr
 		? target_song->start_time
 		: start_time;

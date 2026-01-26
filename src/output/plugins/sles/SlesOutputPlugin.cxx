@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "SlesOutputPlugin.hxx"
 #include "Object.hxx"
@@ -27,7 +11,7 @@
 #include "thread/Cond.hxx"
 #include "util/Domain.hxx"
 #include "util/ByteOrder.hxx"
-#include "mixer/MixerList.hxx"
+#include "mixer/plugins/AndroidMixerPlugin.hxx"
 #include "Log.hxx"
 
 #include <SLES/OpenSLES.h>
@@ -346,7 +330,7 @@ SlesOutput::Play(std::span<const std::byte> src)
 		pause = false;
 	}
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 
 	assert(filled < BUFFER_SIZE);
 
@@ -376,7 +360,7 @@ SlesOutput::Play(std::span<const std::byte> src)
 void
 SlesOutput::Drain()
 {
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 
 	assert(filled < BUFFER_SIZE);
 
@@ -398,7 +382,7 @@ SlesOutput::Cancel() noexcept
 		LogWarning(sles_domain,
 			   "AndroidSimpleBufferQueue.Clear() failed");
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	n_queued = 0;
 	filled = 0;
 }
@@ -423,7 +407,7 @@ SlesOutput::Pause()
 inline void
 SlesOutput::PlayedCallback()
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	assert(n_queued > 0);
 	--n_queued;
 	cond.notify_one();

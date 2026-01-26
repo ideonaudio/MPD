@@ -1,26 +1,10 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
-#ifndef MPD_SOCKET_EVENT_HXX
-#define MPD_SOCKET_EVENT_HXX
+#pragma once
 
 #include "BackendEvents.hxx"
+#include "event/Features.h" // for USE_EPOLL
 #include "net/SocketDescriptor.hxx"
 #include "util/BindMethod.hxx"
 #include "util/IntrusiveList.hxx"
@@ -40,7 +24,9 @@ class EventLoop;
  * thread that runs the #EventLoop, except where explicitly documented
  * as thread-safe.
  */
-class SocketEvent final : IntrusiveListHook, public EventPollBackendEvents
+class SocketEvent final
+	: IntrusiveListHook<IntrusiveHookMode::NORMAL>,
+	  public EventPollBackendEvents
 {
 	friend class EventLoop;
 	friend struct IntrusiveListBaseHookTraits<SocketEvent>;
@@ -125,8 +111,16 @@ public:
 		return scheduled_flags;
 	}
 
+	unsigned GetReadyFlags() const noexcept {
+		return ready_flags;
+	}
+
 	void SetReadyFlags(unsigned flags) noexcept {
 		ready_flags = flags;
+	}
+
+	void ClearReadyFlags(unsigned flags) noexcept {
+		ready_flags &= ~flags;
 	}
 
 	/**
@@ -148,10 +142,30 @@ public:
 	}
 
 	void CancelRead() noexcept {
-		Schedule(GetScheduledFlags() & ~READ);
+		/* IMPLICIT_FLAGS is erased from the flags so
+		   CancelRead() after ScheduleRead() cancels the whole
+		   event instead of leaving IMPLICIT_FLAGS
+		   scheduled */
+		Schedule(GetScheduledFlags() & ~(READ|IMPLICIT_FLAGS));
 	}
 
 	void CancelWrite() noexcept {
+		Schedule(GetScheduledFlags() & ~(WRITE|IMPLICIT_FLAGS));
+	}
+
+	/**
+	 * Like CancelRead(), but leave IMPLICIT_FLAGS scheduled (do
+	 * not schedule them if nothing is scheduled currently).
+	 */
+	void CancelOnlyRead() noexcept {
+		Schedule(GetScheduledFlags() & ~READ);
+	}
+
+	/**
+	 * Like CancelWrite(), but leave IMPLICIT_FLAGS scheduled (do
+	 * not schedule them if nothing is scheduled currently).
+	 */
+	void CancelOnlyWrite() noexcept {
 		Schedule(GetScheduledFlags() & ~WRITE);
 	}
 
@@ -161,6 +175,26 @@ public:
 	void ScheduleImplicit() noexcept {
 		Schedule(IMPLICIT_FLAGS);
 	}
+
+	/**
+	 * Schedule #ANY_HANGUP (in addition to events that may
+	 * already be scheduled).
+	 */
+	void ScheduleAnyHangup() noexcept {
+		Schedule(GetScheduledFlags() | ANY_HANGUP);
+	}
+
+#ifdef USE_EPOLL
+	/**
+	 * Cancel READ but schedule READ_HANGUP.  This is useful to be
+	 * able to detect hangup while we're not interested in reading
+	 * further data from the socket; in that case, the Linux
+	 * kernel will not report HANGUP.
+	 */
+	void CancelReadAndScheduleReadHangup() noexcept {
+		Schedule((GetScheduledFlags() & ~READ) | READ_HANGUP);
+	}
+#endif
 
 	bool IsReadPending() const noexcept {
 		return GetScheduledFlags() & READ;
@@ -176,5 +210,3 @@ private:
 	 */
 	void Dispatch() noexcept;
 };
-
-#endif

@@ -1,24 +1,7 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_THREAD_INPUT_STREAM_HXX
-#define MPD_THREAD_INPUT_STREAM_HXX
+#pragma once
 
 #include "InputStream.hxx"
 #include "thread/Thread.hxx"
@@ -27,7 +10,7 @@
 #include "util/CircularBuffer.hxx"
 
 #include <cassert>
-#include <cstdint>
+#include <cstddef>
 #include <exception>
 
 /**
@@ -36,8 +19,6 @@
  * being read into a ring buffer, and that buffer is then consumed by
  * another thread using the regular #InputStream API.  This class
  * manages the thread and the buffer.
- *
- * This works only for "streams": unknown length, no seeking, no tags.
  *
  * The implementation must call Stop() before its destruction
  * completes.  This cannot be done in ~ThreadInputStream() because at
@@ -56,11 +37,18 @@ class ThreadInputStream : public InputStream {
 	 */
 	Cond wake_cond;
 
+	/**
+	 * Signalled when the caller shall be woken up.
+	 */
+	Cond caller_cond;
+
 	std::exception_ptr postponed_exception;
 
-	HugeArray<uint8_t> allocation;
+	HugeArray<std::byte> allocation;
 
-	CircularBuffer<uint8_t> buffer;
+	CircularBuffer<std::byte> buffer{allocation};
+
+	offset_type seek_offset = UNKNOWN_SIZE;
 
 	/**
 	 * Shall the stream be closed?
@@ -74,7 +62,7 @@ class ThreadInputStream : public InputStream {
 
 public:
 	ThreadInputStream(const char *_plugin,
-			  const char *_uri, Mutex &_mutex,
+			  std::string_view _uri, Mutex &_mutex,
 			  size_t _buffer_size) noexcept;
 
 #ifndef NDEBUG
@@ -93,8 +81,10 @@ public:
 	void Check() final;
 	bool IsEOF() const noexcept final;
 	bool IsAvailable() const noexcept final;
+	void Seek(std::unique_lock<Mutex> &lock,
+		  offset_type new_offset) final;
 	size_t Read(std::unique_lock<Mutex> &lock,
-		    void *ptr, size_t size) override final;
+		    std::span<std::byte> dest) override final;
 
 protected:
 	/**
@@ -133,7 +123,17 @@ protected:
 	 *
 	 * @return 0 on end-of-file
 	 */
-	virtual size_t ThreadRead(void *ptr, size_t size) = 0;
+	virtual std::size_t ThreadRead(std::span<std::byte> dest) = 0;
+
+	/**
+	 * The actual Seek() implementation.  This virtual method will
+	 * be called from within the thread.
+	 *
+	 * The #InputStream is not locked.
+	 *
+	 * Throws on error.
+	 */
+	virtual void ThreadSeek(offset_type new_offset);
 
 	/**
 	 * Optional deinitialization before leaving the thread.
@@ -151,7 +151,11 @@ protected:
 	virtual void Cancel() noexcept {}
 
 private:
+	std::size_t ReadFromBuffer(std::span<std::byte> dest) noexcept;
+
+	bool IsSeeking() const noexcept {
+		return seek_offset != UNKNOWN_SIZE;
+	}
+
 	void ThreadFunc() noexcept;
 };
-
-#endif

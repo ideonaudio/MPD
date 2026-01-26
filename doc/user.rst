@@ -36,7 +36,9 @@ Installing on Android
 
 An experimental Android build is available on Google Play. After installing and launching it, :program:`MPD` will scan the music in your Music directory and you can control it as usual with a :program:`MPD` client.
 
-If you need to tweak the configuration, you can create a file called :file:`mpd.conf` on the data partition (the directory which is returned by Android's :dfn:`getExternalStorageDirectory()` API function). 
+If you need to tweak the configuration, you can create a file called
+:file:`mpd.conf` in MPD's data directory on the external storage
+(usually :file:`Android/data/org.musicpd/files/mpd.conf`).
 
 ALSA is not available on Android; only the :ref:`OpenSL ES
 <sles_output>` output plugin can be used for local playback.
@@ -55,20 +57,20 @@ and unpack it (or `clone the git repository
 
 In any case, you need:
 
-* a C++20 compiler (e.g. GCC 10 or clang 11)
-* `Meson 0.56.0 <http://mesonbuild.com/>`__ and `Ninja
+* a C++23 compiler (e.g. GCC 14 or clang 19)
+* `Meson 1.2 <http://mesonbuild.com/>`__ and `Ninja
   <https://ninja-build.org/>`__
-* Boost 1.58
 * pkg-config 
 
 Each plugin usually needs a codec library, which you also need to
 install. Check the :doc:`plugins` for details about required libraries
 
-For example, the following installs a fairly complete list of build dependencies on Debian Bullseye:
+For example, the following installs a fairly complete list of build
+dependencies on Debian Trixie:
 
 .. code-block:: none
 
-    apt install meson g++ \
+    apt install meson g++ pkgconf \
       libfmt-dev \
       libpcre2-dev \
       libmad0-dev libmpg123-dev libid3tag0-dev \
@@ -82,7 +84,8 @@ For example, the following installs a fairly complete list of build dependencies
       libsamplerate0-dev libsoxr-dev \
       libbz2-dev libcdio-paranoia-dev libiso9660-dev libmms-dev \
       libzzip-dev \
-      libcurl4-gnutls-dev libyajl-dev libexpat-dev \
+      libcurl4-gnutls-dev libexpat1-dev \
+      nlohmann-json3-dev \
       libasound2-dev libao-dev libjack-jackd2-dev libopenal-dev \
       libpulse-dev libshout3-dev \
       libsndio-dev \
@@ -93,17 +96,18 @@ For example, the following installs a fairly complete list of build dependencies
       libsqlite3-dev \
       libsystemd-dev \
       libgtest-dev \
-      libboost-dev \
       libicu-dev \
       libchromaprint-dev \
-      libgcrypt20-dev
+      libgcrypt20-dev \
+      libsystemd-dev \
+      libpipewire-0.3-dev
       
 
 Now configure the source tree:
 
 .. code-block:: none
 
- meson . output/release --buildtype=debugoptimized -Db_ndebug=true
+ meson setup . output/release --buildtype=debugoptimized -Db_ndebug=true
 
 The following command shows a list of compile-time options:
 
@@ -158,7 +162,7 @@ This section is about the latter.
 You need:
 
 * `mingw-w64 <http://mingw-w64.org/doku.php>`__
-* `Meson 0.56.0 <http://mesonbuild.com/>`__ and `Ninja
+* `Meson 1.2 <http://mesonbuild.com/>`__ and `Ninja
   <https://ninja-build.org/>`__
 * cmake
 * pkg-config
@@ -196,13 +200,16 @@ Compiling for Android
 
 You need:
 
-* Android SDK
-* `Android NDK r23 <https://developer.android.com/ndk/downloads>`_
-* `Meson 0.56.0 <http://mesonbuild.com/>`__ and `Ninja
+* Android SDK (sdk platform 34, build tools 34.0.0)
+* `Android NDK r27 <https://developer.android.com/ndk/downloads>`_
+* `Meson 1.2 <http://mesonbuild.com/>`__ and `Ninja
   <https://ninja-build.org/>`__
 * cmake
 * pkg-config
 * quilt
+* zip
+* libtool
+* python 3.9+
 
 Just like with the native build, unpack the :program:`MPD` source
 tarball and change into the directory.  Then, instead of
@@ -216,11 +223,17 @@ tarball and change into the directory.  Then, instead of
    --buildtype=debugoptimized -Db_ndebug=true \
    -Dwrap_mode=forcefallback \
    -Dandroid_debug_keystore=$HOME/.android/debug.keystore
- ninja android/apk/mpd-debug.apk
+ cd ../../android
+ ./gradlew assemble{ABI}Debug
+
+In the argument to `gradlew`, replace `{ABI}` with the build ABI or `Universal`.
+The `productFlavor` names defined in `build.android.kts` match the ABI.
+A universal apk (includes both arm64-v8a and x86_64)
+
 
 :envvar:`SDK_PATH` is the absolute path where you installed the
 Android SDK; :envvar:`NDK_PATH` is the Android NDK installation path;
-ABI is the Android ABI to be built, e.g. ":code:`arm64-v8a`".
+ABI is the Android ABI to be built, e.g. ":code:`x86`, `x86_64`, `armeabi`, `armeabi-v7a`, `arm64-v8a`".
 
 This downloads various library sources, and then configures and builds :program:`MPD`. 
 
@@ -230,47 +243,22 @@ Configuration
 The Configuration File
 ----------------------
 
-:program:`MPD` reads its configuration from a text file. Usually, that is :file:`/etc/mpd.conf`, unless a different path is specified on the command line. If you run :program:`MPD` as a user daemon (and not as a system daemon), the configuration is read from :file:`$XDG_CONFIG_HOME/mpd/mpd.conf` (usually :file:`~/.config/mpd/mpd.conf`). On Android, :file:`mpd.conf` will be loaded from the top-level directory of the data partition.
-
-Each line in the configuration file contains a setting name and its value, e.g.:
-
-:code:`connection_timeout "5"`
-
-For settings which specify a filesystem path, the tilde is expanded:
-
-:code:`music_directory "~/Music"`
-
-Some of the settings are grouped in blocks with curly braces, e.g. per-plugin settings:
-
-.. code-block:: none
-
-    audio_output {
-        type "alsa"
-        name "My ALSA output"
-        device "iec958:CARD=Intel,DEV=0"
-        mixer_control "PCM"
-    }
-
-The :code:`include` directive can be used to include settings from
-another file; the given file name is relative to the current file:
-
-.. code-block:: none
-
-  include "other.conf"
-
-You can use :code:`include_optional` instead if you want the included file
-to be optional; the directive will be ignored if the file does not exist:
-
-.. code-block:: none
-
-  include_optional "may_not_exist.conf"
+The :ref:`mpd.conf manpage <manpage_mpdconf>` contains general
+information about the :program:`MPD` configuration file.
 
 Configuring the music directory
 -------------------------------
 
-When you play local files, you should organize them within a directory called the "music directory". This is configured in :program:`MPD` with the music_directory setting.
+When you play local files, you should organize them within a directory
+called the "music directory". This is configured in :program:`MPD`
+with the :confval:`music_directory` setting.
 
-By default, :program:`MPD` follows symbolic links in the music directory. This behavior can be switched off: :code:`follow_outside_symlinks` controls whether :program:`MPD` follows links pointing to files outside of the music directory, and :code:`follow_inside_symlinks` lets you disable symlinks to files inside the music directory.
+By default, :program:`MPD` follows symbolic links in the music
+directory. This behavior can be switched off:
+:confval:`follow_outside_symlinks` controls whether :program:`MPD`
+follows links pointing to files outside of the music directory, and
+:confval:`follow_inside_symlinks` lets you disable symlinks to files
+inside the music directory.
 
 Instead of using local files, you can use storage plugins to access
 files on a remote file server. For example, to use music from the
@@ -516,7 +504,19 @@ The following table lists the audio_output options valid for all plugins:
    * - **tags yes|no**
      - If set to no, then :program:`MPD` will not send tags to this output. This is only useful for output plugins that can receive tags, for example the httpd output plugin.
    * - **always_on yes|no**
-     - If set to yes, then :program:`MPD` attempts to keep this audio output always open. This may be useful for streaming servers, when you don't want to disconnect all listeners even when playback is accidentally stopped.
+     - If set to yes, then :program:`MPD` attempts to keep this audio
+       output always open.  Instead of closing at the end
+       of playback, it puts the device in "pause" mode.  This works
+       only with output plugins that suport "pause" mode (see
+       :ref:`ALSA option "close_on_pause" <alsa_plugin>`).
+       This may be useful for streaming servers, when you don't want
+       to disconnect all listeners even when playback is accidentally
+       stopped.
+   * - **always_off yes|no**
+     - If set to yes, then :program:`MPD` never uses this audio output for
+       playback even if it's enabled. This can be used with the null output
+       plugin to create placeholder outputs for other software to react to
+       the enabled state without affecting playback.
    * - **mixer_type hardware|software|null|none**
      - Specifies which mixer should be used for this audio output: the
        hardware mixer (available for ALSA :ref:`alsa_plugin`, OSS
@@ -670,10 +670,28 @@ If ReplayGain is enabled, then the setting ``replaygain_preamp`` is
 set to a value (in dB) between ``-15`` and ``15``.  This is the gain
 applied to songs with ReplayGain tags.
 
+On songs without ReplayGain tags, the setting
+``replaygain_missing_preamp`` is used instead.  If this setting is not
+configured, then no ReplayGain is applied to such songs, and they will
+appear too loud.
+
+The setting ``replaygain_limit`` enables or disables ReplayGain
+limiting.  When enabled (the default), MPD will use the peak from the
+ReplayGain tags to minimize clipping; disabling it will allow clipping
+of some quiet tracks.
+
 ReplayGain is usually implemented with a software volume filter (which
 prevents `Bit-perfect playback`_).  To use a hardware mixer, set
 ``replay_gain_handler`` to ``mixer`` in the ``audio_output`` section
 (see :ref:`config_audio_output` for details).
+
+The ``gain`` URL fragment can be used to apply ReplayGain tags to
+Internet radios, which helps to normalize volume across different
+radios, e.g.::
+
+    mpc add 'http://radio.example.com/stream#gain=-3.5'
+
+This will set "track" and "album" ReplayGain tags for the stream to -3.5 dB.
 
 Simple Volume Normalization
 ^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -715,9 +733,11 @@ MPD enables MixRamp if:
 - Cross-fade is enabled
 - :ref:`mixrampdelay <command_mixrampdelay>` is set to a positive
   value, e.g.::
+
     mpc mixrampdelay 1
 - :ref:`mixrampdb <command_mixrampdb>` is set to a reasonable value,
   e.g.::
+
     mpc mixrampdb -17
 - both songs have MixRamp tags (or ``mixramp_analyzer`` is enabled)
 - both songs have the same audio format (or :ref:`audio_output_format`
@@ -757,12 +777,16 @@ brackets if you want to configure a port::
 
  bind_to_address "[::1]:6602"
 
+To reset the previous assignments just set an empty value:
+
+ bind_to_address
+
 To bind to a local socket (UNIX domain socket), specify an absolute
 path or a path starting with a tilde (~).  Some clients default to
-connecting to :file:`/var/run/mpd/socket` so this may be a good
+connecting to :file:`/run/mpd/socket` so this may be a good
 choice::
 
- bind_to_address "/var/run/mpd/socket"
+ bind_to_address "/run/mpd/socket"
 
 On Linux, local sockets can be bound to a name without a socket inode
 on the filesystem; MPD implements this by prepending ``@`` to the
@@ -771,7 +795,7 @@ address::
  bind_to_address "@mpd"
 
 If no port is specified, the default port is 6600.  This default can
-be changed with the port setting::
+be changed with the :confval:`port` setting::
 
  port "6601"
 
@@ -967,7 +991,14 @@ One approach for optimization is running :program:`MPD` on the file server, whic
         host "fileserver.local"
     }
       
-The :code:`music_directory` setting tells :program:`MPD` to read files from the given NFS server. It does this by connecting to the server from userspace. This does not actually mount the file server into the kernel's virtual file system, and thus requires no kernel cooperation and no special privileges. It does not even require a kernel with NFS support, only the nfs storage plugin (using the libnfs userspace library). The same can be done with SMB/CIFS using the smbclient storage plugin (using libsmbclient).
+The :confval:`music_directory` setting tells :program:`MPD` to read
+files from the given NFS server. It does this by connecting to the
+server from userspace. This does not actually mount the file server
+into the kernel's virtual file system, and thus requires no kernel
+cooperation and no special privileges. It does not even require a
+kernel with NFS support, only the nfs storage plugin (using the libnfs
+userspace library). The same can be done with SMB/CIFS using the
+smbclient storage plugin (using libsmbclient).
 
 The database setting tells :program:`MPD` to pass all database queries on to the :program:`MPD` instance running on the file server (using the proxy plugin).
 
@@ -992,11 +1023,15 @@ Or you can use the :command:`prlimit` program from the util-linux package:
 
 The systemd service file shipped with :program:`MPD` comes with this setting.
 
-This works only if the Linux kernel was compiled with :makevar:`CONFIG_RT_GROUP_SCHED` disabled. Use the following command to check this option for your current kernel:
+This works only if the Linux kernel was compiled with :makevar:`CONFIG_RT_GROUP_SCHED` disabled. Use the following command(s) to check this option for your current kernel:
 
-.. code-block:: none
+.. code-block:: sh
 
     zgrep ^CONFIG_RT_GROUP_SCHED /proc/config.gz
+    # OR
+    grep ^CONFIG_RT_GROUP_SCHED /boot/config
+    # OR
+    grep ^CONFIG_RT_GROUP_SCHED /boot/config-$(uname -r)
 
 You can verify whether the real-time scheduler is active with the ps command:
 
@@ -1035,7 +1070,7 @@ simply type::
 This will start :program:`MPD` as a daemon process (which means it
 detaches from your terminal and continues to run in background).  To
 stop it, send ``SIGTERM`` to the process; if you have configured a
-``pid_file``, you can use the ``--kill`` option::
+:confval:`pid_file`, you can use the ``--kill`` option::
 
  mpd --kill
 
@@ -1164,11 +1199,17 @@ Mounting is only possible with the simple database plugin and a :code:`cache_dir
 
     database {
       plugin "simple"
-      path "~/.mpd/db"
-      cache_directory "~/.mpd/cache"
+      path "$XDG_CACHE_HOME/mpd/database"
+      cache_directory "$XDG_CACHE_HOME/mpd/"
+      # or you can also use relative or absolute paths
+      # path "~/.mpd/db"
+      # cache_directory "~/.mpd/cache"
     }
         
-This requires migrating from the old :code:`db_file` setting to a database section. The cache directory must exist, and :program:`MPD` will put one file per mount there, which will be reused when the same storage is used again later.
+This requires migrating from the old :confval:`db_file` setting to a
+database section. The cache directory must exist, and :program:`MPD`
+will put one file per mount there, which will be reused when the same
+storage is used again later.
 
 Metadata
 --------
@@ -1201,7 +1242,7 @@ Stored Playlists
 Stored playlists are some kind of secondary playlists which can be
 created, saved, edited and deleted by the client. They are addressed
 by their names.  Its contents can be loaded into the queue, to be
-played back.  The :code:`playlist_directory` setting specifies where
+played back.  The :confval:`playlist_directory` setting specifies where
 those playlists are stored.
 
 Advanced usage
@@ -1350,6 +1391,10 @@ from io_uring's advantages.
 * "Cannot allocate memory" usually means that your memlock limit
   (``ulimit -l`` in bash or ``LimitMEMLOCK`` in systemd) is too low.
   64 MB is a reasonable value for this limit.
+* "Permission denied" on a system with SELinux enabled may mean
+  that MPD is restricted from using the io_uring facility. You
+  should also see an AVC denial reported by SELinux. A policy
+  adjustment will be necessary to give MPD access to io_uring.
 * Your Linux kernel might be too old and does not support io_uring.
 
 Error "bind to '0.0.0.0:6600' failed (continuing anyway, because binding to '[::]:6600' succeeded)"
@@ -1367,7 +1412,7 @@ Database
 I can't see my music in the MPD database
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
-* Check your :code:`music_directory` setting. 
+* Check your :confval:`music_directory` setting. 
 * Does the MPD user have read permission on all music files, and read+execute permission on all music directories (and all of their parent directories)? 
 * Did you update the database? (mpc update) 
 * Did you enable all relevant decoder plugins at compile time? :command:`mpd --version` will tell you. 

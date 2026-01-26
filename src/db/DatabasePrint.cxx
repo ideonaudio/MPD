@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "DatabasePrint.hxx"
 #include "Selection.hxx"
@@ -24,6 +8,7 @@
 #include "client/Response.hxx"
 #include "Partition.hxx"
 #include "song/LightSong.hxx"
+#include "tag/Names.hxx"
 #include "tag/Tag.hxx"
 #include "LightDirectory.hxx"
 #include "PlaylistInfo.hxx"
@@ -36,7 +21,7 @@
 
 #include <functional>
 
-gcc_pure
+[[gnu::pure]]
 static const char *
 ApplyBaseFlag(const char *uri, bool base) noexcept
 {
@@ -49,7 +34,7 @@ static void
 PrintDirectoryURI(Response &r, bool base,
 		  const LightDirectory &directory) noexcept
 {
-	r.Fmt(FMT_STRING("directory: {}\n"),
+	r.Fmt("directory: {}\n",
 	      ApplyBaseFlag(directory.GetPath(), base));
 }
 
@@ -79,10 +64,10 @@ print_playlist_in_directory(Response &r, bool base,
 			    const char *name_utf8) noexcept
 {
 	if (base || directory == nullptr)
-		r.Fmt(FMT_STRING("playlist: {}\n"),
+		r.Fmt("playlist: {}\n",
 		      ApplyBaseFlag(name_utf8, base));
 	else
-		r.Fmt(FMT_STRING("playlist: {}/{}\n"),
+		r.Fmt("playlist: {}/{}\n",
 		      directory, name_utf8);
 }
 
@@ -92,9 +77,9 @@ print_playlist_in_directory(Response &r, bool base,
 			    const char *name_utf8) noexcept
 {
 	if (base || directory == nullptr || directory->IsRoot())
-		r.Fmt(FMT_STRING("playlist: {}\n"), name_utf8);
+		r.Fmt("playlist: {}\n", name_utf8);
 	else
-		r.Fmt(FMT_STRING("playlist: {}/{}\n"),
+		r.Fmt("playlist: {}/{}\n",
 		      directory->GetPath(), name_utf8);
 }
 
@@ -192,28 +177,38 @@ PrintSongUris(Response &r, Partition &partition,
 
 static void
 PrintUniqueTags(Response &r, std::span<const TagType> tag_types,
-		const RecursiveMap<std::string> &map) noexcept
+		const RecursiveMap<std::string> &map,
+		const RangeArg window) noexcept
 {
 	const char *const name = tag_item_names[tag_types.front()];
 	tag_types = tag_types.subspan(1);
 
+	unsigned next_position = 0;
 	for (const auto &[key, tag] : map) {
-		r.Fmt(FMT_STRING("{}: {}\n"), name, key);
+		const unsigned position = next_position++;
+		if (position < window.start)
+			continue;
+		else if (position >= window.end)
+			break;
+
+		r.Fmt("{}: {}\n", name, key);
 
 		if (!tag_types.empty())
-			PrintUniqueTags(r, tag_types, tag);
+			PrintUniqueTags(r, tag_types, tag, RangeArg::All());
 	}
 }
 
 void
 PrintUniqueTags(Response &r, Partition &partition,
 		std::span<const TagType> tag_types,
-		const SongFilter *filter)
+		const SongFilter *filter,
+		const RangeArg window)
 {
 	const Database &db = partition.GetDatabaseOrThrow();
 
 	const DatabaseSelection selection("", true, filter);
 
 	PrintUniqueTags(r, tag_types,
-			db.CollectUniqueTags(selection, tag_types));
+			db.CollectUniqueTags(selection, tag_types),
+			window);
 }

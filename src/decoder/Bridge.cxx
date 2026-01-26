@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Bridge.hxx"
 #include "DecoderAPI.hxx"
@@ -111,7 +95,7 @@ NeedChunks(DecoderControl &dc, std::unique_lock<Mutex> &lock) noexcept
 static DecoderCommand
 LockNeedChunks(DecoderControl &dc) noexcept
 {
-	std::unique_lock<Mutex> lock(dc.mutex);
+	std::unique_lock lock{dc.mutex};
 	return NeedChunks(dc, lock);
 }
 
@@ -151,7 +135,7 @@ DecoderBridge::FlushChunk() noexcept
 	if (!chunk->IsEmpty())
 		dc.pipe->Push(std::move(chunk));
 
-	const std::scoped_lock<Mutex> protect(dc.mutex);
+	const std::scoped_lock protect{dc.mutex};
 	dc.client_cond.notify_one();
 }
 
@@ -213,7 +197,7 @@ DecoderBridge::GetVirtualCommand() noexcept
 DecoderCommand
 DecoderBridge::LockGetVirtualCommand() noexcept
 {
-	const std::scoped_lock<Mutex> protect(dc.mutex);
+	const std::scoped_lock protect{dc.mutex};
 	return GetVirtualCommand();
 }
 
@@ -255,6 +239,10 @@ DecoderBridge::UpdateStreamTag(InputStream *is) noexcept
 		/* discard the song tag; we don't need it */
 		song_tag.reset();
 
+	if (stream_tag && tag && *stream_tag == *tag)
+		/* not changed */
+		return false;
+
 	stream_tag = std::move(tag);
 	return true;
 }
@@ -273,7 +261,7 @@ DecoderBridge::Ready(const AudioFormat audio_format,
 		 seekable);
 
 	{
-		const std::scoped_lock<Mutex> protect(dc.mutex);
+		const std::scoped_lock protect{dc.mutex};
 		dc.SetReady(audio_format, seekable, duration);
 	}
 
@@ -299,7 +287,7 @@ DecoderBridge::GetCommand() noexcept
 void
 DecoderBridge::CommandFinished() noexcept
 {
-	const std::scoped_lock<Mutex> protect(dc.mutex);
+	const std::scoped_lock protect{dc.mutex};
 
 	assert(dc.command != DecoderCommand::NONE || initial_seek_running);
 	assert(dc.command != DecoderCommand::SEEK ||
@@ -360,9 +348,12 @@ DecoderBridge::GetSeekFrame() noexcept
 }
 
 void
-DecoderBridge::SeekError() noexcept
+DecoderBridge::SeekError(std::exception_ptr &&_error) noexcept
 {
 	assert(dc.pipe != nullptr);
+
+	if (!_error)
+		_error = std::make_exception_ptr(std::runtime_error{"Decoder failed to seek"});
 
 	if (initial_seek_running) {
 		/* d'oh, we can't seek to the sub-song start position,
@@ -370,21 +361,21 @@ DecoderBridge::SeekError() noexcept
 		initial_seek_running = false;
 
 		if (initial_seek_essential)
-			error = std::make_exception_ptr(std::runtime_error("Decoder failed to seek"));
+			error = std::move(_error);
 
 		return;
 	}
 
 	assert(dc.command == DecoderCommand::SEEK);
 
-	dc.seek_error = true;
+	dc.seek_error = std::move(_error);
 	seeking = false;
 
 	CommandFinished();
 }
 
 InputStreamPtr
-DecoderBridge::OpenUri(const char *uri)
+DecoderBridge::OpenUri(std::string_view uri)
 {
 	assert(dc.state == DecoderState::START ||
 	       dc.state == DecoderState::DECODE);
@@ -395,7 +386,7 @@ DecoderBridge::OpenUri(const char *uri)
 	auto is = InputStream::Open(uri, mutex);
 	is->SetHandler(&dc);
 
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 	while (true) {
 		if (dc.command == DecoderCommand::STOP)
 			throw StopDecoder();
@@ -411,16 +402,15 @@ DecoderBridge::OpenUri(const char *uri)
 }
 
 size_t
-DecoderBridge::Read(InputStream &is, void *buffer, size_t length) noexcept
+DecoderBridge::Read(InputStream &is, std::span<std::byte> dest) noexcept
 try {
-	assert(buffer != nullptr);
 	assert(dc.state == DecoderState::START ||
 	       dc.state == DecoderState::DECODE);
 
-	if (length == 0)
+	if (dest.empty())
 		return 0;
 
-	std::unique_lock<Mutex> lock(is.mutex);
+	std::unique_lock lock{is.mutex};
 
 	while (true) {
 		if (CheckCancelRead())
@@ -432,7 +422,7 @@ try {
 		dc.cond.wait(lock);
 	}
 
-	size_t nbytes = is.Read(lock, buffer, length);
+	size_t nbytes = is.Read(lock, dest);
 	assert(nbytes > 0 || is.IsEOF());
 
 	return nbytes;

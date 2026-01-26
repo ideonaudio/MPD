@@ -1,35 +1,19 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Mix.hxx"
 #include "Volume.hxx"
 #include "Clamp.hxx"
 #include "Traits.hxx"
 #include "util/Clamp.hxx"
-#include "util/Math.hxx"
 
 #include "Dither.cxx" // including the .cxx file to get inlined templates
 
 #include <cassert>
 #include <cmath>
+#include <utility> // for std::unreachable()
 
-template<SampleFormat F, class Traits=SampleTraits<F>>
+template<SampleFormat F, IntegerSampleTraits Traits=SampleTraits<F>>
 static typename Traits::value_type
 PcmAddVolume(PcmDither &dither,
 	     typename Traits::value_type _a, typename Traits::value_type _b,
@@ -43,7 +27,7 @@ PcmAddVolume(PcmDither &dither,
 				  Traits::BITS>(c);
 }
 
-template<SampleFormat F, class Traits=SampleTraits<F>>
+template<SampleFormat F, IntegerSampleTraits Traits=SampleTraits<F>>
 static void
 PcmAddVolume(PcmDither &dither,
 	     typename Traits::pointer a,
@@ -55,7 +39,7 @@ PcmAddVolume(PcmDither &dither,
 					       volume1, volume2);
 }
 
-template<SampleFormat F, class Traits=SampleTraits<F>>
+template<SampleFormat F, IntegerSampleTraits Traits=SampleTraits<F>>
 static void
 PcmAddVolumeVoid(PcmDither &dither,
 		 void *a, const void *b, size_t size,
@@ -128,11 +112,10 @@ pcm_add_vol(PcmDither &dither, void *buffer1, const void *buffer2, size_t size,
 		return true;
 	}
 
-	assert(false);
-	gcc_unreachable();
+	std::unreachable();
 }
 
-template<SampleFormat F, class Traits=SampleTraits<F>>
+template<SampleFormat F, ArithmeticSampleTraits Traits=SampleTraits<F>>
 static constexpr typename Traits::value_type
 PcmAdd(typename Traits::value_type _a, typename Traits::value_type _b) noexcept
 {
@@ -141,7 +124,7 @@ PcmAdd(typename Traits::value_type _a, typename Traits::value_type _b) noexcept
 	return PcmClamp<F, Traits>(a + b);
 }
 
-template<SampleFormat F, class Traits=SampleTraits<F>>
+template<SampleFormat F, ArithmeticSampleTraits Traits=SampleTraits<F>>
 static void
 PcmAdd(typename Traits::pointer a,
        typename Traits::const_pointer b,
@@ -151,7 +134,7 @@ PcmAdd(typename Traits::pointer a,
 		a[i] = PcmAdd<F, Traits>(a[i], b[i]);
 }
 
-template<SampleFormat F, class Traits=SampleTraits<F>>
+template<SampleFormat F, ArithmeticSampleTraits Traits=SampleTraits<F>>
 static void
 PcmAddVoid(void *a, const void *b, size_t size) noexcept
 {
@@ -207,8 +190,7 @@ pcm_add(void *buffer1, const void *buffer2, size_t size,
 		return true;
 	}
 
-	assert(false);
-	gcc_unreachable();
+	std::unreachable();
 }
 
 bool
@@ -225,7 +207,7 @@ pcm_mix(PcmDither &dither, void *buffer1, const void *buffer2, size_t size,
 	s = std::sin((float)M_PI_2 * portion1);
 	s *= s;
 
-	int vol1 = lround(s * PCM_VOLUME_1S);
+	int vol1 = std::lround(s * PCM_VOLUME_1S);
 	vol1 = Clamp<int>(vol1, 0, PCM_VOLUME_1S);
 
 	return pcm_add_vol(dither, buffer1, buffer2, size,

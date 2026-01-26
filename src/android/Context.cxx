@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Context.hxx"
 #include "java/Class.hxx"
@@ -26,19 +10,28 @@
 
 #include "AudioManager.hxx"
 
-AllocatedPath
-Context::GetExternalFilesDir(JNIEnv *env, const char *_type) noexcept
+static jmethodID getExternalFilesDir_method,
+  getCacheDir_method,
+  getSystemService_method;
+
+void
+Context::Initialise(JNIEnv *env) noexcept
 {
-	assert(_type != nullptr);
+	Java::Class cls{env, "android/content/Context"};
 
-	Java::Class cls{env, env->GetObjectClass(Get())};
-	jmethodID method = env->GetMethodID(cls, "getExternalFilesDir",
-					    "(Ljava/lang/String;)Ljava/io/File;");
-	assert(method);
+	getExternalFilesDir_method = env->GetMethodID(cls, "getExternalFilesDir",
+						      "(Ljava/lang/String;)Ljava/io/File;");
+	getCacheDir_method = env->GetMethodID(cls, "getCacheDir",
+					      "()Ljava/io/File;");
+	getSystemService_method = env->GetMethodID(cls, "getSystemService",
+						   "(Ljava/lang/String;)Ljava/lang/Object;");
+}
 
-	Java::String type{env, _type};
-
-	jobject file = env->CallObjectMethod(Get(), method, type.Get());
+AllocatedPath
+Context::GetExternalFilesDir(JNIEnv *env, const char *type) noexcept
+{
+	jobject file = env->CallObjectMethod(Get(), getExternalFilesDir_method,
+					     Java::String::Optional(env, type).Get());
 	if (Java::DiscardException(env) || file == nullptr)
 		return nullptr;
 
@@ -50,12 +43,7 @@ Context::GetCacheDir(JNIEnv *env) const noexcept
 {
 	assert(env != nullptr);
 
-	Java::Class cls(env, env->GetObjectClass(Get()));
-	jmethodID method = env->GetMethodID(cls, "getCacheDir",
-					    "()Ljava/io/File;");
-	assert(method);
-
-	jobject file = env->CallObjectMethod(Get(), method);
+	jobject file = env->CallObjectMethod(Get(), getCacheDir_method);
 	if (Java::DiscardException(env) || file == nullptr)
 		return nullptr;
 
@@ -67,13 +55,8 @@ Context::GetAudioManager(JNIEnv *env) noexcept
 {
 	assert(env != nullptr);
 
-	Java::Class cls(env, env->GetObjectClass(Get()));
-	jmethodID method = env->GetMethodID(cls, "getSystemService",
-					    "(Ljava/lang/String;)Ljava/lang/Object;");
-	assert(method);
-
 	Java::String name(env, "audio");
-	jobject am = env->CallObjectMethod(Get(), method, name.Get());
+	jobject am = env->CallObjectMethod(Get(), getSystemService_method, name.Get());
 	if (Java::DiscardException(env) || am == nullptr)
 		return nullptr;
 

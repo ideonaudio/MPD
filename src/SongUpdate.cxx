@@ -1,36 +1,24 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h" /* must be first for large file support */
 #include "song/DetachedSong.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "db/plugins/simple/Song.hxx"
 #include "db/plugins/simple/Directory.hxx"
 #include "storage/StorageInterface.hxx"
 #include "storage/FileInfo.hxx"
+#include "input/InputStream.hxx"
+#include "input/WaitReady.hxx"
 #include "decoder/DecoderList.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "fs/FileInfo.hxx"
+#include "thread/Mutex.hxx"
 #include "tag/Builder.hxx"
 #include "TagFile.hxx"
 #include "TagStream.hxx"
 #include "util/UriExtract.hxx"
 
+#include "archive/Features.h" // for ENABLE_ARCHIVE
 #ifdef ENABLE_ARCHIVE
 #include "TagArchive.hxx"
 #endif
@@ -50,13 +38,14 @@ Song::IsPluginAvailable() const noexcept
 }
 
 SongPtr
-Song::LoadFile(Storage &storage, const char *path_utf8, Directory &parent)
+Song::LoadFile(Storage &storage, std::string_view path_utf8,
+	       const StorageFileInfo &info, Directory &parent)
 {
 	assert(!uri_has_scheme(path_utf8));
-	assert(std::strchr(path_utf8, '\n') == nullptr);
+	assert(path_utf8.find('\n') == path_utf8.npos);
 
 	auto song = std::make_unique<Song>(path_utf8, parent);
-	if (!song->UpdateFile(storage))
+	if (!song->UpdateFile(storage, info))
 		return nullptr;
 
 	return song;
@@ -67,23 +56,22 @@ Song::LoadFile(Storage &storage, const char *path_utf8, Directory &parent)
 #ifdef ENABLE_DATABASE
 
 bool
-Song::UpdateFile(Storage &storage)
+Song::UpdateFile(Storage &storage, const StorageFileInfo &info)
 {
-	const auto &relative_uri = GetURI();
+	assert(info.IsRegular());
 
-	const auto info = storage.GetInfo(relative_uri.c_str(), true);
-	if (!info.IsRegular())
-		return false;
+	const auto &relative_uri = GetURI();
 
 	TagBuilder tag_builder;
 	auto new_audio_format = AudioFormat::Undefined();
 
 	try {
-		const auto path_fs = storage.MapFS(relative_uri.c_str());
+		const auto path_fs = storage.MapFS(relative_uri);
 		if (path_fs.IsNull()) {
-			const auto absolute_uri =
-				storage.MapUTF8(relative_uri.c_str());
-			if (!tag_stream_scan(absolute_uri.c_str(), tag_builder,
+			Mutex mutex;
+			const auto is = storage.OpenFile(relative_uri, mutex);
+			LockWaitReady(*is);
+			if (!tag_stream_scan(*is, tag_builder,
 					     &new_audio_format))
 				return false;
 		} else {
@@ -105,11 +93,11 @@ Song::UpdateFile(Storage &storage)
 #ifdef ENABLE_ARCHIVE
 
 SongPtr
-Song::LoadFromArchive(ArchiveFile &archive, const char *name_utf8,
+Song::LoadFromArchive(ArchiveFile &archive, std::string_view name_utf8,
 		      Directory &parent) noexcept
 {
 	assert(!uri_has_scheme(name_utf8));
-	assert(std::strchr(name_utf8, '\n') == nullptr);
+	assert(name_utf8.find('\n') == name_utf8.npos);
 
 	auto song = std::make_unique<Song>(name_utf8, parent);
 	if (!song->UpdateFileInArchive(archive))

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_NFS_FILE_READER_HXX
 #define MPD_NFS_FILE_READER_HXX
@@ -23,22 +7,25 @@
 #include "Lease.hxx"
 #include "Callback.hxx"
 #include "event/InjectEvent.hxx"
-#include "util/Compiler.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <exception>
+#include <span>
 #include <string>
 
-#include <sys/stat.h>
+#ifdef LIBNFS_API_2
+#include <memory>
+#endif
 
 struct nfsfh;
+struct nfs_stat_64;
 class NfsConnection;
 
 /**
  * A helper class which helps with reading from a file.  It obtains a
  * connection lease (#NfsLease), opens the given file, "stats" the
- * file, and finally allos you to read its contents.
+ * file, and finally allows you to read its contents.
  *
  * To get started, derive your class from it and implement the pure
  * virtual methods, construct an instance, and call Open().
@@ -56,10 +43,9 @@ class NfsFileReader : NfsLease, NfsCallback {
 
 	State state = State::INITIAL;
 
-	std::string server, export_name;
-	const char *path;
+	std::string server, export_name, path;
 
-	NfsConnection *connection;
+	NfsConnection *connection = nullptr;
 
 	nfsfh *fh;
 
@@ -68,13 +54,22 @@ class NfsFileReader : NfsLease, NfsCallback {
 	 */
 	InjectEvent defer_open;
 
+#ifdef LIBNFS_API_2
+	std::unique_ptr<std::byte[]> read_buffer;
+#endif
+
 public:
 	NfsFileReader() noexcept;
+	explicit NfsFileReader(NfsConnection &_connection,
+			       std::string_view _path) noexcept;
 	~NfsFileReader() noexcept;
 
 	auto &GetEventLoop() const noexcept {
 		return defer_open.GetEventLoop();
 	}
+
+	[[nodiscard]] [[gnu::pure]]
+	std::string GetAbsoluteUri() const noexcept;
 
 	void Close() noexcept;
 	void DeferClose() noexcept;
@@ -125,7 +120,7 @@ protected:
 	 *
 	 * This method will be called from within the I/O thread.
 	 */
-	virtual void OnNfsFileRead(const void *data, size_t size) noexcept = 0;
+	virtual void OnNfsFileRead(std::span<const std::byte> src) noexcept = 0;
 
 	/**
 	 * An error has occurred, which can be either while waiting
@@ -142,7 +137,8 @@ private:
 	void CancelOrClose() noexcept;
 
 	void OpenCallback(nfsfh *_fh) noexcept;
-	void StatCallback(const struct stat *st) noexcept;
+	void StatCallback(const struct nfs_stat_64 *st) noexcept;
+	void ReadCallback(std::size_t nbytes, const void *data) noexcept;
 
 	/* virtual methods from NfsLease */
 	void OnNfsConnectionReady() noexcept final;

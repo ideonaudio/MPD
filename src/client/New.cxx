@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Client.hxx"
 #include "Config.hxx"
@@ -24,40 +8,61 @@
 #include "BackgroundCommand.hxx"
 #include "Partition.hxx"
 #include "Instance.hxx"
+#include "lib/fmt/SocketAddressFormatter.hxx"
+#include "net/PeerCredentials.hxx"
 #include "net/UniqueSocketDescriptor.hxx"
 #include "net/SocketAddress.hxx"
 #include "net/ToString.hxx"
+#include "util/SpanCast.hxx"
 #include "Log.hxx"
 #include "Version.h"
 
+#include <fmt/core.h>
+
 #include <cassert>
 
-static constexpr char GREETING[] = "OK MPD " PROTOCOL_VERSION "\n";
+using std::string_view_literals::operator""sv;
+
+static constexpr auto GREETING = "OK MPD " PROTOCOL_VERSION "\n"sv;
 
 Client::Client(EventLoop &_loop, Partition &_partition,
 	       UniqueSocketDescriptor _fd,
 	       int _uid, unsigned _permission,
-	       int _num) noexcept
+	       std::string &&_name) noexcept
 	:FullyBufferedSocket(_fd.Release(), _loop,
 			     16384, client_max_output_buffer_size),
+	 name(std::move(_name)),
 	 timeout_event(_loop, BIND_THIS_METHOD(OnTimeout)),
 	 partition(&_partition),
 	 permission(_permission),
 	 uid(_uid),
-	 num(_num),
 	 last_album_art(_loop)
 {
+	FmtInfo(client_domain, "[{}] client connected", name);
+
 	timeout_event.Schedule(client_timeout);
+}
+
+[[gnu::pure]]
+static std::string
+MakeClientName(SocketAddress address, const SocketPeerCredentials &cred) noexcept
+{
+	if (cred.IsDefined()) {
+		if (cred.GetPid() > 0)
+			return fmt::format("pid={} uid={}", cred.GetPid(), cred.GetUid());
+
+		return fmt::format("uid={}", cred.GetUid());
+	}
+
+	return ToString(address);
 }
 
 void
 client_new(EventLoop &loop, Partition &partition,
-	   UniqueSocketDescriptor fd, SocketAddress address, int uid,
+	   UniqueSocketDescriptor fd, SocketAddress remote_address,
+	   SocketPeerCredentials cred,
 	   unsigned permission) noexcept
 {
-	static unsigned int next_client_num;
-	const auto remote = ToString(address);
-
 	assert(fd.IsDefined());
 
 	ClientList &client_list = *partition.instance.client_list;
@@ -66,18 +71,16 @@ client_new(EventLoop &loop, Partition &partition,
 		return;
 	}
 
-	(void)fd.Write(GREETING, sizeof(GREETING) - 1);
+	(void)fd.WriteNoWait(AsBytes(GREETING));
 
-	const unsigned num = next_client_num++;
+	const int uid = cred.IsDefined() ? static_cast<int>(cred.GetUid()) : -1;
+
 	auto *client = new Client(loop, partition, std::move(fd), uid,
-				    permission,
-				    num);
+				  permission,
+				  MakeClientName(remote_address, cred));
 
 	client_list.Add(*client);
 	partition.clients.push_back(*client);
-
-	FmtInfo(client_domain, "[{}] opened from {}",
-		num, remote);
 }
 
 void
@@ -89,6 +92,6 @@ Client::Close() noexcept
 	if (FullyBufferedSocket::IsDefined())
 		FullyBufferedSocket::Close();
 
-	FmtInfo(client_domain, "[{}] closed", num);
+	FmtInfo(client_domain, "[{}] disconnected", name);
 	delete this;
 }

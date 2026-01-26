@@ -1,32 +1,16 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "UringInputPlugin.hxx"
 #include "../AsyncInputStream.hxx"
 #include "event/Call.hxx"
 #include "event/Loop.hxx"
-#include "system/Error.hxx"
+#include "lib/fmt/RuntimeError.hxx"
+#include "lib/fmt/SystemError.hxx"
 #include "io/Open.hxx"
 #include "io/UniqueFileDescriptor.hxx"
 #include "io/uring/ReadOperation.hxx"
 #include "io/uring/Queue.hxx"
-#include "util/RuntimeError.hxx"
 
 #include <sys/stat.h>
 
@@ -49,6 +33,7 @@ static const size_t URING_RESUME_AT = 384 * 1024;
 
 static EventLoop *uring_input_event_loop;
 static Uring::Queue *uring_input_queue;
+static bool uring_input_initialized = false;
 
 class UringInputStream final : public AsyncInputStream, Uring::ReadHandler {
 	Uring::Queue &uring;
@@ -61,7 +46,7 @@ class UringInputStream final : public AsyncInputStream, Uring::ReadHandler {
 
 public:
 	UringInputStream(EventLoop &event_loop, Uring::Queue &_uring,
-			 const char *path,
+			 std::string_view path,
 			 UniqueFileDescriptor &&_fd,
 			 offset_type _size, Mutex &_mutex)
 		:AsyncInputStream(event_loop,
@@ -149,7 +134,7 @@ UringInputStream::OnRead(std::unique_ptr<std::byte[]> data,
 {
 	read_operation.reset();
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	if (nbytes == 0) {
 		postponed_exception = std::make_exception_ptr(std::runtime_error("Premature end of file"));
@@ -170,7 +155,7 @@ UringInputStream::OnReadError(int error) noexcept
 {
 	read_operation.reset();
 
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	postponed_exception = std::make_exception_ptr(MakeErrno(error, "Read failed"));
 	InvokeOnAvailable();
@@ -179,6 +164,16 @@ UringInputStream::OnReadError(int error) noexcept
 InputStreamPtr
 OpenUringInputStream(const char *path, Mutex &mutex)
 {
+	if (!uring_input_initialized) {
+		BlockingCall(*uring_input_event_loop, [](){
+			if (uring_input_initialized)
+				return;
+
+			uring_input_queue = uring_input_event_loop->GetUring();
+			uring_input_initialized = true;
+		});
+	}
+
 	if (uring_input_queue == nullptr)
 		return nullptr;
 
@@ -188,10 +183,10 @@ OpenUringInputStream(const char *path, Mutex &mutex)
 	// TODO: use IORING_OP_STATX
 	struct stat st;
 	if (fstat(fd.Get(), &st) < 0)
-		throw FormatErrno("Failed to access %s", path);
+		throw FmtErrno("Failed to access {}", path);
 
 	if (!S_ISREG(st.st_mode))
-		throw FormatRuntimeError("Not a regular file: %s", path);
+		throw FmtRuntimeError("Not a regular file: {}", path);
 
 	return std::make_unique<UringInputStream>(*uring_input_event_loop,
 						  *uring_input_queue,
@@ -203,8 +198,4 @@ void
 InitUringInputPlugin(EventLoop &event_loop) noexcept
 {
 	uring_input_event_loop = &event_loop;
-
-	BlockingCall(event_loop, [](){
-		uring_input_queue = uring_input_event_loop->GetUring();
-	});
 }

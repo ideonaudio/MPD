@@ -1,30 +1,15 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_ASYNC_INPUT_STREAM_HXX
-#define MPD_ASYNC_INPUT_STREAM_HXX
+#pragma once
 
 #include "InputStream.hxx"
+#include "thread/Cond.hxx"
 #include "event/InjectEvent.hxx"
 #include "util/HugeAllocator.hxx"
 #include "util/CircularBuffer.hxx"
 
+#include <cstddef>
 #include <exception>
 
 /**
@@ -34,17 +19,22 @@
  * the regular #InputStream API.
  */
 class AsyncInputStream : public InputStream {
-	enum class SeekState : uint8_t {
-		NONE, SCHEDULED, PENDING
-	};
-
 	InjectEvent deferred_resume;
 	InjectEvent deferred_seek;
 
-	HugeArray<uint8_t> allocation;
+	/**
+	 * Signalled when the caller shall be woken up.
+	 */
+	Cond caller_cond;
 
-	CircularBuffer<uint8_t> buffer;
+	HugeArray<std::byte> allocation;
+
+	CircularBuffer<std::byte> buffer{allocation};
 	const size_t resume_at;
+
+	enum class SeekState : uint_least8_t {
+		NONE, SCHEDULED, PENDING
+	} seek_state = SeekState::NONE;
 
 	bool open = true;
 
@@ -54,8 +44,6 @@ class AsyncInputStream : public InputStream {
 	 * buffer is below the threshold again.
 	 */
 	bool paused = false;
-
-	SeekState seek_state = SeekState::NONE;
 
 	/**
 	 * The #Tag object ready to be requested via
@@ -69,7 +57,7 @@ protected:
 	std::exception_ptr postponed_exception;
 
 public:
-	AsyncInputStream(EventLoop &event_loop, const char *_url,
+	AsyncInputStream(EventLoop &event_loop, std::string_view _url,
 			 Mutex &_mutex,
 			 size_t _buffer_size,
 			 size_t _resume_at) noexcept;
@@ -88,7 +76,7 @@ public:
 	std::unique_ptr<Tag> ReadTag() noexcept final;
 	bool IsAvailable() const noexcept final;
 	size_t Read(std::unique_lock<Mutex> &lock,
-		    void *ptr, size_t read_size) final;
+		    std::span<std::byte> dest) final;
 
 protected:
 	/**
@@ -128,7 +116,7 @@ protected:
 		return buffer.GetSpace();
 	}
 
-	CircularBuffer<uint8_t>::Range PrepareWriteBuffer() noexcept {
+	auto PrepareWriteBuffer() noexcept {
 		return buffer.Write();
 	}
 
@@ -138,7 +126,7 @@ protected:
 	 * Append data to the buffer.  The size must fit into the
 	 * buffer; see GetBufferSpace().
 	 */
-	void AppendToBuffer(const void *data, size_t append_size) noexcept;
+	void AppendToBuffer(std::span<const std::byte> src) noexcept;
 
 	/**
 	 * Implement code here that will resume the stream after it
@@ -164,11 +152,10 @@ protected:
 	void SeekDone() noexcept;
 
 private:
+	std::size_t ReadFromBuffer(std::span<std::byte> dest) noexcept;
 	void Resume();
 
 	/* for InjectEvent */
 	void DeferredResume() noexcept;
 	void DeferredSeek() noexcept;
 };
-
-#endif

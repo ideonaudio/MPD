@@ -1,29 +1,13 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_INPUT_CACHE_MANAGER_HXX
-#define MPD_INPUT_CACHE_MANAGER_HXX
+#pragma once
 
 #include "thread/Mutex.hxx"
+#include "util/IntrusiveHashSet.hxx"
+#include "util/IntrusiveList.hxx"
 
-#include <boost/intrusive/set.hpp>
-#include <boost/intrusive/list.hpp>
+#include <string_view>
 
 class InputStream;
 class InputCacheItem;
@@ -41,31 +25,17 @@ class InputCacheManager {
 
 	size_t total_size = 0;
 
-	struct ItemCompare {
+	struct ItemGetUri {
 		[[gnu::pure]]
-		bool operator()(const InputCacheItem &a,
-				const char *b) const noexcept;
-
-		[[gnu::pure]]
-		bool operator()(const char *a,
-				const InputCacheItem &b) const noexcept;
-
-		[[gnu::pure]]
-		bool operator()(const InputCacheItem &a,
-				const InputCacheItem &b) const noexcept;
+		std::string_view operator()(const InputCacheItem &item) const noexcept;
 	};
 
-	boost::intrusive::list<InputCacheItem,
-			       boost::intrusive::base_hook<boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::auto_unlink>>>,
-			       boost::intrusive::constant_time_size<false>> items_by_time;
+	IntrusiveList<InputCacheItem> items_by_time;
 
-	using UriMap =
-		boost::intrusive::set<InputCacheItem,
-				      boost::intrusive::base_hook<boost::intrusive::set_base_hook<boost::intrusive::link_mode<boost::intrusive::normal_link>>>,
-				      boost::intrusive::compare<ItemCompare>,
-				      boost::intrusive::constant_time_size<false>>;
-
-	UriMap items_by_uri;
+	IntrusiveHashSet<InputCacheItem, 127,
+			 IntrusiveHashSetOperators<InputCacheItem, ItemGetUri,
+						   std::hash<std::string_view>,
+						   std::equal_to<std::string_view>>> items_by_uri;
 
 public:
 	explicit InputCacheManager(const InputCacheConfig &config) noexcept;
@@ -110,5 +80,3 @@ private:
 	 */
 	bool EvictOldestUnused() noexcept;
 };
-
-#endif

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "PlaylistRegistry.hxx"
@@ -25,7 +9,6 @@
 #include "plugins/ExtM3uPlaylistPlugin.hxx"
 #include "plugins/M3uPlaylistPlugin.hxx"
 #include "plugins/XspfPlaylistPlugin.hxx"
-#include "plugins/SoundCloudPlaylistPlugin.hxx"
 #include "plugins/PlsPlaylistPlugin.hxx"
 #include "plugins/AsxPlaylistPlugin.hxx"
 #include "plugins/RssPlaylistPlugin.hxx"
@@ -34,6 +17,7 @@
 #include "plugins/EmbeddedCuePlaylistPlugin.hxx"
 #include "decoder/Features.h"
 #include "input/InputStream.hxx"
+#include "util/FilteredContainer.hxx"
 #include "util/MimeType.hxx"
 #include "util/UriExtract.hxx"
 #include "config/Data.hxx"
@@ -42,7 +26,7 @@
 #include <cassert>
 #include <iterator>
 
-constexpr const PlaylistPlugin *playlist_plugins[] = {
+constinit const PlaylistPlugin *const playlist_plugins[] = {
 	&extm3u_playlist_plugin,
 	&m3u_playlist_plugin,
 	&pls_playlist_plugin,
@@ -50,9 +34,6 @@ constexpr const PlaylistPlugin *playlist_plugins[] = {
 	&xspf_playlist_plugin,
 	&asx_playlist_plugin,
 	&rss_playlist_plugin,
-#endif
-#ifdef ENABLE_SOUNDCLOUD
-	&soundcloud_playlist_plugin,
 #endif
 #ifdef ENABLE_FLAC
 	&flac_playlist_plugin,
@@ -73,9 +54,12 @@ static bool playlist_plugins_enabled[n_playlist_plugins];
 /** which plugins have the "as_folder" option enabled? */
 static bool playlist_plugins_as_folder[n_playlist_plugins];
 
-#define playlist_plugins_for_each_enabled(plugin) \
-	playlist_plugins_for_each(plugin) \
-		if (playlist_plugins_enabled[playlist_plugin_iterator - playlist_plugins])
+static inline auto
+GetEnabledPlaylistPlugins() noexcept
+{
+	const auto all = GetAllPlaylistPlugins();
+	return FilteredContainer{all.begin(), all.end(), playlist_plugins_enabled};
+}
 
 void
 playlist_list_global_init(const ConfigData &config)
@@ -96,8 +80,7 @@ playlist_list_global_init(const ConfigData &config)
 		if (param != nullptr)
 			param->SetUsed();
 
-		playlist_plugins_enabled[i] =
-			playlist_plugin_init(playlist_plugins[i], *param);
+		playlist_plugins_enabled[i] = playlist_plugins[i]->Init(*param);
 
 		playlist_plugins_as_folder[i] =
 			param->GetBlockValue("as_directory",
@@ -108,8 +91,9 @@ playlist_list_global_init(const ConfigData &config)
 void
 playlist_list_global_finish() noexcept
 {
-	playlist_plugins_for_each_enabled(plugin)
-		playlist_plugin_finish(plugin);
+	for (const auto &plugin : GetEnabledPlaylistPlugins()) {
+		plugin.Finish();
+	}
 }
 
 bool
@@ -195,9 +179,9 @@ playlist_list_open_uri(const char *uri, Mutex &mutex)
 static std::unique_ptr<SongEnumerator>
 playlist_list_open_stream_mime2(InputStreamPtr &&is, std::string_view mime)
 {
-	playlist_plugins_for_each_enabled(plugin) {
-		if (plugin->open_stream != nullptr &&
-		    plugin->SupportsMimeType(mime)) {
+	for (const auto &plugin : GetEnabledPlaylistPlugins()) {
+		if (plugin.open_stream != nullptr &&
+		    plugin.SupportsMimeType(mime)) {
 			/* rewind the stream, so each plugin gets a
 			   fresh start */
 			try {
@@ -205,7 +189,7 @@ playlist_list_open_stream_mime2(InputStreamPtr &&is, std::string_view mime)
 			} catch (...) {
 			}
 
-			auto playlist = plugin->open_stream(std::move(is));
+			auto playlist = plugin.open_stream(std::move(is));
 			if (playlist != nullptr)
 				return playlist;
 		}
@@ -225,9 +209,9 @@ playlist_list_open_stream_mime(InputStreamPtr &&is, std::string_view mime)
 std::unique_ptr<SongEnumerator>
 playlist_list_open_stream_suffix(InputStreamPtr &&is, std::string_view suffix)
 {
-	playlist_plugins_for_each_enabled(plugin) {
-		if (plugin->open_stream != nullptr &&
-		    plugin->SupportsSuffix(suffix)) {
+	for (const auto &plugin : GetEnabledPlaylistPlugins()) {
+		if (plugin.open_stream != nullptr &&
+		    plugin.SupportsSuffix(suffix)) {
 			/* rewind the stream, so each plugin gets a
 			   fresh start */
 			try {
@@ -235,7 +219,7 @@ playlist_list_open_stream_suffix(InputStreamPtr &&is, std::string_view suffix)
 			} catch (...) {
 			}
 
-			auto playlist = plugin->open_stream(std::move(is));
+			auto playlist = plugin.open_stream(std::move(is));
 			if (playlist != nullptr)
 				return playlist;
 		}
@@ -273,9 +257,9 @@ playlist_list_open_stream(InputStreamPtr &&is, const char *uri)
 const PlaylistPlugin *
 FindPlaylistPluginBySuffix(std::string_view suffix) noexcept
 {
-	playlist_plugins_for_each_enabled(plugin) {
-		if (plugin->SupportsSuffix(suffix))
-			return plugin;
+	for (const auto &plugin : GetEnabledPlaylistPlugins()) {
+		if (plugin.SupportsSuffix(suffix))
+			return &plugin;
 	}
 
 	return nullptr;

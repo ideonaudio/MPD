@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /**
   * single bz2 archive handling (requires libbz2)
@@ -27,6 +11,7 @@
 #include "../ArchiveVisitor.hxx"
 #include "input/InputStream.hxx"
 #include "input/LocalOpen.hxx"
+#include "fs/NarrowPath.hxx"
 #include "fs/Path.hxx"
 
 #include <bzlib.h>
@@ -40,7 +25,7 @@ class Bzip2ArchiveFile final : public ArchiveFile {
 
 public:
 	Bzip2ArchiveFile(Path path, InputStreamPtr &&_is)
-		:name(path.GetBase().c_str()),
+		:name(NarrowPath(path.GetBase())),
 		 istream(std::move(_is)) {
 		// remove .bz2 suffix
 		const size_t len = name.length();
@@ -63,7 +48,7 @@ class Bzip2InputStream final : public InputStream {
 
 	bool eof = false;
 
-	char buffer[5000];
+	std::byte buffer[5000];
 
 public:
 	Bzip2InputStream(std::shared_ptr<InputStream> _input,
@@ -77,7 +62,7 @@ public:
 	/* virtual methods from InputStream */
 	[[nodiscard]] bool IsEOF() const noexcept override;
 	size_t Read(std::unique_lock<Mutex> &lock,
-		    void *ptr, size_t size) override;
+		    std::span<std::byte> dest) override;
 
 private:
 	void Open();
@@ -129,25 +114,25 @@ Bzip2InputStream::FillBuffer()
 	if (bzstream.avail_in > 0)
 		return true;
 
-	size_t count = input->LockRead(buffer, sizeof(buffer));
+	size_t count = input->LockRead(buffer);
 	if (count == 0)
 		return false;
 
-	bzstream.next_in = buffer;
+	bzstream.next_in = reinterpret_cast<char *>(buffer);
 	bzstream.avail_in = count;
 	return true;
 }
 
 size_t
-Bzip2InputStream::Read(std::unique_lock<Mutex> &, void *ptr, size_t length)
+Bzip2InputStream::Read(std::unique_lock<Mutex> &, std::span<std::byte> dest)
 {
 	if (eof)
 		return 0;
 
 	const ScopeUnlock unlock(mutex);
 
-	bzstream.next_out = (char *)ptr;
-	bzstream.avail_out = length;
+	bzstream.next_out = reinterpret_cast<char *>(dest.data());
+	bzstream.avail_out = dest.size();
 
 	do {
 		const bool had_input = FillBuffer();
@@ -162,11 +147,11 @@ Bzip2InputStream::Read(std::unique_lock<Mutex> &, void *ptr, size_t length)
 		if (bz_result != BZ_OK)
 			throw std::runtime_error("BZ2_bzDecompress() has failed");
 
-		if (!had_input && bzstream.avail_out == length)
+		if (!had_input && bzstream.avail_out == dest.size())
 			throw std::runtime_error("Unexpected end of bzip2 file");
-	} while (bzstream.avail_out == length);
+	} while (bzstream.avail_out == dest.size());
 
-	const size_t nbytes = length - bzstream.avail_out;
+	const size_t nbytes = dest.size() - bzstream.avail_out;
 	offset += nbytes;
 
 	return nbytes;

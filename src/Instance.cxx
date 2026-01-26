@@ -1,26 +1,10 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "config.h"
 #include "Instance.hxx"
 #include "Partition.hxx"
-#include "IdleFlags.hxx"
+#include "protocol/IdleFlags.hxx"
 #include "StateFile.hxx"
 #include "Stats.hxx"
 #include "client/List.hxx"
@@ -48,20 +32,21 @@
 #ifdef ENABLE_SQLITE
 #include "sticker/Database.hxx"
 #include "sticker/SongSticker.hxx"
-#endif
+#include "sticker/TagSticker.hxx"
+#include "sticker/CleanupService.hxx"
 #endif
 
-Instance::Instance()
-	:rtio_thread(true),
-#ifdef ENABLE_SYSTEMD_DAEMON
-	 systemd_watchdog(event_loop),
 #endif
-	 idle_monitor(event_loop, BIND_THIS_METHOD(OnIdle))
-{
-}
+
+Instance::Instance() = default;
 
 Instance::~Instance() noexcept
 {
+#ifdef ENABLE_SQLITE
+	if (sticker_cleanup)
+		sticker_cleanup.reset();
+#endif
+
 #ifdef ENABLE_DATABASE
 	delete update;
 
@@ -105,6 +90,22 @@ Instance::DeletePartition(Partition &partition) noexcept
 	}
 }
 
+AudioOutputControl *
+Instance::FindOutput(std::string_view name,
+		     Partition &excluding_partition) noexcept
+{
+	for (auto &partition : partitions) {
+		if (&partition == &excluding_partition)
+			continue;
+
+		auto *output = partition.outputs.FindByName(name);
+		if (output != nullptr && !output->IsDummy())
+			return output;
+	}
+
+	return nullptr;
+}
+
 #ifdef ENABLE_DATABASE
 
 const Database &
@@ -128,6 +129,11 @@ Instance::OnDatabaseModified() noexcept
 
 	for (auto &partition : partitions)
 		partition.DatabaseModified(*database);
+
+#ifdef ENABLE_SQLITE
+	if (sticker_database)
+		StartStickerCleanup();
+#endif
 }
 
 void
@@ -209,3 +215,58 @@ Instance::FlushCaches() noexcept
 	if (input_cache)
 		input_cache->Flush();
 }
+
+void
+Instance::OnPlaylistDeleted(const char *name) const noexcept
+{
+#ifdef ENABLE_SQLITE
+	/* if the playlist has stickers, remove theme */
+	if (HasStickerDatabase()) {
+		try {
+			sticker_database->Delete("playlist", name);
+		} catch (...) {
+		}
+	}
+#else
+	(void)name;
+#endif
+}
+
+#ifdef ENABLE_SQLITE
+
+void
+Instance::OnStickerCleanupDone(bool changed) noexcept
+{
+	assert(event_loop.IsInside());
+
+	sticker_cleanup.reset();
+
+	if (changed)
+		EmitIdle(IDLE_STICKER);
+
+	if (need_sticker_cleanup)
+		StartStickerCleanup();
+}
+
+void
+Instance::StartStickerCleanup()
+{
+	assert(sticker_database != nullptr);
+
+	if (sticker_cleanup) {
+		/* still runnning, start a new one when that one
+		   finishes*/
+		need_sticker_cleanup = true;
+		return;
+	}
+
+	need_sticker_cleanup = false;
+
+	sticker_cleanup =
+		std::make_unique<StickerCleanupService>(*this,
+							*sticker_database,
+							*database);
+	sticker_cleanup->Start();
+}
+
+#endif // ENABLE_SQLITE

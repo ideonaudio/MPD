@@ -1,26 +1,10 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "InputStream.hxx"
 #include "Handler.hxx"
 #include "tag/Tag.hxx"
-#include "util/ASCII.hxx"
+#include "util/StringCompare.hxx"
 
 #include <cassert>
 #include <stdexcept>
@@ -52,19 +36,19 @@ InputStream::SetReady() noexcept
  * seeking in a HTTP file requires opening a new connection with a new
  * HTTP request.
  */
-gcc_pure
+[[gnu::pure]]
 static bool
-ExpensiveSeeking(const char *uri) noexcept
+ExpensiveSeeking(std::string_view uri) noexcept
 {
-	return StringStartsWithCaseASCII(uri, "http://") ||
-		StringStartsWithCaseASCII(uri, "qobuz://") ||
-		StringStartsWithCaseASCII(uri, "https://");
+	return StringStartsWithIgnoreCase(uri, "http://") ||
+		StringStartsWithIgnoreCase(uri, "qobuz://") ||
+		StringStartsWithIgnoreCase(uri, "https://");
 }
 
 bool
 InputStream::CheapSeeking() const noexcept
 {
-	return IsSeekable() && !ExpensiveSeeking(uri.c_str());
+	return IsSeekable() && !ExpensiveSeeking(uri);
 }
 
 //[[noreturn]]
@@ -77,14 +61,14 @@ InputStream::Seek(std::unique_lock<Mutex> &, [[maybe_unused]] offset_type new_of
 void
 InputStream::LockSeek(offset_type _offset)
 {
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 	Seek(lock, _offset);
 }
 
 void
 InputStream::LockSkip(offset_type _offset)
 {
-	std::unique_lock<Mutex> lock(mutex);
+	std::unique_lock lock{mutex};
 	Skip(lock, _offset);
 }
 
@@ -97,7 +81,7 @@ InputStream::ReadTag() noexcept
 std::unique_ptr<Tag>
 InputStream::LockReadTag() noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	return ReadTag();
 }
 
@@ -108,51 +92,41 @@ InputStream::IsAvailable() const noexcept
 }
 
 size_t
-InputStream::LockRead(void *ptr, size_t _size)
+InputStream::LockRead(std::span<std::byte> dest)
 {
-#if !CLANG_CHECK_VERSION(3,6)
-	/* disabled on clang due to -Wtautological-pointer-compare */
-	assert(ptr != nullptr);
-#endif
-	assert(_size > 0);
+	assert(!dest.empty());
 
-	std::unique_lock<Mutex> lock(mutex);
-	return Read(lock, ptr, _size);
+	std::unique_lock lock{mutex};
+	return Read(lock, dest);
 }
 
 void
-InputStream::ReadFull(std::unique_lock<Mutex> &lock, void *_ptr, size_t _size)
+InputStream::ReadFull(std::unique_lock<Mutex> &lock, std::span<std::byte> dest)
 {
-	auto *ptr = (uint8_t *)_ptr;
+	assert(!dest.empty());
 
-	size_t nbytes_total = 0;
-	while (_size > 0) {
-		size_t nbytes = Read(lock, ptr + nbytes_total, _size);
+	do {
+		std::size_t nbytes = Read(lock, dest);
 		if (nbytes == 0)
 			throw std::runtime_error("Unexpected end of file");
 
-		nbytes_total += nbytes;
-		_size -= nbytes;
-	}
+		dest = dest.subspan(nbytes);
+	} while (!dest.empty());
 }
 
 void
-InputStream::LockReadFull(void *ptr, size_t _size)
+InputStream::LockReadFull(std::span<std::byte> dest)
 {
-#if !CLANG_CHECK_VERSION(3,6)
-	/* disabled on clang due to -Wtautological-pointer-compare */
-	assert(ptr != nullptr);
-#endif
-	assert(_size > 0);
+	assert(!dest.empty());
 
-	std::unique_lock<Mutex> lock(mutex);
-	ReadFull(lock, ptr, _size);
+	std::unique_lock lock{mutex};
+	ReadFull(lock, dest);
 }
 
 bool
 InputStream::LockIsEOF() const noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	return IsEOF();
 }
 

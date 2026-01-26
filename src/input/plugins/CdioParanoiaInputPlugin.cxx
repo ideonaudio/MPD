@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /**
  * CD-Audio handling (requires libcdio_paranoia)
@@ -23,14 +7,15 @@
 
 #include "CdioParanoiaInputPlugin.hxx"
 #include "lib/cdio/Paranoia.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "../InputStream.hxx"
 #include "../InputPlugin.hxx"
-#include "util/TruncateString.hxx"
 #include "util/StringCompare.hxx"
-#include "util/RuntimeError.hxx"
 #include "util/Domain.hxx"
 #include "util/ByteOrder.hxx"
+#include "util/NumberParser.hxx"
 #include "util/ScopeExit.hxx"
+#include "util/StringSplit.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "Log.hxx"
 #include "config/Block.hxx"
@@ -39,11 +24,17 @@
 #include <cassert>
 #include <cstdint>
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-
 #include <cdio/cd_types.h>
+
+using std::string_view_literals::operator""sv;
+
+static constexpr Domain cdio_domain("cdio");
+
+static bool default_reverse_endian;
+static unsigned speed = 0;
+
+/* Default to full paranoia, but allow skipping sectors. */
+static int mode_flags = PARANOIA_MODE_FULL^PARANOIA_MODE_NEVERSKIP;
 
 class CdioParanoiaInputStream final : public InputStream {
 	cdrom_drive_t *const drv;
@@ -56,7 +47,7 @@ class CdioParanoiaInputStream final : public InputStream {
 	lsn_t buffer_lsn;
 
  public:
-	CdioParanoiaInputStream(const char *_uri, Mutex &_mutex,
+	CdioParanoiaInputStream(std::string_view _uri, Mutex &_mutex,
 				cdrom_drive_t *_drv, CdIo_t *_cdio,
 				bool reverse_endian,
 				lsn_t _lsn_from, lsn_t lsn_to)
@@ -65,9 +56,7 @@ class CdioParanoiaInputStream final : public InputStream {
 		 lsn_from(_lsn_from),
 		 buffer_lsn(-1)
 	{
-		/* Set reading mode for full paranoia, but allow
-		   skipping sectors. */
-		para.SetMode(PARANOIA_MODE_FULL^PARANOIA_MODE_NEVERSKIP);
+		para.SetMode(mode_flags);
 
 		/* seek to beginning of the track */
 		para.Seek(lsn_from);
@@ -94,14 +83,9 @@ class CdioParanoiaInputStream final : public InputStream {
 	/* virtual methods from InputStream */
 	[[nodiscard]] bool IsEOF() const noexcept override;
 	size_t Read(std::unique_lock<Mutex> &lock,
-		    void *ptr, size_t size) override;
+		    std::span<std::byte> dest) override;
 	void Seek(std::unique_lock<Mutex> &lock, offset_type offset) override;
 };
-
-static constexpr Domain cdio_domain("cdio");
-
-static bool default_reverse_endian;
-static unsigned speed = 0;
 
 static void
 input_cdio_init(EventLoop &, const ConfigBlock &block)
@@ -113,56 +97,59 @@ input_cdio_init(EventLoop &, const ConfigBlock &block)
 		else if (strcmp(value, "big_endian") == 0)
 			default_reverse_endian = IsLittleEndian();
 		else
-			throw FormatRuntimeError("Unrecognized 'default_byte_order' setting: %s",
-						 value);
+			throw FmtRuntimeError("Unrecognized 'default_byte_order' setting: {}",
+					      value);
 	}
 	speed = block.GetBlockValue("speed",0U);
+
+	if (const auto *param = block.GetBlockParam("mode")) {
+		param->With([](const char *s){
+			if (StringIsEqual(s, "disable"))
+				mode_flags = PARANOIA_MODE_DISABLE;
+			else if (StringIsEqual(s, "overlap"))
+				mode_flags = PARANOIA_MODE_OVERLAP;
+			else if (StringIsEqual(s, "full"))
+				mode_flags = PARANOIA_MODE_FULL;
+			else
+				throw std::invalid_argument{"Invalid paranoia mode"};
+		});
+	}
+
+	if (const auto *param = block.GetBlockParam("skip")) {
+		if (param->GetBoolValue())
+			mode_flags &= ~PARANOIA_MODE_NEVERSKIP;
+		else
+			mode_flags |= PARANOIA_MODE_NEVERSKIP;
+	}
 }
 
 struct CdioUri {
-	char device[64];
+	std::string_view device;
 	int track;
 };
 
 static CdioUri
-parse_cdio_uri(const char *src)
+parse_cdio_uri(std::string_view src)
 {
-	CdioUri dest;
+	src = StringAfterPrefixIgnoreCase(src, "cdda://"sv);
 
-	if (*src == 0) {
-		/* play the whole CD in the default drive */
-		dest.device[0] = 0;
-		dest.track = -1;
-		return dest;
+	const auto [device, track] = SplitLast(src, '/');
+
+	/* play the whole CD by default */
+	int track_number = -1;
+
+	if (!track.empty()) {
+		auto value = ParseInteger<uint_least16_t>(track);
+		if (!value)
+			throw std::invalid_argument{"Bad track number"};
+
+		track_number = *value;
 	}
 
-	const char *slash = std::strrchr(src, '/');
-	if (slash == nullptr) {
-		/* play the whole CD in the specified drive */
-		CopyTruncateString(dest.device, src, sizeof(dest.device));
-		dest.track = -1;
-		return dest;
-	}
-
-	size_t device_length = slash - src;
-	if (device_length >= sizeof(dest.device))
-		device_length = sizeof(dest.device) - 1;
-
-	memcpy(dest.device, src, device_length);
-	dest.device[device_length] = 0;
-
-	const char *track = slash + 1;
-
-	char *endptr;
-	dest.track = strtoul(track, &endptr, 10);
-	if (*endptr != 0)
-		throw std::runtime_error("Malformed track number");
-
-	if (endptr == track)
-		/* play the whole CD */
-		dest.track = -1;
-
-	return dest;
+	return {
+		.device = device,
+		.track = track_number,
+	};
 }
 
 static AllocatedPath
@@ -182,16 +169,13 @@ cdio_detect_device()
 }
 
 static InputStreamPtr
-input_cdio_open(const char *uri,
+input_cdio_open(std::string_view uri,
 		Mutex &mutex)
 {
-	uri = StringAfterPrefixIgnoreCase(uri, "cdda://");
-	assert(uri != nullptr);
-
 	const auto parsed_uri = parse_cdio_uri(uri);
 
 	/* get list of CD's supporting CD-DA */
-	const AllocatedPath device = parsed_uri.device[0] != 0
+	const AllocatedPath device = !parsed_uri.device.empty()
 		? AllocatedPath::FromFS(parsed_uri.device)
 		: cdio_detect_device();
 	if (device.IsNull())
@@ -209,16 +193,20 @@ input_cdio_open(const char *uri,
 	}
 
 	cdio_cddap_verbose_set(drv, CDDA_MESSAGE_FORGETIT, CDDA_MESSAGE_FORGETIT);
-	if (speed > 0) {
-		FmtDebug(cdio_domain, "Attempting to set CD speed to {}x",
-			 speed);
-		cdio_cddap_speed_set(drv,speed);
-	}
 
 	if (0 != cdio_cddap_open(drv)) {
 		cdio_cddap_close_no_free_cdio(drv);
 		cdio_destroy(cdio);
 		throw std::runtime_error("Unable to open disc.");
+	}
+
+	if (speed > 0) {
+		FmtDebug(cdio_domain, "Attempting to set CD speed to {}x",
+			 speed);
+		/* Negative value indicate error (e.g. -405: not supported) */
+		if (cdio_cddap_speed_set(drv,speed) < 0)
+			FmtDebug(cdio_domain, "Failed to set CD speed to {}x",
+				 speed);
 	}
 
 	bool reverse_endian;
@@ -242,18 +230,28 @@ input_cdio_open(const char *uri,
 	default:
 		cdio_cddap_close_no_free_cdio(drv);
 		cdio_destroy(cdio);
-		throw FormatRuntimeError("Drive returns unknown data type %d",
-					 be);
+		throw FmtRuntimeError("Drive returns unknown data type {}",
+				      be);
 	}
 
 	lsn_t lsn_from, lsn_to;
 	if (parsed_uri.track >= 0) {
-		lsn_from = cdio_get_track_lsn(cdio, parsed_uri.track);
-		lsn_to = cdio_get_track_last_lsn(cdio, parsed_uri.track);
+		lsn_from = cdio_cddap_track_firstsector(drv, parsed_uri.track);
+		lsn_to = cdio_cddap_track_lastsector(drv, parsed_uri.track);
 	} else {
-		lsn_from = 0;
-		lsn_to = cdio_get_disc_last_lsn(cdio);
+		lsn_from = cdio_cddap_disc_firstsector(drv);
+		lsn_to = cdio_cddap_disc_lastsector(drv);
 	}
+
+	/* LSNs < 0 indicate errors (e.g. -401: Invaid track, -402: no pregap) */
+	if(lsn_from < 0 || lsn_to < 0)
+		throw FmtRuntimeError("Error {} on track {}",
+				      lsn_from < 0 ? lsn_from : lsn_to, parsed_uri.track);
+
+	/* Only check for audio track if not pregap or whole CD */
+	if (!cdio_cddap_track_audiop(drv, parsed_uri.track) && parsed_uri.track > 0)
+		throw FmtRuntimeError("No audio track: {}",
+				      parsed_uri.track);
 
 	return std::make_unique<CdioParanoiaInputStream>(uri, mutex,
 							 drv, cdio,
@@ -266,8 +264,8 @@ CdioParanoiaInputStream::Seek(std::unique_lock<Mutex> &,
 			      offset_type new_offset)
 {
 	if (new_offset > size)
-		throw FormatRuntimeError("Invalid offset to seek %ld (%ld)",
-					 (long int)new_offset, (long int)size);
+		throw FmtRuntimeError("Invalid offset to seek {} ({})",
+				      new_offset, size);
 
 	/* simple case */
 	if (new_offset == offset)
@@ -286,7 +284,7 @@ CdioParanoiaInputStream::Seek(std::unique_lock<Mutex> &,
 
 size_t
 CdioParanoiaInputStream::Read(std::unique_lock<Mutex> &,
-			      void *ptr, size_t length)
+			      std::span<std::byte> dest)
 {
 	/* end of track ? */
 	if (IsEOF())
@@ -323,10 +321,10 @@ CdioParanoiaInputStream::Read(std::unique_lock<Mutex> &,
 	}
 
 	const size_t maxwrite = CDIO_CD_FRAMESIZE_RAW - diff;  //# of bytes pending in current buffer
-	const std::size_t nbytes = std::min(length, maxwrite);
+	const std::size_t nbytes = std::min(dest.size(), maxwrite);
 
 	//skip diff bytes from this lsn
-	memcpy(ptr, ((const char *)rbuf) + diff, nbytes);
+	memcpy(dest.data(), ((const char *)rbuf) + diff, nbytes);
 
 	//update offset
 	offset += nbytes;

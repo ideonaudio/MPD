@@ -1,27 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "LookupFile.hxx"
 #include "FileInfo.hxx"
 #include "system/Error.hxx"
 
-gcc_pure
+[[gnu::pure]]
 static PathTraitsFS::pointer
 FindSlash(PathTraitsFS::pointer p, size_t i) noexcept
 {
@@ -59,11 +43,29 @@ LookupFile(Path pathname)
 		} catch (const std::system_error &e) {
 			if (!IsPathNotFound(e))
 				throw;
+
+#ifdef _WIN32
+			if (idx == 0)
+				/* on Windows, the semantics are
+				   different for empty strings:
+				   GetFileAttributesExA() fails with
+				   ERROR_PATH_NOT_FOUND, and the
+				   IsPathNotFound() check above would
+				   not rethrow the exception, but the
+				   empty string would lead to an
+				   integer overflow in the code below,
+				   so we need to make this a special
+				   case on Windows */
+				throw;
+#endif
+
 		}
 
 		//find one dir up
 		if (slash != nullptr)
 			*slash = '/';
+
+		assert(idx > 0);
 
 		slash = FindSlash(&buffer.front(), idx - 1);
 		if (slash == nullptr)

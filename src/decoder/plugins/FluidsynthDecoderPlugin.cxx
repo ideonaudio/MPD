@@ -1,26 +1,12 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "FluidsynthDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "pcm/CheckAudioFormat.hxx"
+#include "fs/NarrowPath.hxx"
 #include "fs/Path.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
@@ -29,6 +15,8 @@
 static constexpr Domain fluidsynth_domain("fluidsynth");
 
 static unsigned sample_rate;
+static double gain = 0.0;
+static bool gain_set = false;
 static const char *soundfont_path;
 
 /**
@@ -83,6 +71,17 @@ fluidsynth_init(const ConfigBlock &block)
 	soundfont_path = block.GetBlockValue("soundfont",
 					     "/usr/share/sounds/sf2/FluidR3_GM.sf2");
 
+	char *endptr;
+	const char *svalue = block.GetBlockValue("gain");
+	if (svalue != nullptr) {
+		gain = strtod(svalue, &endptr);
+		if (svalue == endptr || *endptr != 0) {
+			throw FmtRuntimeError(
+					"fluidsynth decoder gain value not a number: {}", svalue);
+		}
+		gain_set = true;
+	}
+
 	fluid_set_log_function(LAST_LOG_LEVEL,
 			       fluidsynth_mpd_log_function, nullptr);
 
@@ -93,6 +92,7 @@ static void
 fluidsynth_file_decode(DecoderClient &client, Path path_fs)
 {
 	char setting_sample_rate[] = "synth.sample-rate";
+	char setting_gain[] = "synth.gain";
 	/*
 	char setting_verbose[] = "synth.verbose";
 	char setting_yes[] = "yes";
@@ -102,6 +102,8 @@ fluidsynth_file_decode(DecoderClient &client, Path path_fs)
 	fluid_player_t *player;
 	int ret;
 
+	auto np = NarrowPath(path_fs);
+
 	/* set up fluid settings */
 
 	settings = new_fluid_settings();
@@ -109,6 +111,9 @@ fluidsynth_file_decode(DecoderClient &client, Path path_fs)
 		return;
 
 	fluid_settings_setnum(settings, setting_sample_rate, sample_rate);
+	if (gain_set) {
+		fluid_settings_setnum(settings, setting_gain, gain);
+	}
 
 	/*
 	fluid_settings_setstr(settings, setting_verbose, setting_yes);
@@ -139,7 +144,7 @@ fluidsynth_file_decode(DecoderClient &client, Path path_fs)
 		return;
 	}
 
-	ret = fluid_player_add(player, path_fs.c_str());
+	ret = fluid_player_add(player, np);
 	if (ret != 0) {
 		LogWarning(fluidsynth_domain, "fluid_player_add() failed");
 		delete_fluid_player(player);
@@ -198,7 +203,8 @@ static bool
 fluidsynth_scan_file(Path path_fs,
 		     [[maybe_unused]] TagHandler &handler) noexcept
 {
-	return fluid_is_midifile(path_fs.c_str());
+	auto np = NarrowPath(path_fs);
+	return fluid_is_midifile(np);
 }
 
 static const char *const fluidsynth_suffixes[] = {

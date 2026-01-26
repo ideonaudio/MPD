@@ -1,33 +1,17 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#include "config.h"
 #include "WavpackDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
 #include "pcm/CheckAudioFormat.hxx"
+#include "pcm/Features.h" // for ENABLE_DSD
 #include "tag/Handler.hxx"
+#include "fs/NarrowPath.hxx"
 #include "fs/Path.hxx"
-#include "util/AllocatedString.hxx"
-#include "util/Math.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "util/ScopeExit.hxx"
-#include "util/RuntimeError.hxx"
 
 #include <wavpack/wavpack.h>
 
@@ -51,11 +35,12 @@ static WavpackContext *
 WavpackOpenInput(Path path, int flags, int norm_offset)
 {
 	char error[ERRORLEN];
-	auto *wpc = WavpackOpenFileInput(path.c_str(), error,
-					 flags, norm_offset);
+	auto np = NarrowPath(path);
+	auto wpc = WavpackOpenFileInput(np, error,
+					flags, norm_offset);
 	if (wpc == nullptr)
-		throw FormatRuntimeError("failed to open WavPack file \"%s\": %s",
-					 path.c_str(), error);
+		throw FmtRuntimeError("failed to open WavPack file {:?}: {}",
+				      path, error);
 
 	return wpc;
 }
@@ -72,8 +57,8 @@ WavpackOpenInput(const WavpackStreamReader64 &reader, void *wv_id, void *wvc_id,
 					     wv_id, wvc_id, error,
 					     flags, norm_offset);
 	if (wpc == nullptr)
-		throw FormatRuntimeError("failed to open WavPack stream: %s",
-					 error);
+		throw FmtRuntimeError("failed to open WavPack stream: {}",
+				      error);
 
 	return wpc;
 }
@@ -216,7 +201,8 @@ wavpack_decode(DecoderClient &client, WavpackContext *wpc, bool can_seek)
 				auto where = client.GetSeekFrame();
 				if (!WavpackSeekSample64(wpc, where)) {
 					/* seek errors are fatal */
-					client.SeekError();
+					client.SeekError(std::make_exception_ptr(FmtRuntimeError("WavpackSeekSample64() failed: {}"sv,
+												 WavpackGetErrorMessage(wpc))));
 					break;
 				}
 
@@ -231,7 +217,7 @@ wavpack_decode(DecoderClient &client, WavpackContext *wpc, bool can_seek)
 		if (n_frames == 0)
 			break;
 
-		int bitrate = lround(WavpackGetInstantBitrate(wpc) / 1000);
+		int bitrate = std::lround(WavpackGetInstantBitrate(wpc) / 1000);
 		format_samples(buffer, n_frames * audio_format.channels);
 
 		cmd = client.SubmitAudio(nullptr,
@@ -258,7 +244,7 @@ struct WavpackInput {
 			       InputStream &_is) noexcept
 		:client(_client), is(_is), last_byte(EOF) {}
 
-	int32_t ReadBytes(void *data, size_t bcount) noexcept;
+	int32_t ReadBytes(std::span<std::byte> dest) noexcept;
 
 	[[nodiscard]] InputStream::offset_type GetPos() const noexcept {
 		return is.GetOffset();
@@ -331,34 +317,32 @@ wpin(void *id) noexcept
 static int32_t
 wavpack_input_read_bytes(void *id, void *data, int32_t bcount) noexcept
 {
-	return wpin(id)->ReadBytes(data, bcount);
+	return wpin(id)->ReadBytes({reinterpret_cast<std::byte *>(data), static_cast<std::size_t>(bcount)});
 }
 
 int32_t
-WavpackInput::ReadBytes(void *data, size_t bcount) noexcept
+WavpackInput::ReadBytes(std::span<std::byte> dest) noexcept
 {
-	auto *buf = (uint8_t *)data;
 	int32_t i = 0;
 
 	if (last_byte != EOF) {
-		*buf++ = last_byte;
+		dest.front() = static_cast<std::byte>(last_byte);
+		dest = dest.subspan(1);
 		last_byte = EOF;
-		--bcount;
 		++i;
 	}
 
 	/* wavpack fails if we return a partial read, so we just wait
 	   until the buffer is full */
-	while (bcount > 0) {
-		size_t nbytes = decoder_read(client, is, buf, bcount);
+	while (!dest.empty()) {
+		size_t nbytes = decoder_read(client, is, dest);
 		if (nbytes == 0) {
 			/* EOF, error or a decoder command */
 			break;
 		}
 
 		i += nbytes;
-		bcount -= nbytes;
-		buf += nbytes;
+		dest = dest.subspan(nbytes);
 	}
 
 	return i;
@@ -422,10 +406,8 @@ static constexpr WavpackStreamReader64 mpd_is_reader = {
 static InputStreamPtr
 wavpack_open_wvc(DecoderClient &client, std::string_view uri)
 {
-	const AllocatedString wvc_url{uri, "c"sv};
-
 	try {
-		return client.OpenUri(wvc_url.c_str());
+		return client.OpenUri(fmt::format("{}c", uri));
 	} catch (...) {
 		return nullptr;
 	}

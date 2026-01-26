@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Walk.hxx"
 #include "UpdateDomain.hxx"
@@ -30,7 +14,7 @@
 #include "archive/ArchivePlugin.hxx"
 #include "archive/ArchiveFile.hxx"
 #include "archive/ArchiveVisitor.hxx"
-#include "util/StringCompare.hxx"
+#include "util/StringSplit.hxx"
 #include "Log.hxx"
 
 #include <exception>
@@ -51,25 +35,33 @@ LockFindSong(Directory &directory, std::string_view name) noexcept
 	return directory.FindSong(name);
 }
 
+[[gnu::pure]]
+static bool
+IsAcceptableFilename(std::string_view name) noexcept
+{
+	return !name.empty() &&
+		/* newlines cannot be represented in MPD's protocol */
+		name.find('\n') == name.npos;
+}
+
 void
 UpdateWalk::UpdateArchiveTree(ArchiveFile &archive, Directory &directory,
-			      const char *name) noexcept
+			      std::string_view name) noexcept
 {
-	const char *tmp = std::strchr(name, '/');
-	if (tmp) {
-		const std::string_view child_name(name, tmp - name);
+	const auto [child_name, rest] = Split(name, '/');
+	if (rest.data() != nullptr) {
+		if (!IsAcceptableFilename(child_name))
+			return;
+
 		//add dir is not there already
 		Directory *subdir = LockMakeChild(directory, child_name);
 		subdir->device = DEVICE_INARCHIVE;
 
 		//create directories first
-		UpdateArchiveTree(archive, *subdir, tmp + 1);
+		UpdateArchiveTree(archive, *subdir, rest);
 	} else {
-		if (StringIsEmpty(name)) {
-			LogWarning(update_domain,
-				   "archive returned directory only");
+		if (!IsAcceptableFilename(name))
 			return;
-		}
 
 		//add file
 		Song *song = LockFindSong(directory, name);
@@ -145,7 +137,6 @@ UpdateWalk::UpdateArchiveFile(Directory &parent, std::string_view name,
 		file = archive_file_open(&plugin, path_fs);
 	} catch (...) {
 		LogError(std::current_exception());
-		editor.LockDeleteDirectory(directory);
 		return;
 	}
 
@@ -153,6 +144,8 @@ UpdateWalk::UpdateArchiveFile(Directory &parent, std::string_view name,
 
 	UpdateArchiveVisitor visitor(*this, *file, *directory);
 	file->Visit(visitor);
+
+	directory->mark = true;
 }
 
 bool

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "OggSyncState.hxx"
 #include "io/Reader.hxx"
@@ -23,16 +7,16 @@
 bool
 OggSyncState::Feed(size_t size)
 {
-		char *buffer = ogg_sync_buffer(&oy, size);
-		if (buffer == nullptr)
-			return false;
+	std::byte *buffer = reinterpret_cast<std::byte *>(ogg_sync_buffer(&oy, size));
+	if (buffer == nullptr)
+		return false;
 
-		size_t nbytes = reader.Read(buffer, size);
-		if (nbytes == 0)
-			return false;
+	size_t nbytes = reader.Read({buffer, size});
+	if (nbytes == 0)
+		return false;
 
-		ogg_sync_wrote(&oy, nbytes);
-		return true;
+	ogg_sync_wrote(&oy, nbytes);
+	return true;
 }
 
 bool
@@ -67,7 +51,7 @@ OggSyncState::ExpectPageIn(ogg_stream_state &os)
 bool
 OggSyncState::ExpectPageSeek(ogg_page &page)
 {
-	size_t remaining_skipped = 65536;
+	size_t remaining_skipped = 1024 * 1024;
 
 	while (true) {
 		int r = ogg_sync_pageseek(&oy, &page);

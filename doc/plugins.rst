@@ -24,7 +24,7 @@ The default plugin. Stores a copy of the database in memory. A file is used for 
    * - **compress yes|no**
      - Compress the database file using gzip? Enabled by default (if built with zlib).
    * - **hide_playlist_targets yes|no**
-     - Hide songs which are referenced by playlists?  Thas is,
+     - Hide songs which are referenced by playlists?  That is,
        playlist files which are represented in the database as virtual
        directories (playlist plugin setting ``as_directory``).  This
        option is enabled by default and avoids duplicate songs; one
@@ -102,7 +102,12 @@ nfs
 
 Load music files from a NFS server.  It is used when
 :code:`music_directory` contains a ``nfs://`` URI according to
-RFC2224, for example :samp:`nfs://servername/path`.
+RFC2224, for example :samp:`nfs://servername/path`.  MPD supports the
+libnfs URL arguments as documented in the `libnfs README
+<https://github.com/sahlberg/libnfs/blob/master/README>`__.  For
+example, you can use NFSv4 with the ``version`` argument::
+
+ music_directory "nfs://server/music?version=4"
 
 See :ref:`input_nfs` for more information.
 
@@ -194,7 +199,12 @@ Allows :program:`MPD` on Linux to play audio directly from a soundcard using the
 cdio_paranoia
 -------------
 
-Plays audio CDs using libcdio. The URI has the form: "cdda://[DEVICE][/TRACK]". The simplest form cdda:// plays the whole disc in the default drive.
+Plays audio CDs using libcdio.  The URI has the form
+``cdda://[DEVICE][/TRACK]``.  Examples:
+
+- ``cdda://`` plays the whole disc in the default drive
+- ``cdda:///dev/sr0`` plays the whole disc in ``/dev/sr0``
+- ``cdda:///dev/sr0/4`` plays the fourth track
 
 .. list-table::
    :widths: 20 80
@@ -206,6 +216,11 @@ Plays audio CDs using libcdio. The URI has the form: "cdda://[DEVICE][/TRACK]". 
      - If the CD drive does not specify a byte order, MPD assumes it is the CPU's native byte order. This setting allows overriding this.
    * - **speed N**
      - Request CDParanoia cap the extraction speed to Nx normal CD audio rotation speed, keeping the drive quiet.
+   * - **mode disable|overlap|full**
+     - Set the paranoia mode; ``disable`` means no fixups, ``overlap``
+       performs overlapped reads, and ``full`` enables all options.
+   * - **skip yes|no**
+     - If set to ``no``, then never skip failed reads.
 
 curl
 ----
@@ -214,25 +229,62 @@ Opens remote files or streams over HTTP using libcurl.
 
 Note that unless overridden by the below settings (e.g. by setting
 them to a blank value), general curl configuration from environment
-variables such as ``http_proxy`` or specified in :file:`~/.curlrc`
-will be in effect.
+variables such as ``http_proxy`` will be in effect.
+
+User name and password are read from an optional :file:`~/.netrc`, :file:`~/.curlrc` is not read.
 
 .. list-table::
-   :widths: 20 80
+   :widths: 20 70 10
    :header-rows: 1
 
    * - Setting
      - Description
+     - Default
    * - **proxy**
      - Sets the address of the HTTP proxy server.
+     -
    * - **proxy_user, proxy_password**
      - Configures proxy authentication.
+     -
    * - **verify_peer yes|no**
-     - Verify the peer's SSL certificate? `More information <http://curl.haxx.se/libcurl/c/CURLOPT_SSL_VERIFYPEER.html>`_.
+     - Verify the peer's SSL certificate? `More information <http://curl.haxx.se/libcurl/c/CURLOPT_SSL_VERIFYPEER.html>`__.
+     - yes
    * - **verify_host yes|no**
-     - Verify the certificate's name against host? `More information <http://curl.haxx.se/libcurl/c/CURLOPT_SSL_VERIFYHOST.html>`_.
+     - Verify the certificate's name against host? `More information <http://curl.haxx.se/libcurl/c/CURLOPT_SSL_VERIFYHOST.html>`__.
+     - yes
    * - **cacert**
-     - Set path to Certificate Authority (CA) bundle `More information <https://curl.se/libcurl/c/CURLOPT_CAINFO.html>`_.
+     - Set path to Certificate Authority (CA) bundle `More information <https://curl.se/libcurl/c/CURLOPT_CAINFO.html>`__.
+     -
+   * - **connect_timeout** [#since_0_24]_
+     - Set the the connect phase timeout in seconds. "0" is `libcurl`'s default built-in connection timeout - 300 seconds.
+       `More information <https://curl.se/libcurl/c/CURLOPT_CONNECTTIMEOUT.html>`__.
+     - 10
+   * - **verbose yes|no** [#since_0_24]_
+     - Set the onoff parameter to 1 to make the library display a lot of verbose information.
+       `More information <https://curl.se/libcurl/c/CURLOPT_VERBOSE.html>`__.
+     - no
+   * - **low_speed_limit** [#since_0_24]_
+     - The average transfer speed in bytes per second that the transfer should be below during **low_speed_time** seconds for libcurl to consider it to be too slow and abort.
+       `More information <https://curl.se/libcurl/c/CURLOPT_LOW_SPEED_LIMIT.html>`__.
+     - 0 (disabled)
+   * - **low_speed_time** [#since_0_24]_
+     - The time in number seconds that the transfer speed should be below the **low_speed_limit** for the libcurl to consider it too slow and abort.
+       `More information <https://curl.se/libcurl/c/CURLOPT_LOW_SPEED_TIME.html>`__.
+     - 0 (disabled)
+   * - **tcp_keepalive yes|no** [#since_0_24]_
+     - If set to yes, TCP keepalive probes will be sent. The delay and frequency of these probes can be controlled by the **tcp_keepidle** and **tcp_keepintvl** options, provided the operating system supports them.
+       `More information <https://curl.se/libcurl/c/CURLOPT_TCP_KEEPALIVE.html>`__.
+     - no (disabled)
+   * - **tcp_keepidle** [#since_0_24]_
+     - Sets the delay, in seconds, that the operating system will wait while the connection is idle before sending keepalive probes. Not all operating systems support this option.
+       `More information <https://curl.se/libcurl/c/CURLOPT_TCP_KEEPIDLE.html>`__.
+     - 60
+   * - **tcp_keepintvl** [#since_0_24]_
+     - Sets the interval, in seconds, that the operating system will wait between sending keepalive probes. Not all operating systems support this option.
+       `More information <https://curl.se/libcurl/c/CURLOPT_TCP_KEEPINTVL.html>`__.
+     - 60
+
+Note: the ``low_speed`` and ``tcp_keep`` options may help solve network interruptions and connections dropped by server. Please refer to this curl issue for discussion: https://github.com/curl/curl/issues/8345
 
 ffmpeg
 ------
@@ -265,7 +317,7 @@ used according to RFC2224. Example:
 
      mpc add nfs://servername/path/filename.ogg
 
-This plugin uses :program:`libnfs`, which supports only NFS version 3.
+This plugin uses :program:`libnfs`.
 Since :program:`MPD` is not allowed to bind to so-called "privileged
 ports", the NFS server needs to enable the ``insecure`` setting;
 example :file:`/etc/exports`:
@@ -489,6 +541,8 @@ Module player based on `libopenmpt <https://lib.openmpt.org>`_.
      - Sets the amount of volume ramping done by the libopenmpt mixer. The default value is -1, which indicates a recommended default value. The meaningful value range is [-1..10]. A value of 0 completely disables volume ramping. This might cause clicks in sound output. Higher values imply slower/softer volume ramps.
    * - **sync_samples yes|no**
      - Syncs sample playback when seeking. Defaults to yes.
+   * - **at_end fadeout|stop**
+     - Chooses the behaviour when the end of song is reached. "fadeout": Fades the module out for a short while. "stop": will immediately stop playing and MPD will play next track.
    * - **emulate_amiga yes|no**
      - Enables the Amiga resampler for Amiga modules. This emulates the sound characteristics of the Paula chip and overrides the selected interpolation filter. Non-Amiga module formats are not affected by this setting. Defaults to yes.
    * - **emulate_amiga_type**
@@ -502,9 +556,19 @@ Decodes Musepack files using `libmpcdec <http://www.musepack.net/>`_.
 mpg123
 ------
 
-Decodes MP3 files using `libmpg123 <http://www.mpg123.de/>`_. Currently, this
-decoder does not support streams (e.g. archived files, remote files over HTTP,
-...), only regular local files.
+Decodes MP3 files using `libmpg123 <http://www.mpg123.de/>`_.
+
+.. list-table::
+   :widths: 20 80
+   :header-rows: 1
+
+   * - Setting
+     - Description
+   * - **full_scheme yes|no**
+     - Use ``mpg123_scan()`` on database update?  This is expensive
+       because it reads and parses the whole file (therefore disabled
+       by default), but is the only way to get a reliable song
+       duration.
 
 opus
 ----
@@ -544,6 +608,32 @@ sndfile
 -------
 
 Decodes WAV and AIFF files using `libsndfile <http://www.mega-nerd.com/libsndfile/>`_.
+
+vgmstream
+---------
+
+Decodes various video game music file formats using `vgmstream <https://vgmstream.org/>`_.
+
+.. list-table::
+   :widths: 20 80
+   :header-rows: 1
+
+   * - Setting
+     - Description
+   * - **ignore_loop yes|no**
+     - Ignore file loop points.
+   * - **force_loop yes|no**
+     - Loop the whole file if no loop points are present.
+   * - **really_force_loop yes|no**
+     - Loop the whole file even if loop points are present.
+   * - **ignore_fade yes|no**
+     - Don't fade out after looping.
+   * - **loop_count**
+     - The number of times to loop. Fractional values are allowed. Defaults to 2.
+   * - **fade_time**
+     - The fade period after the target loop count. Defaults to 10.
+   * - **fade_delay**
+     - The fade delay after the target loop count. Defaults to 0.
 
 
 vorbis
@@ -847,6 +937,11 @@ The `Advanced Linux Sound Architecture (ALSA) <http://www.alsa-project.org/>`_ p
        
        Example: "96000:16:* 192000:24:* dsd64:*=dop *:dsd:*".
 
+   * - **close_on_pause yes|no**
+     - Close the ALSA device while playback is paused?  This defaults
+       to *yes* because this allows other applications to use the
+       device while MPD is paused.
+
 The according hardware mixer plugin understands the following settings:
 
 .. list-table::
@@ -984,6 +1079,12 @@ It is highly recommended to configure a fixed format, because a stream cannot sw
      - Chooses an encoder plugin. A list of encoder plugins can be found in the encoder plugin reference :ref:`encoder_plugins`.
    * - **max_clients MC**
      - Sets a limit, number of concurrent clients. When set to 0 no limit will apply.
+   * - **genre GENRE**
+     - The genre of the stream. Will be reflected in the `icy-genre` header of the stream.
+   * - **website URL**
+     - The website of the stream. Will be reflected in the `icy-url` header of the stream.
+
+The `name` from the `audio_output` block that uses this output plugin will be reflected as the stream name in the `icy-name` header of the stream.
 
 null
 ----
@@ -1095,10 +1196,13 @@ Connect to a `PipeWire <https://pipewire.org/>`_ server.  Requires
    * - **target NAME**
      - Link to the given target.  If not specified, let the PipeWire
        manager select a target.  To get a list of available targets,
-       type ``pw-cli dump short Node``
+       type ``pw-cli ls Node``
    * - **remote NAME**
      - The name of the remote to connect to.  The default is
        ``pipewire-0``.
+   * - **reconnect_stream yes|no**
+     - Try to reconnect the PipeWire stream when the sink is removed.
+       The default is ``yes``.
    * - **dsd yes|no**
      - Enable DSD playback.  This requires PipeWire 0.38.
 
@@ -1355,20 +1459,6 @@ rss
 ---
 Reads music links from :file:`.rss` files.
 
-soundcloud
-----------
-
-Download playlist from SoundCloud. It accepts URIs starting with soundcloud://.
-
-.. list-table::
-   :widths: 20 80
-   :header-rows: 1
-
-   * - Setting
-     - Description
-   * - **apikey KEY**
-     - An API key to access the SoundCloud servers.
-
 xspf
 ----
 Reads XSPF playlist files. 
@@ -1390,3 +1480,7 @@ Allows to load music files from ZIP archives using `zziplib <http://zziplib.sour
 iso
 ---
 Allows to load music files from ISO 9660 images using `libcdio <https://www.gnu.org/software/libcdio/>`_.
+
+.. rubric:: Footnotes
+
+.. [#since_0_24] Since :program:`MPD` 0.24

@@ -1,31 +1,13 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "OpenmptDecoderPlugin.hxx"
-#include "decoder/Features.h"
 #include "ModCommon.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
 #include "tag/Handler.hxx"
-#include "tag/Type.h"
+#include "tag/Type.hxx"
 #include "util/Domain.hxx"
-#include "util/RuntimeError.hxx"
 #include "Log.hxx"
 
 #include <libopenmpt/libopenmpt.hpp>
@@ -43,8 +25,9 @@ static int openmpt_interpolation_filter;
 static bool openmpt_override_mptm_interp_filter;
 static int openmpt_volume_ramping;
 static bool openmpt_sync_samples;
+static std::string_view openmpt_at_end;
 static bool openmpt_emulate_amiga;
-#ifdef HAVE_LIBOPENMPT_VERSION_0_5
+#if OPENMPT_API_VERSION_AT_LEAST(0,5,0)
 static std::string_view openmpt_emulate_amiga_type;
 #endif
 
@@ -57,8 +40,9 @@ openmpt_decoder_init(const ConfigBlock &block)
 	openmpt_override_mptm_interp_filter = block.GetBlockValue("override_mptm_interp_filter", false);
 	openmpt_volume_ramping = block.GetBlockValue("volume_ramping", -1);
 	openmpt_sync_samples = block.GetBlockValue("sync_samples", true);
+	openmpt_at_end = block.GetBlockValue("at_end", "fadeout");
 	openmpt_emulate_amiga = block.GetBlockValue("emulate_amiga", true);
-#ifdef HAVE_LIBOPENMPT_VERSION_0_5
+#if OPENMPT_API_VERSION_AT_LEAST(0,5,0)
 	openmpt_emulate_amiga_type = block.GetBlockValue("emulate_amiga_type", "auto");
 #endif
 
@@ -89,13 +73,15 @@ mod_decode(DecoderClient &client, InputStream &is)
 		mod.set_render_param(mod.RENDER_INTERPOLATIONFILTER_LENGTH, 0);
 	}
 	mod.set_render_param(mod.RENDER_VOLUMERAMPING_STRENGTH, openmpt_volume_ramping);
-#ifdef HAVE_LIBOPENMPT_VERSION_0_5
+#if OPENMPT_API_VERSION_AT_LEAST(0,5,0)
 	mod.ctl_set_boolean("seek.sync_samples", openmpt_sync_samples);
 	mod.ctl_set_boolean("render.resampler.emulate_amiga", openmpt_emulate_amiga);
 	mod.ctl_set_text("render.resampler.emulate_amiga_type", openmpt_emulate_amiga_type);
+	mod.ctl_set_text("play.at_end", openmpt_at_end);
 #else
 	mod.ctl_set("seek.sync_samples", std::to_string((unsigned)openmpt_sync_samples));
 	mod.ctl_set("render.resampler.emulate_amiga", std::to_string((unsigned)openmpt_emulate_amiga));
+	mod.ctl_set("play.at_end", std::string{openmpt_at_end});
 #endif
 
 	static constexpr unsigned channels = 2;

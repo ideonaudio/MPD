@@ -1,38 +1,24 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "TagAny.hxx"
 #include "TagStream.hxx"
 #include "TagFile.hxx"
 #include "tag/Generic.hxx"
 #include "song/LightSong.hxx"
+#include "db/Features.hxx" // for ENABLE_DATABASE
 #include "db/Interface.hxx"
 #include "storage/StorageInterface.hxx"
 #include "client/Client.hxx"
 #include "protocol/Ack.hxx"
 #include "fs/AllocatedPath.hxx"
 #include "input/InputStream.hxx"
-#include "util/Compiler.h"
 #include "util/ScopeExit.hxx"
 #include "util/StringCompare.hxx"
 #include "util/UriExtract.hxx"
 #include "LocateUri.hxx"
+
+#include <utility> // for std::unreachable()
 
 static void
 TagScanStream(const char *uri, TagHandler &handler)
@@ -127,17 +113,12 @@ TagScanDatabase(Client &client, const char *uri, TagHandler &handler)
 #ifdef ENABLE_DATABASE
 	}
 
-	{
-		const auto path_fs = storage->MapFS(uri);
-		if (!path_fs.IsNull())
-			return TagScanFile(path_fs, handler);
-	}
+	if (const auto path_fs = storage->MapFS(uri); !path_fs.IsNull())
+		return TagScanFile(path_fs, handler);
 
-	{
-		const auto absolute_uri = storage->MapUTF8(uri);
-		if (uri_has_scheme(absolute_uri.c_str()))
-			return TagScanStream(absolute_uri.c_str(), handler);
-	}
+	if (const auto absolute_uri = storage->MapUTF8(uri);
+	    uri_has_scheme(absolute_uri))
+		return TagScanStream(absolute_uri.c_str(), handler);
 
 	throw ProtocolError(ACK_ERROR_NO_EXIST, "No such file");
 #endif
@@ -163,5 +144,5 @@ TagScanAny(Client &client, const char *uri, TagHandler &handler)
 		return TagScanFile(located_uri.path, handler);
 	}
 
-	gcc_unreachable();
+	std::unreachable();
 }

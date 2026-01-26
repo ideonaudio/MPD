@@ -1,30 +1,18 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "DumpDecoderClient.hxx"
+#include "lib/fmt/AudioFormatFormatter.hxx"
+#include "lib/fmt/ExceptionFormatter.hxx"
 #include "decoder/DecoderAPI.hxx"
 #include "input/InputStream.hxx"
+#include "tag/Names.hxx"
 #include "util/StringBuffer.hxx"
-#include "util/Compiler.h"
 
 #include <unistd.h>
 #include <stdio.h>
+
+using std::string_view_literals::operator""sv;
 
 void
 DumpDecoderClient::Ready(const AudioFormat audio_format,
@@ -34,9 +22,8 @@ DumpDecoderClient::Ready(const AudioFormat audio_format,
 	assert(!initialized);
 	assert(audio_format.IsValid());
 
-	fprintf(stderr, "audio_format=%s duration=%f seekable=%d\n",
-		ToString(audio_format).c_str(),
-		duration.ToDoubleS(), seekable);
+	fmt::print(stderr, "audio_format={} duration={} seekable={}\n",
+		   audio_format, duration.ToDoubleS(), seekable);
 
 	initialized = true;
 }
@@ -65,21 +52,22 @@ DumpDecoderClient::GetSeekFrame() noexcept
 }
 
 void
-DumpDecoderClient::SeekError() noexcept
+DumpDecoderClient::SeekError(std::exception_ptr &&error) noexcept
 {
+	fmt::print(stderr, "Seek error: {}\n"sv, error);
 }
 
 InputStreamPtr
-DumpDecoderClient::OpenUri(const char *uri)
+DumpDecoderClient::OpenUri(std::string_view uri)
 {
 	return InputStream::OpenReady(uri, mutex);
 }
 
 size_t
-DumpDecoderClient::Read(InputStream &is, void *buffer, size_t length) noexcept
+DumpDecoderClient::Read(InputStream &is, std::span<std::byte> dest) noexcept
 {
 	try {
-		return is.LockRead(buffer, length);
+		return is.LockRead(dest);
 	} catch (...) {
 		return 0;
 	}
@@ -97,7 +85,7 @@ DumpDecoderClient::SubmitAudio([[maybe_unused]] InputStream *is,
 {
 	if (kbit_rate != prev_kbit_rate) {
 		prev_kbit_rate = kbit_rate;
-		fprintf(stderr, "%u kbit/s\n", kbit_rate);
+		fmt::print(stderr, "{} kbit/s\n", kbit_rate);
 	}
 
 	[[maybe_unused]] ssize_t nbytes = write(STDOUT_FILENO,
@@ -109,10 +97,10 @@ DecoderCommand
 DumpDecoderClient::SubmitTag([[maybe_unused]] InputStream *is,
 			     Tag &&tag) noexcept
 {
-	fprintf(stderr, "TAG: duration=%f\n", tag.duration.ToDoubleS());
+	fmt::print(stderr, "TAG: duration={}\n", tag.duration.ToDoubleS());
 
 	for (const auto &i : tag)
-		fprintf(stderr, "  %s=%s\n", tag_item_names[i.type], i.value);
+		fmt::print(stderr, "  {}={:?}\n", tag_item_names[i.type], i.value);
 
 	return GetCommand();
 }
@@ -121,8 +109,8 @@ static void
 DumpReplayGainTuple(const char *name, const ReplayGainTuple &tuple) noexcept
 {
 	if (tuple.IsDefined())
-		fprintf(stderr, "replay_gain[%s]: gain=%f peak=%f\n",
-			name, (double)tuple.gain, (double)tuple.peak);
+		fmt::print(stderr, "replay_gain[{}]: gain={} peak={}\n",
+			   name, tuple.gain, tuple.peak);
 }
 
 static void
@@ -142,6 +130,6 @@ DumpDecoderClient::SubmitReplayGain(const ReplayGainInfo *rgi) noexcept
 void
 DumpDecoderClient::SubmitMixRamp([[maybe_unused]] MixRampInfo &&mix_ramp) noexcept
 {
-	fprintf(stderr, "MixRamp: start='%s' end='%s'\n",
-		mix_ramp.GetStart(), mix_ramp.GetEnd());
+	fmt::print(stderr, "MixRamp: start={:?} end={:?}\n",
+		   mix_ramp.GetStart(), mix_ramp.GetEnd());
 }

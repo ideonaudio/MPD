@@ -1,36 +1,19 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_SONG_HXX
-#define MPD_SONG_HXX
+#pragma once
 
 #include "Ptr.hxx"
 #include "Chrono.hxx"
+#include "archive/Features.h" // for ENABLE_ARCHIVE
 #include "tag/Tag.hxx"
 #include "pcm/AudioFormat.hxx"
-#include "config.h"
-
-#include <boost/intrusive/list.hpp>
+#include "util/IntrusiveList.hxx"
 
 #include <string>
 
 struct Directory;
+struct StorageFileInfo;
 class ExportedSong;
 class DetachedSong;
 class Storage;
@@ -40,20 +23,10 @@ class ArchiveFile;
  * A song file inside the configured music directory.  Internal
  * #SimpleDatabase class.
  */
-struct Song {
-	static constexpr auto link_mode = boost::intrusive::normal_link;
-	typedef boost::intrusive::link_mode<link_mode> LinkMode;
-	typedef boost::intrusive::list_member_hook<LinkMode> Hook;
-
-	/**
-	 * Pointers to the siblings of this directory within the
-	 * parent directory.  It is unused (undefined) if this song is
-	 * not in the database.
-	 *
-	 * This attribute is protected with the global #db_mutex.
-	 * Read access in the update thread does not need protection.
-	 */
-	Hook siblings;
+struct Song : IntrusiveListHook<> {
+	/* Note: the #IntrusiveListHook is protected with the global
+	   #db_mutex.  Read access in the update thread does not need
+	   protection. */
 
 	/**
 	 * The #Directory that contains this song.
@@ -84,6 +57,13 @@ struct Song {
 		std::chrono::system_clock::time_point::min();
 
 	/**
+	 * The time stamp when the file was added. A negative
+	 * value means that this is unknown/unavailable.
+	 */
+	std::chrono::system_clock::time_point added =
+		std::chrono::system_clock::time_point::min();
+
+	/**
 	 * Start of this sub-song within the file.
 	 */
 	SongTime start_time = SongTime::zero();
@@ -105,6 +85,12 @@ struct Song {
 	 * is part of the database?
 	 */
 	bool in_playlist = false;
+
+	/**
+	 * This field is used by the database update to check whether
+	 * an item has disappeared.
+	 */
+	bool mark;
 
 	template<typename F>
 	Song(F &&_filename, Directory &_parent) noexcept
@@ -132,7 +118,8 @@ struct Song {
 	 * @return the song on success, nullptr if the file was not
 	 * recognized
 	 */
-	static SongPtr LoadFile(Storage &storage, const char *name_utf8,
+	static SongPtr LoadFile(Storage &storage, std::string_view name_utf8,
+				const StorageFileInfo &info,
 				Directory &parent);
 
 	/**
@@ -140,11 +127,11 @@ struct Song {
 	 *
 	 * @return true on success, false if the file was not recognized
 	 */
-	bool UpdateFile(Storage &storage);
+	bool UpdateFile(Storage &storage, const StorageFileInfo &info);
 
 #ifdef ENABLE_ARCHIVE
 	static SongPtr LoadFromArchive(ArchiveFile &archive,
-				       const char *name_utf8,
+				       std::string_view name_utf8,
 				       Directory &parent) noexcept;
 	bool UpdateFileInArchive(ArchiveFile &archive) noexcept;
 #endif
@@ -159,10 +146,3 @@ struct Song {
 	[[gnu::pure]]
 	ExportedSong Export() const noexcept;
 };
-
-typedef boost::intrusive::list<Song,
-			       boost::intrusive::member_hook<Song, Song::Hook,
-							     &Song::siblings>,
-			       boost::intrusive::constant_time_size<false>> SongList;
-
-#endif

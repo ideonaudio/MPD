@@ -1,31 +1,18 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "LogBackend.hxx"
 #include "Log.hxx"
-#include "util/Compiler.h"
+#include "lib/fmt/Unsafe.hxx"
 #include "util/Domain.hxx"
 #include "util/StringStrip.hxx"
 #include "Version.h"
 #include "config.h"
 
+#include <fmt/chrono.h>
+
 #include <cassert>
+#include <utility> // for std::unreachable()
 
 #include <stdio.h>
 #include <string.h>
@@ -34,6 +21,8 @@
 #ifdef HAVE_SYSLOG
 #include <syslog.h>
 #endif
+
+using std::string_view_literals::operator""sv;
 
 #ifdef ANDROID
 #include <android/log.h>
@@ -58,8 +47,7 @@ ToAndroidLogLevel(LogLevel log_level) noexcept
 		return ANDROID_LOG_ERROR;
 	}
 
-	assert(false);
-	gcc_unreachable();
+	std::unreachable();
 }
 
 #else
@@ -89,15 +77,20 @@ EnableLogTimestamp() noexcept
 	enable_timestamp = true;
 }
 
-static const char *
+static std::string_view
 log_date() noexcept
 {
-	static constexpr size_t LOG_DATE_BUF_SIZE = 16;
+	static constexpr size_t LOG_DATE_BUF_SIZE = std::char_traits<char>::length("2025-01-22T15:43:14 ") + 1;
 	static char buf[LOG_DATE_BUF_SIZE];
 	time_t t = time(nullptr);
-	strftime(buf, LOG_DATE_BUF_SIZE, "%b %d %H:%M : ", localtime(&t));
-	return buf;
+	const auto *tm = std::localtime(&t);
+	if (tm == nullptr)
+		return {};
+
+	return FmtUnsafeSV(buf, "{:%FT%T} "sv, *tm);
 }
+
+#ifdef HAVE_SYSLOG
 
 /**
  * Determines the length of the string excluding trailing whitespace
@@ -108,8 +101,6 @@ chomp_length(std::string_view p) noexcept
 {
 	return StripRight(p.data(), p.size());
 }
-
-#ifdef HAVE_SYSLOG
 
 [[gnu::const]]
 static int
@@ -132,8 +123,7 @@ ToSysLogLevel(LogLevel log_level) noexcept
 		return LOG_ERR;
 	}
 
-	assert(false);
-	gcc_unreachable();
+	std::unreachable();
 }
 
 static void
@@ -163,10 +153,10 @@ LogFinishSysLog() noexcept
 static void
 FileLog(const Domain &domain, std::string_view message) noexcept
 {
-	fprintf(stderr, "%s%s: %.*s\n",
-		enable_timestamp ? log_date() : "",
-		domain.GetName(),
-		chomp_length(message), message.data());
+	fmt::print(stderr, "{}{}: {}\n",
+		   enable_timestamp ? log_date() : ""sv,
+		   domain.GetName(),
+		   StripRight(message));
 
 #ifdef _WIN32
 	/* force-flush the log file, because setvbuf() does not seem

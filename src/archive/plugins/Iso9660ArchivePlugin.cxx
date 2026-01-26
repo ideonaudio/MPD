@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 /**
   * iso archive handling (requires cdio, and iso9660)
@@ -27,7 +11,8 @@
 #include "../ArchiveVisitor.hxx"
 #include "input/InputStream.hxx"
 #include "fs/Path.hxx"
-#include "util/RuntimeError.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "util/StringCompare.hxx"
 #include "util/UTF8.hxx"
 
@@ -46,8 +31,8 @@ struct Iso9660 {
 	explicit Iso9660(Path path)
 		:iso(iso9660_open(path.c_str())) {
 		if (iso == nullptr)
-			throw FormatRuntimeError("Failed to open ISO9660 file %s",
-						 path.c_str());
+			throw FmtRuntimeError("Failed to open ISO9660 file {:?}",
+					      path);
 	}
 
 	~Iso9660() noexcept {
@@ -166,7 +151,7 @@ class Iso9660InputStream final : public InputStream {
 			assert(fill <= data.size());
 			assert(position <= fill);
 
-			return {&data[position], &data[fill]};
+			return std::span{data}.first(fill).subspan(position);
 		}
 
 		void Consume(size_t nbytes) noexcept {
@@ -220,7 +205,7 @@ public:
 	/* virtual methods from InputStream */
 	[[nodiscard]] bool IsEOF() const noexcept override;
 	size_t Read(std::unique_lock<Mutex> &lock,
-		    void *ptr, size_t size) override;
+		    std::span<std::byte> dest) override;
 
 	void Seek(std::unique_lock<Mutex> &, offset_type new_offset) override {
 		if (new_offset > size)
@@ -238,8 +223,8 @@ Iso9660ArchiveFile::OpenStream(const char *pathname,
 {
 	auto statbuf = iso9660_ifs_stat_translate(iso->iso, pathname);
 	if (statbuf == nullptr)
-		throw FormatRuntimeError("not found in the ISO file: %s",
-					 pathname);
+		throw FmtRuntimeError("not found in the ISO file: {:?}",
+				      pathname);
 
 	const lsn_t lsn = statbuf->lsn;
 	const offset_type size = statbuf->size;
@@ -251,14 +236,14 @@ Iso9660ArchiveFile::OpenStream(const char *pathname,
 
 size_t
 Iso9660InputStream::Read(std::unique_lock<Mutex> &,
-			 void *ptr, size_t read_size)
+			 std::span<std::byte> dest)
 {
 	const offset_type remaining = size - offset;
 	if (remaining == 0)
 		return 0;
 
-	if (offset_type(read_size) > remaining)
-		read_size = remaining;
+	if (std::cmp_greater(dest.size(), remaining))
+		dest = dest.first(remaining);
 
 	auto r = buffer.Read();
 
@@ -271,11 +256,11 @@ Iso9660InputStream::Read(std::unique_lock<Mutex> &,
 
 		const lsn_t read_lsn = lsn + offset / ISO_BLOCKSIZE;
 
-		if (read_size >= ISO_BLOCKSIZE && skip == 0) {
+		if (dest.size() >= ISO_BLOCKSIZE && skip == 0) {
 			/* big read - read right into the caller's buffer */
 
-			auto nbytes = iso->SeekRead(ptr, read_lsn,
-						    read_size / ISO_BLOCKSIZE);
+			auto nbytes = iso->SeekRead(dest.data(), read_lsn,
+						    dest.size() / ISO_BLOCKSIZE);
 			if (nbytes <= 0)
 				throw std::runtime_error("Failed to read ISO9660 file");
 
@@ -309,8 +294,8 @@ Iso9660InputStream::Read(std::unique_lock<Mutex> &,
 	assert(!r.empty());
 	assert(skip == 0);
 
-	size_t nbytes = std::min(read_size, r.size());
-	memcpy(ptr, r.data(), nbytes);
+	size_t nbytes = std::min(dest.size(), r.size());
+	memcpy(dest.data(), r.data(), nbytes);
 	buffer.Consume(nbytes);
 	offset += nbytes;
 	return nbytes;

@@ -1,42 +1,24 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_OUTPUT_HTTPD_CLIENT_HXX
-#define MPD_OUTPUT_HTTPD_CLIENT_HXX
+#pragma once
 
 #include "Page.hxx"
 #include "event/BufferedSocket.hxx"
-#include "util/Compiler.h"
-
-#include <boost/intrusive/link_mode.hpp>
-#include <boost/intrusive/list_hook.hpp>
+#include "util/IntrusiveList.hxx"
 
 #include <cstddef>
 #include <list>
 #include <queue>
+#include <string_view>
 
 class UniqueSocketDescriptor;
 class HttpdOutput;
 
 class HttpdClient final
 	: BufferedSocket,
-	  public boost::intrusive::list_base_hook<boost::intrusive::link_mode<boost::intrusive::normal_link>> {
+	  public IntrusiveListHook<>
+{
 	/**
 	 * The httpd output object this client is connected to.
 	 */
@@ -111,14 +93,14 @@ class HttpdClient final
 	/**
 	 * The amount of streaming data between each metadata block
 	 */
-	unsigned metaint = 8192; /*TODO: just a std value */
+	static constexpr std::size_t metaint = 8192;
 
 	/**
 	 * The metadata as #Page which is currently being sent to the client.
 	 */
 	PagePtr metadata;
 
-	/*
+	/**
 	 * The amount of bytes which were already sent from the metadata.
 	 */
 	size_t metadata_current_position = 0;
@@ -161,7 +143,7 @@ public:
 	/**
 	 * Handle a line of the HTTP request.
 	 */
-	bool HandleLine(const char *line) noexcept;
+	bool HandleLine(std::string_view line) noexcept;
 
 	/**
 	 * Switch the client to #State::RESPONSE.
@@ -173,7 +155,7 @@ public:
 	 */
 	bool SendResponse() noexcept;
 
-	gcc_pure
+	[[gnu::pure]]
 	ssize_t GetBytesTillMetaData() const noexcept;
 
 	ssize_t TryWritePage(const Page &page, size_t position) noexcept;
@@ -199,9 +181,7 @@ protected:
 	/* virtual methods from class BufferedSocket */
 	void OnSocketReady(unsigned flags) noexcept override;
 
-	InputResult OnSocketInput(void *data, size_t length) noexcept override;
+	InputResult OnSocketInput(std::span<std::byte> src) noexcept override;
 	void OnSocketError(std::exception_ptr ep) noexcept override;
 	void OnSocketClosed() noexcept override;
 };
-
-#endif

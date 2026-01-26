@@ -1,31 +1,15 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_ICY_META_DATA_PARSER_HXX
 #define MPD_ICY_META_DATA_PARSER_HXX
 
 #include "lib/icu/Converter.hxx"
 #include "tag/Tag.hxx"
-#include "config.h"
 
 #include <cstddef>
 #include <memory>
+#include <span>
 
 class IcyMetaDataParser {
 	size_t data_size = 0, data_rest;
@@ -82,18 +66,18 @@ public:
 	size_t Data(size_t length) noexcept;
 
 	/**
-	 * Reads metadata from the stream.  Returns the number of bytes
-	 * consumed.  If the return value is smaller than "length", the caller
-	 * should invoke icy_data().
+	 * Reads metadata from the stream.  Returns the number of
+	 * bytes consumed.  If the return value is smaller than
+	 * "src.size()", the caller should invoke Data().
 	 */
-	size_t Meta(const void *data, size_t length) noexcept;
+	std::size_t Meta(std::span<const std::byte> src) noexcept;
 
 	/**
 	 * Parse data and eliminate metadata.
 	 *
 	 * @return the number of data bytes remaining in the buffer
 	 */
-	size_t ParseInPlace(void *data, size_t length) noexcept;
+	size_t ParseInPlace(std::span<std::byte> buffer) noexcept;
 
 	std::unique_ptr<Tag> ReadTag() noexcept {
 		return std::exchange(tag, nullptr);

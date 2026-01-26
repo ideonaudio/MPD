@@ -1,25 +1,13 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
+#include "AlsaMixerPlugin.hxx"
+#include "VolumeMapping.hxx"
 #include "lib/alsa/NonBlock.hxx"
 #include "lib/alsa/Error.hxx"
-#include "mixer/MixerInternal.hxx"
+#include "lib/fmt/RuntimeError.hxx"
+#include "lib/fmt/ToBuffer.hxx"
+#include "mixer/Mixer.hxx"
 #include "mixer/Listener.hxx"
 #include "output/OutputAPI.hxx"
 #include "event/MultiSocketMonitor.hxx"
@@ -27,15 +15,10 @@
 #include "event/Call.hxx"
 #include "util/ASCII.hxx"
 #include "util/Domain.hxx"
-#include "util/Math.hxx"
-#include "util/RuntimeError.hxx"
 #include "Log.hxx"
 
-extern "C" {
-#include "volume_mapping.h"
-}
-
 #include <alsa/asoundlib.h>
+#include <cmath>
 
 #define VOLUME_MIXER_ALSA_DEFAULT		"default"
 #define VOLUME_MIXER_ALSA_CONTROL_DEFAULT	"PCM"
@@ -46,10 +29,10 @@ class AlsaMixerMonitor final : MultiSocketMonitor {
 
 	snd_mixer_t *mixer;
 
-	AlsaNonBlockMixer non_block;
+	Alsa::NonBlockMixer non_block;
 
 public:
-	AlsaMixerMonitor(EventLoop &_loop, snd_mixer_t *_mixer)
+	AlsaMixerMonitor(EventLoop &_loop, snd_mixer_t *_mixer) noexcept
 		:MultiSocketMonitor(_loop),
 		 defer_invalidate_sockets(_loop,
 					  BIND_THIS_METHOD(InvalidateSockets)),
@@ -57,7 +40,7 @@ public:
 		defer_invalidate_sockets.Schedule();
 	}
 
-	~AlsaMixerMonitor() {
+	~AlsaMixerMonitor() noexcept {
 		BlockingCall(MultiSocketMonitor::GetEventLoop(), [this](){
 				MultiSocketMonitor::Reset();
 				defer_invalidate_sockets.Cancel();
@@ -103,11 +86,11 @@ class AlsaMixer final : public Mixer {
 	int desired_volume, resulting_volume;
 
 public:
-	AlsaMixer(EventLoop &_event_loop, MixerListener &_listener)
+	AlsaMixer(EventLoop &_event_loop, MixerListener &_listener) noexcept
 		:Mixer(alsa_mixer_plugin, _listener),
 		 event_loop(_event_loop) {}
 
-	~AlsaMixer() override;
+	~AlsaMixer() noexcept override;
 
 	AlsaMixer(const AlsaMixer &) = delete;
 	AlsaMixer &operator=(const AlsaMixer &) = delete;
@@ -124,7 +107,7 @@ public:
 private:
 	[[gnu::const]]
 	static unsigned NormalizedToPercent(double normalized) noexcept {
-		return lround(100 * normalized);
+		return std::lround(100 * normalized);
 	}
 
 	[[gnu::pure]]
@@ -236,13 +219,13 @@ alsa_mixer_init(EventLoop &event_loop, [[maybe_unused]] AudioOutput &ao,
 	return am;
 }
 
-AlsaMixer::~AlsaMixer()
+AlsaMixer::~AlsaMixer() noexcept
 {
 	/* free libasound's config cache */
 	snd_config_update_free_global();
 }
 
-gcc_pure
+[[gnu::pure]]
 static snd_mixer_elem_t *
 alsa_mixer_lookup_elem(snd_mixer_t *handle,
 		       const char *name, unsigned idx) noexcept
@@ -266,8 +249,8 @@ AlsaMixer::Setup()
 
 	if ((err = snd_mixer_attach(handle, device)) < 0)
 		throw Alsa::MakeError(err,
-				      fmt::format("failed to attach to {}",
-						  device).c_str());
+				      FmtBuffer<256>("failed to attach to {}",
+						     device));
 
 	if ((err = snd_mixer_selem_register(handle, nullptr, nullptr)) < 0)
 		throw Alsa::MakeError(err, "snd_mixer_selem_register() failed");
@@ -277,7 +260,7 @@ AlsaMixer::Setup()
 
 	elem = alsa_mixer_lookup_elem(handle, control, index);
 	if (elem == nullptr)
-		throw FormatRuntimeError("no such mixer control: %s", control);
+		throw FmtRuntimeError("no such mixer control: {}", control);
 
 	snd_mixer_elem_set_callback_private(elem, this);
 	snd_mixer_elem_set_callback(elem, ElemCallback);

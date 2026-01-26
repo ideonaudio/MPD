@@ -1,34 +1,7 @@
-/*
- * Copyright 2012-2020 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
-#ifndef IPV4_ADDRESS_HXX
-#define IPV4_ADDRESS_HXX
+#pragma once
 
 #include "SocketAddress.hxx"
 #include "util/ByteOrder.hxx"
@@ -113,7 +86,10 @@ class IPv4Address {
 	}
 
 public:
-	IPv4Address() = default;
+	/**
+	 * Leave the object uninitialized.
+	 */
+	constexpr IPv4Address() noexcept = default;
 
 	constexpr IPv4Address(const struct sockaddr_in &_address) noexcept
 		:address(_address) {}
@@ -183,8 +159,16 @@ public:
 		return sizeof(address);
 	}
 
+	constexpr int GetFamily() const noexcept {
+		return address.sin_family;
+	}
+
 	constexpr bool IsDefined() const noexcept {
 		return address.sin_family != AF_UNSPEC;
+	}
+
+	constexpr void Clear() noexcept {
+		address.sin_family = AF_UNSPEC;
 	}
 
 	/**
@@ -227,6 +211,20 @@ public:
 	}
 
 	/**
+	 * Return a buffer pointing to the "steady" portion of the
+	 * address, i.e. without volatile parts like the port number.
+	 * This buffer is useful for hashing the address, but not so
+	 * much for anything else.  Returns nullptr if the address is
+	 * not supported.
+	 */
+	constexpr std::span<const std::byte> GetSteadyPart() const noexcept {
+		return {
+			reinterpret_cast<const std::byte *>(&address.sin_addr),
+			sizeof(address.sin_addr),
+		};
+	}
+
+	/**
 	 * Bit-wise AND of two addresses.  This is useful for netmask
 	 * calculations.
 	 */
@@ -235,5 +233,3 @@ public:
 				   GetPort() & other.GetPort());
 	}
 };
-
-#endif

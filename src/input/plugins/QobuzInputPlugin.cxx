@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "QobuzInputPlugin.hxx"
 #include "QobuzClient.hxx"
@@ -33,6 +17,8 @@
 
 #include <memory>
 
+using std::string_view_literals::operator""sv;
+
 static QobuzClient *qobuz_client;
 
 class QobuzInputStream final
@@ -45,7 +31,7 @@ class QobuzInputStream final
 	std::exception_ptr error;
 
 public:
-	QobuzInputStream(const char *_uri, const char *_track_id,
+	QobuzInputStream(std::string_view _uri, std::string_view _track_id,
 			 Mutex &_mutex) noexcept
 		:ProxyInputStream(_uri, _mutex),
 		 track_id(_track_id)
@@ -84,7 +70,7 @@ private:
 void
 QobuzInputStream::OnQobuzSession() noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 
 	try {
 		const auto session = qobuz_client->GetSession();
@@ -103,7 +89,7 @@ QobuzInputStream::OnQobuzSession() noexcept
 void
 QobuzInputStream::OnQobuzTrackSuccess(std::string url) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	track_request.reset();
 
 	try {
@@ -117,7 +103,7 @@ QobuzInputStream::OnQobuzTrackSuccess(std::string url) noexcept
 void
 QobuzInputStream::OnQobuzTrackError(std::exception_ptr e) noexcept
 {
-	const std::scoped_lock<Mutex> protect(mutex);
+	const std::scoped_lock protect{mutex};
 	track_request.reset();
 
 	Failed(e);
@@ -167,27 +153,23 @@ FinishQobuzInput() noexcept
 }
 
 [[gnu::pure]]
-static const char *
-ExtractQobuzTrackId(const char *uri)
+static std::string_view 
+ExtractQobuzTrackId(std::string_view uri) noexcept
 {
 	// TODO: what's the standard "qobuz://" URI syntax?
-	const char *track_id = StringAfterPrefix(uri, "qobuz://track/");
-	if (track_id == nullptr)
-		return nullptr;
+	if (SkipPrefix(uri, "qobuz://track/"sv))
+		return uri;
 
-	if (*track_id == 0)
-		return nullptr;
-
-	return track_id;
+	return {};
 }
 
 static InputStreamPtr
-OpenQobuzInput(const char *uri, Mutex &mutex)
+OpenQobuzInput(std::string_view uri, Mutex &mutex)
 {
 	assert(qobuz_client != nullptr);
 
-	const char *track_id = ExtractQobuzTrackId(uri);
-	if (track_id == nullptr)
+	const auto track_id = ExtractQobuzTrackId(uri);
+	if (track_id.empty())
 		return nullptr;
 
 	// TODO: validate track_id
@@ -196,12 +178,12 @@ OpenQobuzInput(const char *uri, Mutex &mutex)
 }
 
 static std::unique_ptr<RemoteTagScanner>
-ScanQobuzTags(const char *uri, RemoteTagHandler &handler)
+ScanQobuzTags(std::string_view uri, RemoteTagHandler &handler)
 {
 	assert(qobuz_client != nullptr);
 
-	const char *track_id = ExtractQobuzTrackId(uri);
-	if (track_id == nullptr)
+	const auto track_id = ExtractQobuzTrackId(uri);
+	if (track_id.empty())
 		return nullptr;
 
 	return std::make_unique<QobuzTagScanner>(*qobuz_client, track_id,

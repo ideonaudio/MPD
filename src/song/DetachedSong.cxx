@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "song/DetachedSong.hxx"
 #include "song/LightSong.hxx"
@@ -27,6 +11,7 @@ DetachedSong::DetachedSong(const LightSong &other) noexcept
 	 real_uri(other.real_uri != nullptr ? other.real_uri : ""),
 	 tag(other.tag),
 	 mtime(other.mtime),
+	 added(other.added),
 	 start_time(other.start_time),
 	 end_time(other.end_time),
 	 audio_format(other.audio_format) {}
@@ -37,6 +22,7 @@ DetachedSong::operator LightSong() const noexcept
 	result.directory = nullptr;
 	result.real_uri = real_uri.empty() ? nullptr : real_uri.c_str();
 	result.mtime = mtime;
+	result.added = added;
 	result.start_time = start_time;
 	result.end_time = end_time;
 	return result;

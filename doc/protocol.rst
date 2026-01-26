@@ -127,13 +127,13 @@ sent from the client to the server::
 
 The server responds with::
 
- ACK [50@1] {play} song doesn't exist: "10240"
+ ACK [2@1] {play} Bad song index
 
 This tells us that the play command, which was the second in the list
-(the first or only command is numbered 0), failed with error 50.  The
-number 50 translates to ``ACK_ERROR_NO_EXIST`` -- the song doesn't
-exist.  This is reiterated by the message text which also tells us
-which song doesn't exist.
+(the first or only command is numbered 0), failed with error 2.  The
+number 2 translates to ``ACK_ERROR_ARG`` -- the argument is invalid
+since such song position does not exist.  This is reiterated by the
+message text which also tells us that the song index is incorrect.
 
 .. _command_lists:
 
@@ -155,6 +155,9 @@ fails, no more commands are executed and the appropriate
 `command_list_ok_begin` is used,
 ``list_OK`` is returned for each
 successful command executed in the command list.
+
+Only synchronous commands can be used in command lists.  Commands that
+suspend execution (``idle`` and ``noidle``) are not allowed.
 
 Ranges
 ======
@@ -196,6 +199,8 @@ of:
 - ``(TAG contains 'VALUE')`` checks if the given value is a substring
   of the tag value.
 
+- ``(TAG starts_with 'VALUE')`` checks if the tag value starts with the given value.
+
 - ``(TAG =~ 'VALUE')`` and ``(TAG !~ 'VALUE')`` use a Perl-compatible
   regular expression instead of doing a simple string comparison.
   (This feature is only available if :program:`MPD` was compiled with
@@ -211,6 +216,9 @@ of:
 - ``(modified-since 'VALUE')``: compares the
   file's time stamp with the given value (ISO 8601 or UNIX
   time stamp).
+
+- ``(added-since 'VALUE')``: compares time stamp when the file was added with
+  the given value (ISO 8601 or UNIX time stamp).
 
 - ``(AudioFormat == 'SAMPLERATE:BITS:CHANNELS')``: compares the audio
   format with the given value.  See :ref:`audio_output_format` for a
@@ -233,7 +241,47 @@ of:
   (album == 'BAR'))`
 
 The :command:`find` commands are case sensitive, while
-:command:`search` and related commands ignore case.
+:command:`search` and related commands ignore case.  The latter also
+applies `Unicode normalization <https://unicode.org/reports/tr15/>`__
+and converts all punctuation to ASCII equivalents
+if MPD was compiled with `ICU <https://icu.unicode.org/>`__ support.
+
+Explicit case-sensitivity [#since_0_24]_
+----------------------------------------
+
+.. note:: The following variants of filter operators override the default case sensitivity
+   that is command dependant with explicit case sensitivity.
+
+.. list-table:: Explicitly case-sensitive operators
+   :widths: 33 33 33
+
+   * - Explicitly case-sensitive
+     - Explicitly case-insensitive
+     - Equivalent command dependant
+
+   * - ``eq_cs``
+     - ``eq_ci``
+     - ``==``
+
+   * - ``!eq_cs``
+     - ``!eq_ci``
+     - ``!=``
+
+   * - ``contains_cs``
+     - ``contains_ci``
+     - ``contains``
+
+   * - ``!contains_cs``
+     - ``!contains_ci``
+     - ``!contains``
+
+   * - ``starts_with_cs``
+     - ``starts_with_ci``
+     - ``starts_with``
+
+   * - ``!starts_with_cs``
+     - ``!starts_with_ci``
+     - ``!starts_with``
 
 Prior to MPD 0.21, the syntax looked like this::
 
@@ -283,6 +331,7 @@ The following tags are supported by :program:`MPD`:
 * **albumartist**: on multi-artist albums, this is the artist name which shall be used for the whole album. The exact meaning of this tag is not well-defined.
 * **albumartistsort**: same as albumartist, but for sorting.
 * **title**: the song title.
+* **titlesort**:  same as title, but for sorting.
 * **track**: the decimal track number within the album.
 * **name**: a name for this song. This is not the song title. The exact meaning of this tag is not well-defined. It is often used by badly configured internet radio stations with broken tags to squeeze both the artist name and the song title in one tag.
 * **genre**: the music genre.
@@ -298,6 +347,7 @@ The following tags are supported by :program:`MPD`:
 * **ensemble**: the ensemble performing this song, e.g. "Wiener Philharmoniker".
 * **movement**: name of the movement, e.g. "Andante con moto".
 * **movementnumber**: movement number, e.g. "2" or "II".
+* **showmovement**: If this tag is set to "1" players supporting this tag will display the `work`, `movement`, and `movementnumber`` instead of the track title.
 * **location**: location of the recording, e.g. "Royal Albert Hall".
 * **grouping**: "used if the sound belongs to a larger category of
   sounds/music" (`from the IDv2.4.0 TIT1 description
@@ -309,6 +359,7 @@ The following tags are supported by :program:`MPD`:
 * **musicbrainz_albumid**: the album id in the `MusicBrainz <https://picard.musicbrainz.org/docs/mappings/>`_ database.
 * **musicbrainz_albumartistid**: the album artist id in the `MusicBrainz <https://picard.musicbrainz.org/docs/mappings/>`_ database.
 * **musicbrainz_trackid**: the track id in the `MusicBrainz <https://picard.musicbrainz.org/docs/mappings/>`_ database.
+* **musicbrainz_releasegroupid**: the release group id in the `MusicBrainz <https://picard.musicbrainz.org/docs/mappings/>`_ database.
 * **musicbrainz_releasetrackid**: the release track id in the `MusicBrainz <https://picard.musicbrainz.org/docs/mappings/>`_ database.
 * **musicbrainz_workid**: the work id in the `MusicBrainz <https://picard.musicbrainz.org/docs/mappings/>`_ database.
 
@@ -328,7 +379,7 @@ may contain :ref:`song tags <tags>` and other metadata, specifically:
 - ``duration``: the duration of the song in
   seconds; may contain a fractional part.
 
-- ``time``: like ``duration``,
+- ``Time``: like ``duration``,
   but as integer value.  This is deprecated and is only here
   for compatibility with older clients.  Do not use.
 
@@ -349,6 +400,10 @@ may contain :ref:`song tags <tags>` and other metadata, specifically:
   last modification of the underlying file in ISO 8601
   format.  Example:
   "*2008-09-28T20:04:57Z*"
+
+- ``added`` [#since_0_24]_: the time stamp when the file was added in ISO 8601.
+  A negative value means that this is unknown/unavailable.
+  Example: "*2023-11-25T13:25:07Z*"
 
 Recipes
 *******
@@ -433,7 +488,8 @@ Querying :program:`MPD`'s status
     - ``partition``: a partition was added, removed or changed
     - ``sticker``: the sticker database has been modified.
     - ``subscription``: a client has subscribed or unsubscribed to a channel
-    - ``message``: a message was received on a channel this client is subscribed to; this event is only emitted when the queue is empty
+    - ``message``: a message was received on a channel this client is subscribed to;
+      this event is only emitted when the client's message queue is empty
     - ``neighbor``: a neighbor was found or lost
     - ``mount``: the mount list has changed
 
@@ -469,7 +525,7 @@ Querying :program:`MPD`'s status
     - ``repeat``: ``0`` or ``1``
     - ``random``: ``0`` or ``1``
     - ``single`` [#since_0_15]_: ``0``, ``1``, or ``oneshot`` [#since_0_21]_
-    - ``consume`` [#since_0_15]_: ``0`` or ``1``
+    - ``consume`` [#since_0_15]_: ``0``, ``1`` or ``oneshot`` [#since_0_24]_
     - ``playlist``: 31-bit unsigned integer, the playlist version number
     - ``playlistlength``: integer, the length of the playlist
     - ``state``: ``play``, ``stop``, or ``pause``
@@ -491,6 +547,7 @@ Querying :program:`MPD`'s status
       :ref:`audio_output_format` for a detailed explanation.
     - ``updating_db``: ``job id``
     - ``error``: if there is an error, returns message here
+    - ``lastloadedplaylist``: last loaded stored playlist [#since_0_24]_
 
     :program:`MPD` may omit lines which have no (known) value.  Older
     :program:`MPD` versions used to have a "magic" value for
@@ -517,7 +574,7 @@ Playback options
 
 :command:`consume {STATE}` [#since_0_15]_
     Sets consume state to ``STATE``,
-    ``STATE`` should be 0 or 1.
+    ``STATE`` should be ``0``, ``1`` or ``oneshot`` [#since_0_24]_.
     When consume is activated, each song played is removed from playlist.
 
 .. _command_crossfade:
@@ -608,7 +665,6 @@ Playback options
 
 :command:`volume {CHANGE}`
     Changes volume by amount ``CHANGE``.
-    Deprecated, use :ref:`setvol <command_setvol>` instead.
 
 Controlling playback
 ====================
@@ -695,7 +751,8 @@ Song ids on the other hand are stable: an id is assigned to a song
 when it is added, and will stay the same, no matter how much it is
 moved around.  Adding the same song twice will assign different ids to
 them, and a deleted-and-readded song will have a new id.  This way, a
-client can always be sure the correct song is being used.
+client can always be sure the correct song is being used.  Song ids are not
+preserved across :program:`MPD` restarts.
 
 Many commands come in two flavors, one for each address type.
 Whenever possible, ids should be used.
@@ -790,8 +847,9 @@ Whenever possible, ids should be used.
     ``sort`` sorts the result by the specified tag.  The sort is
     descending if the tag is prefixed with a minus ('-').  Only the
     first tag value will be used, if multiple of the same type exist.
-    To sort by "Artist", "Album" or "AlbumArtist", you should specify
-    "ArtistSort", "AlbumSort" or "AlbumArtistSort" instead.  These
+    To sort by "Title", "Artist", "Album", "AlbumArtist" or "Composer",
+    you should specify "TitleSort", "ArtistSort", "AlbumSort",
+    "AlbumArtistSort" or "ComposerSort" instead.  These
     will automatically fall back to the former if "\*Sort" doesn't
     exist.  "AlbumArtist" falls back to just "Artist".  The type
     "Last-Modified" can sort by file modification time, and "prio"
@@ -928,15 +986,25 @@ remote playlists (absolute URI with a supported scheme).
 
 .. _command_listplaylist:
 
-:command:`listplaylist {NAME}`
+:command:`listplaylist {NAME} [{START:END}]`
     Lists the songs in the playlist.  Playlist plugins are
-    supported.
+    supported. A range may be specified to list
+    only a part of the playlist. [#since_0_24]_
 
 .. _command_listplaylistinfo:
 
-:command:`listplaylistinfo {NAME}`
+:command:`listplaylistinfo {NAME} [{START:END}]`
     Lists the songs with metadata in the playlist.  Playlist
-    plugins are supported.
+    plugins are supported. A range may be specified to list
+    only a part of the playlist. [#since_0_24]_
+
+.. _command_searchplaylist:
+
+:command:`searchplaylist {NAME} {FILTER} [window {START:END}]`
+    Search the playlist for songs matching
+    ``FILTER`` (see :ref:`Filters <filter_syntax>`).  Playlist
+    plugins are supported. A range may be specified to list
+    only a part of the playlist.
 
 .. _command_listplaylists:
 
@@ -985,10 +1053,24 @@ remote playlists (absolute URI with a supported scheme).
 
     The second parameter can be a range. [#since_0_23_3]_
 
+.. _command_playlistlength:
+
+:command:`playlistlength {NAME}`
+    Count the number of songs and their total playtime (seconds) in the
+    playlist.
+
+    Example::
+
+     playlistlength example
+     songs: 10
+     playtime: 8192
+     OK
+
 .. _command_playlistmove:
 
-:command:`playlistmove {NAME} {FROM} {TO}`
-    Moves the song at position ``FROM`` in
+:command:`playlistmove {NAME} [{FROM} | {START:END}] {TO}`
+    Moves the song at position ``FROM`` or range of songs
+    at ``START:END`` [#since_0_24]_ in
     the playlist `NAME.m3u` to the
     position ``TO``.
 
@@ -1005,9 +1087,20 @@ remote playlists (absolute URI with a supported scheme).
 
 .. _command_save:
 
-:command:`save {NAME}`
+:command:`save {NAME} [MODE]`
     Saves the queue to
     `NAME.m3u` in the playlist directory.
+
+    ``MODE`` [#since_0_24]_
+        Optional argument. One of `create`, `append`, or `replace`.
+
+        `create`
+            The default. Create a new playlist.
+            Fail if a playlist with name ``NAME`` already exists.
+
+        `append`, `replace`
+            Append or replace an existing playlist.
+            Fail if a playlist with name ``NAME`` doesn\'t already exist.
 
 The music database
 ==================
@@ -1020,7 +1113,7 @@ The music database
 
     This is currently implemented by searching the directory the file
     resides in for a file called :file:`cover.png`, :file:`cover.jpg`,
-    :file:`cover.tiff` or :file:`cover.bmp`.
+    or :file:`cover.webp`.
 
     Returns the file size and actual number
     of bytes read at the requested offset, followed
@@ -1106,7 +1199,7 @@ The music database
 
 .. _command_list:
 
-:command:`list {TYPE} {FILTER} [group {GROUPTYPE}]`
+:command:`list {TYPE} {FILTER} [group {GROUPTYPE}] [window {START:END}]`
     Lists unique tags values of the specified type.
     ``TYPE`` can be any tag supported by
     :program:`MPD`.
@@ -1119,6 +1212,9 @@ The music database
     grouped by their respective (album) artist::
 
      list album group albumartist
+
+    ``window`` works like in :ref:`find <command_find>`.  In this
+    command, it affects only the top-most tag type. [#since_0_25]_
 
     ``list file`` was implemented in an early :program:`MPD` version,
     but does not appear to make a lot of sense.  It still works (to
@@ -1269,6 +1365,16 @@ The music database
     The ``position`` parameter specifies where the songs will be
     inserted. [#since_0_23_4]_
 
+.. _command_searchcount:
+
+:command:`searchcount {FILTER} [group {GROUPTYPE}]`
+    Count the number of songs and their total playtime in
+    the database matching ``FILTER`` (see
+    :ref:`Filters <filter_syntax>`).
+
+    Parameters have the same meaning as for :ref:`count <command_count>`
+    except the search is not case sensitive.
+
 .. _command_update:
 
 :command:`update [URI]`
@@ -1371,6 +1477,41 @@ Objects which may have stickers are addressed by their object
 type ("song" for song objects) and their URI (the path within
 the database for songs).
 
+.. note:: Since :program:`MPD` 0.24 stickers can also be attached to playlists,
+  some tag types, and :ref:`filter expressions <filter_syntax>`.
+  The following tag types are allowed: Title, Album, Artist, AlbumArtist, Genre,
+  Composer, Performer, Conductor, Work, Ensemble, Location, and Label.
+
+.. list-table:: Sticker addressing
+   :widths: 10 45 45
+   :header-rows: 2
+
+   * - Type
+     - URI
+     - URI
+
+   * -
+     - get, set, delete, list, find
+     - find only
+
+   * - "song"
+     - File path within the database
+     - Directory path within the database to find a sticker on
+       all songs under this path recursively
+
+   * - "playlist"
+     - The playlist name of a stored playlist
+     - An empty string to find a sticker in all playlists
+
+   * - Tag type e.g. "Album"
+     - The tag value
+     - An empty string to find a sticker in all instances of the tag type
+
+   * - "filter"
+     - A :ref:`filter expression <filter_syntax>`.
+
+     - An empty string to find a sticker in all instances of the filter
+
 .. _command_sticker_get:
 
 :command:`sticker get {TYPE} {URI} {NAME}`
@@ -1382,6 +1523,20 @@ the database for songs).
     Adds a sticker value to the specified object.  If a
     sticker item with that name already exists, it is
     replaced.
+
+.. _command_sticker_inc:
+
+:command:`sticker inc {TYPE} {URI} {NAME} {VALUE}`
+    Adds a sticker value to the specified object.  If a
+    sticker item with that name already exists, it is
+    incremented by supplied value.
+
+.. _command_sticker_dec:
+
+:command:`sticker dec {TYPE} {URI} {NAME} {VALUE}`
+    Adds a sticker value to the specified object.  If a
+    sticker item with that name already exists, it is
+    decremented by supplied value.
 
 .. _command_sticker_delete:
 
@@ -1397,19 +1552,67 @@ the database for songs).
 
 .. _command_sticker_find:
 
-:command:`sticker find {TYPE} {URI} {NAME}`
+:command:`sticker find {TYPE} {URI} {NAME} [sort {SORTTYPE}] [window {START:END}]`
     Searches the sticker database for stickers with the
     specified name, below the specified directory (URI).
     For each matching song, it prints the URI and that one
     sticker's value.
 
+    ``sort`` sorts the result by "``uri``","``value`` or "``value_int``" (casts the sticker value to an integer). [#since_0_24]_
+
 .. _command_sticker_find_value:
 
-:command:`sticker find {TYPE} {URI} {NAME} = {VALUE}`
+:command:`sticker find {TYPE} {URI} {NAME} = {VALUE} [sort {SORTTYPE}] [window {START:END}]`
     Searches for stickers with the given value.
 
     Other supported operators are:
-    "``<``", "``>``"
+    "``<``", "``>``", "``contains``", "``starts_with``" for strings and "``eq``", "``lt``", "``gt``" to cast the value to an integer.
+
+Examples:
+
+   .. code-block::
+
+     sticker set song "path/to/song_1.mp3" "name_1" "value_1"
+     OK
+     sticker set song "path/to/song_2.mp3" "name_1" "value_2"
+     OK
+     sticker get song "path/to/song_1.mp3" "name_1"
+     sticker: name_1=value_1
+     OK
+     sticker find song "path" "name_1"
+     file: path/to/song_1.mp3
+     sticker: name_1=value_1
+     file: path/to/song_2.mp3
+     sticker: name_1=value_2
+     OK
+
+   .. code-block::
+
+    sticker set Album "Greatest Hits" "name_1" "value_1"
+    OK
+    sticker find Album "" name_1
+    Album: Greatest Hits
+    sticker: name_1=value_1
+    OK
+    sticker set filter "((album == 'Greatest Hits') AND (artist == 'Vera Lynn'))" name_1 value_1
+    OK
+    sticker set filter "((album == 'Greatest Hits') AND (artist == 'Johnny Chester'))" name_1 value_1
+    OK
+    sticker find filter "" name_1
+    filter: ((album == 'Greatest Hits') AND (artist == 'Johnny Chester'))
+    sticker: name_1=value_1
+    filter: ((album == 'Greatest Hits') AND (artist == 'Vera Lynn'))
+    sticker: name_1=value_1
+    OK
+
+:command:`stickernames`
+    Gets a list of uniq sticker names.
+
+:command:`stickertypes`
+    Shows a list of available sticker types.
+
+:command:`stickernamestypes [TYPE]`
+    Gets a list of uniq sticker names and their types.
 
 Connection settings
 ===================
@@ -1498,6 +1701,93 @@ Connection settings
 :command:`tagtypes all`
     Announce that this client is interested in all tag
     types.  This is the default setting for new clients.
+
+.. _command_tagtypes_available:
+
+:command:`tagtypes available`
+    Shows the list of tag types configured
+    by the ``metadata_to_use`` setting.
+
+:command:`tagtypes reset {NAME...}`
+    Clear the list of tag types and Re-enable one or more tags
+    from the list of tag types for this client.  These will no
+    longer be hidden from responses to this client.
+
+.. _command_protocol:
+
+:command:`protocol`
+    Shows a list of enabled protocol features.
+
+    Available features:
+
+    - ``hide_playlists_in_root``: disables the listing of
+      stored playlists for the :ref:`lsinfo <command_lsinfo>`.
+
+    The following ``protocol`` sub commands configure the
+    protocol features.
+
+.. _command_protocol_disable:
+
+:command:`protocol disable {FEATURE...}`
+    Disables one or more features.
+
+.. _command_protocol_enable:
+
+:command:`protocol enable {FEATURE...}`
+    Enables one or more features.
+
+.. _command_protocol_clear:
+
+:command:`protocol clear`
+    Disables all protocol features.
+
+.. _command_protocol_all:
+
+:command:`protocol all`
+    Enables all protocol features.
+
+.. _command_protocol_available:
+
+:command:`protocol available`
+    Lists all available protocol features.
+
+.. _command_stringnormalization:
+
+:command:`stringnormalization`
+    Shows a list of enabled string normalization options when searching
+    using :ref:`search <command_search>`.
+
+    Available options:
+
+    - ``strip_diacritics``: strip diacritics from searched strings
+
+    The following ``stringnormalization`` sub commands configure the
+    options.
+
+.. _command_stringnormalization_disable:
+
+:command:`stringnormalization disable {FEATURE...}`
+    Disables one or more string normalization options.
+
+.. _command_stringnormalization_enable:
+
+:command:`stringnormalization enable {FEATURE...}`
+    Enables one or more string normalization options.
+
+.. _command_stringnormalization_clear:
+
+:command:`stringnormalization clear`
+    Disables all string normalization options.
+
+.. _command_stringnormalization_all:
+
+:command:`stringnormalization all`
+    Enables all string normalization options.
+
+.. _command_stringnormalization_available:
+
+:command:`stringnormalization available`
+    Lists all available string normalization options.
 
 .. _partition_commands:
 
@@ -1598,6 +1888,8 @@ Reflection
     The following response attributes are available:
 
     - ``music_directory``: The absolute path of the music directory.
+    - ``playlist_directory``: The absolute path of the playlist directory.
+    - ``pcre``: Indicates pcre support.
 
 .. _command_commands:
 
@@ -1634,7 +1926,8 @@ Client to client
 Clients can communicate with each others over "channels".  A
 channel is created by a client subscribing to it.  More than
 one client can be subscribed to a channel at a time; all of
-them will receive the messages which get sent to it.
+them will receive the messages which get sent to it.  A client
+can be subscribed to up to 16 channels simultaneously.
 
 Each time a client subscribes or unsubscribes, the global idle
 event ``subscription`` is generated.  In
@@ -1692,3 +1985,5 @@ client-to-client messages are local to the current partition.
 .. [#since_0_23_3] Since :program:`MPD` 0.23.3
 .. [#since_0_23_4] Since :program:`MPD` 0.23.4
 .. [#since_0_23_5] Since :program:`MPD` 0.23.5
+.. [#since_0_24] Since :program:`MPD` 0.24
+.. [#since_0_25] Since :program:`MPD` 0.25

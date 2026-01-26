@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "GmeDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
@@ -28,19 +12,24 @@
 #include "fs/AllocatedPath.hxx"
 #include "fs/FileSystem.hxx"
 #include "fs/NarrowPath.hxx"
+#include "lib/fmt/PathFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/StringCompare.hxx"
-#include "util/StringFormat.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
 #include <gme/gme.h>
+
+#include <fmt/format.h>
 
 #include <cassert>
 
 #include <stdlib.h>
 
 #define SUBTUNE_PREFIX "tune_"
+
+using std::string_view_literals::operator""sv;
 
 static constexpr Domain gme_domain("gme");
 
@@ -55,20 +44,17 @@ struct GmeContainerPath {
 	unsigned track;
 };
 
-#if GME_VERSION >= 0x000600
 static int gme_accuracy;
-#endif
 static unsigned gme_default_fade;
 
 static bool
 gme_plugin_init([[maybe_unused]] const ConfigBlock &block)
 {
-#if GME_VERSION >= 0x000600
 	auto accuracy = block.GetBlockParam("accuracy");
 	gme_accuracy = accuracy != nullptr
 		? (int)accuracy->GetBoolValue()
 		: -1;
-#endif
+
 	auto fade = block.GetBlockParam("default_fade");
 	gme_default_fade = fade != nullptr
 		? fade->GetUnsignedValue() * 1000
@@ -77,7 +63,7 @@ gme_plugin_init([[maybe_unused]] const ConfigBlock &block)
 	return true;
 }
 
-gcc_pure
+[[gnu::pure]]
 static unsigned
 ParseSubtuneName(const char *base) noexcept
 {
@@ -159,13 +145,11 @@ gme_file_decode(DecoderClient &client, Path path_fs)
 
 	AtScopeExit(emu) { gme_delete(emu); };
 
-	FmtDebug(gme_domain, "emulator type '{}'",
+	FmtDebug(gme_domain, "emulator type {:?}",
 		 gme_type_system(gme_type(emu)));
 
-#if GME_VERSION >= 0x000600
 	if (gme_accuracy >= 0)
 		gme_enable_accuracy(emu, gme_accuracy);
-#endif
 
 	gme_info_t *ti;
 	const char *gme_err = gme_track_info(emu, &ti, container.track);
@@ -221,8 +205,7 @@ gme_file_decode(DecoderClient &client, Path path_fs)
 			unsigned where = client.GetSeekTime().ToMS();
 			gme_err = gme_seek(emu, where);
 			if (gme_err != nullptr) {
-				LogWarning(gme_domain, gme_err);
-				client.SeekError();
+				client.SeekError(std::make_exception_ptr(FmtRuntimeError("gme_see() failed: {}"sv, gme_err)));
 			} else
 				client.CommandFinished();
 		}
@@ -244,16 +227,16 @@ ScanGmeInfo(const gme_info_t &info, unsigned song_num, int track_count,
 			));
 
 	if (track_count > 1)
-		handler.OnTag(TAG_TRACK, StringFormat<16>("%u", song_num + 1).c_str());
+		handler.OnTag(TAG_TRACK, fmt::format_int{song_num + 1}.c_str());
 
 	if (!StringIsEmpty(info.song)) {
 		if (track_count > 1) {
 			/* start numbering subtunes from 1 */
 			const auto tag_title =
-				StringFormat<1024>("%s (%u/%d)",
-						   info.song, song_num + 1,
-						   track_count);
-			handler.OnTag(TAG_TITLE, tag_title.c_str());
+				fmt::format("{} ({}/{})",
+					    info.song, song_num + 1,
+					    track_count);
+			handler.OnTag(TAG_TITLE, tag_title);
 		} else
 			handler.OnTag(TAG_TITLE, info.song);
 	}
@@ -322,7 +305,7 @@ gme_container_scan(Path path_fs)
 	if (num_songs < 2)
 		return list;
 
-	const auto *subtune_suffix = path_fs.GetExtension();
+	const Path subtune_suffix = Path::FromFS(path_fs.GetExtension());
 
 	TagBuilder tag_builder;
 
@@ -331,10 +314,9 @@ gme_container_scan(Path path_fs)
 		AddTagHandler h(tag_builder);
 		ScanMusicEmu(emu, i, h);
 
-		const auto track_name =
-			StringFormat<64>(SUBTUNE_PREFIX "%03u.%s", i+1,
-					 subtune_suffix);
-		tail = list.emplace_after(tail, track_name,
+		auto track_name = fmt::format(SUBTUNE_PREFIX "{:03}.{}",
+					      i + 1, subtune_suffix);
+		tail = list.emplace_after(tail, std::move(track_name),
 					  tag_builder.Commit());
 	}
 

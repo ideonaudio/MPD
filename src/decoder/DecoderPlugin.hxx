@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #ifndef MPD_DECODER_PLUGIN_HXX
 #define MPD_DECODER_PLUGIN_HXX
@@ -52,9 +36,16 @@ struct DecoderPlugin {
 	void (*finish)() noexcept = nullptr;
 
 	/**
+	 * Return a set of supported filename suffixes.  Use this
+	 * instead of #suffixes if the supported suffixes can only be
+	 * determined at runtime.
+	 */
+	std::set<std::string, std::less<>> (*suffixes_function)() noexcept = nullptr;
+
+	/**
 	 * Return a set of supported protocols.
 	 */
-	std::set<std::string> (*protocols)() noexcept = nullptr;
+	std::set<std::string, std::less<>> (*protocols)() noexcept = nullptr;
 
 	/**
 	 * Decode an URI with a protocol listed in protocols().
@@ -154,7 +145,7 @@ struct DecoderPlugin {
 		return copy;
 	}
 
-	constexpr auto WithProtocols(std::set<std::string> (*_protocols)() noexcept,
+	constexpr auto WithProtocols(std::set<std::string, std::less<>> (*_protocols)() noexcept,
 				     void (*_uri_decode)(DecoderClient &client, const char *uri)) const noexcept {
 		auto copy = *this;
 		copy.protocols = _protocols;
@@ -165,6 +156,12 @@ struct DecoderPlugin {
 	constexpr auto WithSuffixes(const char *const*_suffixes) const noexcept {
 		auto copy = *this;
 		copy.suffixes = _suffixes;
+		return copy;
+	}
+
+	constexpr auto WithSuffixes(std::set<std::string, std::less<>> (*_suffixes)() noexcept) const noexcept {
+		auto copy = *this;
+		copy.suffixes_function = _suffixes;
 		return copy;
 	}
 
@@ -234,14 +231,6 @@ struct DecoderPlugin {
 		return scan_stream != nullptr
 			? scan_stream(is, handler)
 			: false;
-	}
-
-	/**
-	 * return "virtual" tracks in a container
-	 */
-	template<typename P>
-	char *ContainerScan(P path, const unsigned int tnum) const {
-		return container_scan(path, tnum);
 	}
 
 	[[gnu::pure]]

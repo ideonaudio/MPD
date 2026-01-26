@@ -1,29 +1,19 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "Thread.hxx"
 #include "thread/Name.hxx"
 #include "thread/Slack.hxx"
 #include "thread/Util.hxx"
 #include "lib/fmt/ExceptionFormatter.hxx"
+#include "system/Error.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
+
+#ifdef HAVE_URING
+#include "util/ScopeExit.hxx"
+#include <liburing.h>
+#endif
 
 static constexpr Domain event_domain("event");
 
@@ -45,7 +35,7 @@ EventThread::Stop() noexcept
 		assert(event_loop.IsAlive());
 		event_loop.SetAlive(false);
 
-		event_loop.Break();
+		event_loop.InjectBreak();
 		thread.Join();
 	}
 }
@@ -54,6 +44,8 @@ void
 EventThread::Run() noexcept
 {
 	SetThreadName(realtime ? "rtio" : "io");
+
+	event_loop.SetThread(ThreadId::GetCurrent());
 
 	if (realtime) {
 		SetThreadTimerSlack(std::chrono::microseconds(10));
@@ -65,7 +57,36 @@ EventThread::Run() noexcept
 				"RTIOThread could not get realtime scheduling, continuing anyway: {}",
 				std::current_exception());
 		}
+	} else {
+#ifdef HAVE_URING
+		try {
+			try {
+				event_loop.EnableUring(1024, IORING_SETUP_SINGLE_ISSUER);
+			} catch (const std::system_error &e) {
+				if (IsErrno(e, EINVAL))
+					/* try without IORING_SETUP_SINGLE_ISSUER
+					   (that flag requires Linux kernel 6.0) */
+					event_loop.EnableUring(1024, 0);
+				else
+					throw;
+			}
+		} catch (...) {
+			FmtInfo(event_domain,
+				"Failed to initialize io_uring: {}",
+				std::current_exception());
+		}
+#endif
 	}
+
+#ifdef HAVE_URING
+	AtScopeExit(this) {
+		/* make sure that the Uring::Manager gets destructed
+		   from within the EventThread, or else its
+		   destruction in another thread will cause assertion
+		   failures */
+		event_loop.DisableUring();
+	};
+#endif
 
 	event_loop.Run();
 }

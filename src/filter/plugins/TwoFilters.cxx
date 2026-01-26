@@ -1,42 +1,84 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "TwoFilters.hxx"
 #include "pcm/AudioFormat.hxx"
-#include "util/RuntimeError.hxx"
+#include "lib/fmt/AudioFormatFormatter.hxx"
+#include "lib/fmt/RuntimeError.hxx"
 #include "util/StringBuffer.hxx"
+
+void
+TwoFilters::Reset() noexcept
+{
+	assert(first);
+	assert(second);
+
+	first->Reset();
+	second->Reset();
+}
 
 std::span<const std::byte>
 TwoFilters::FilterPCM(std::span<const std::byte> src)
 {
-	return second->FilterPCM(first->FilterPCM(src));
+	assert(first);
+	assert(second);
+
+	if (const auto dest = first->FilterPCM(src); dest.empty()) [[unlikely]]
+		/* no output from the first filter; pass the empty
+                   buffer on, do not call the second filter */
+		return dest;
+	else
+		/* pass output from the first filter to the second
+                   filter and return its result */
+		return second->FilterPCM(dest);
+}
+
+std::span<const std::byte>
+TwoFilters::ReadMore()
+{
+	assert(first);
+	assert(second);
+
+	/* first read all remaining data from the second filter */
+	if (auto result = second->ReadMore(); !result.empty())
+		return result;
+
+	/* now read more data from the first filter and process it
+           with the second filter */
+	if (auto result = first->ReadMore(); !result.empty())
+		/* output from the first Filter must be filtered by
+		   the second Filter */
+		return second->FilterPCM(result);
+
+	/* both filters have been queried and there's no more data */
+	return {};
 }
 
 std::span<const std::byte>
 TwoFilters::Flush()
 {
-	auto result = first->Flush();
-	if (result.data() != nullptr)
-		/* Flush() output from the first Filter must be
-		   filtered by the second Filter */
-		return second->FilterPCM(result);
+	assert(second);
 
+	/* first read all remaining data from the second filter */
+	if (auto result = second->ReadMore(); !result.empty())
+		return result;
+
+	/* now flush the first filter and process it with the second
+           filter */
+	if (first) {
+		if (auto result = first->Flush(); !result.empty())
+			/* output from the first Filter must be
+			   filtered by the second Filter */
+			return second->FilterPCM(result);
+
+		/* the first filter is flushed completely and we don't
+		   need it anymore; any further method calls that
+		   would use it are illegal according to the Filter
+		   API docs */
+		first.reset();
+	}
+
+	/* finally flush the second filter */
 	return second->Flush();
 }
 
@@ -50,9 +92,8 @@ PreparedTwoFilters::Open(AudioFormat &audio_format)
 	auto b = second->Open(b_in_format);
 
 	if (b_in_format != a_out_format)
-		throw FormatRuntimeError("Audio format not supported by filter '%s': %s",
-					 second_name.c_str(),
-					 ToString(a_out_format).c_str());
+		throw FmtRuntimeError("Audio format not supported by filter {:?}: {}",
+				      second_name, a_out_format);
 
 	return std::make_unique<TwoFilters>(std::move(a),
 					    std::move(b));

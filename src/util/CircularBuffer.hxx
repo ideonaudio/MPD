@@ -1,34 +1,9 @@
-/*
- * Copyright 2014-2022 Max Kellermann <max.kellermann@gmail.com>
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * - Redistributions of source code must retain the above copyright
- * notice, this list of conditions and the following disclaimer.
- *
- * - Redistributions in binary form must reproduce the above copyright
- * notice, this list of conditions and the following disclaimer in the
- * documentation and/or other materials provided with the
- * distribution.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
- * ``AS IS'' AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT
- * LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS
- * FOR A PARTICULAR PURPOSE ARE DISCLAIMED.  IN NO EVENT SHALL THE
- * FOUNDATION OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT,
- * INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL DAMAGES
- * (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
- * SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION)
- * HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT,
- * STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
- * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED
- * OF THE POSSIBILITY OF SUCH DAMAGE.
- */
+// SPDX-License-Identifier: BSD-2-Clause
+// author: Max Kellermann <max.kellermann@gmail.com>
 
 #pragma once
 
+#include <algorithm> // for std::move()
 #include <cassert>
 #include <cstddef>
 #include <span>
@@ -49,70 +24,70 @@ template<typename T>
 class CircularBuffer {
 public:
 	using Range = std::span<T>;
-	typedef typename Range::pointer pointer;
-	typedef typename Range::size_type size_type;
+	using pointer = typename Range::pointer;
+	using size_type = typename Range::size_type;
 
 protected:
 	/**
 	 * The next index to be read.
 	 */
-	size_type head;
+	size_type head = 0;
 
 	/**
 	 * The next index to be written to.
 	 */
-	size_type tail;
+	size_type tail = 0;
 
-	const size_type capacity;
-	const pointer data;
+	const std::span<T> buffer;
 
 public:
-	constexpr CircularBuffer(pointer _data, size_type _capacity)
-		:head(0), tail(0), capacity(_capacity), data(_data) {}
+	explicit constexpr CircularBuffer(Range _buffer) noexcept
+		:buffer(_buffer) {}
 
 	CircularBuffer(const CircularBuffer &other) = delete;
+	CircularBuffer &operator=(const CircularBuffer &other) = delete;
 
 protected:
-	constexpr size_type Next(size_type i) const {
-		return i + 1 == capacity
+	constexpr size_type Next(size_type i) const noexcept {
+		return i + 1 == buffer.size()
 			? 0
 			: i + 1;
 	}
 
 public:
-	void Clear() {
+	constexpr void Clear() noexcept {
 		head = tail = 0;
 	}
 
-	constexpr size_type GetCapacity() const {
-		return capacity;
+	constexpr size_type GetCapacity() const noexcept {
+		return buffer.size();
 	}
 
-	constexpr bool empty() const {
+	constexpr bool empty() const noexcept {
 		return head == tail;
 	}
 
-	constexpr bool IsFull() const {
+	constexpr bool IsFull() const noexcept {
 		return Next(tail) == head;
 	}
 
 	/**
 	 * Returns the number of elements stored in this buffer.
 	 */
-	constexpr size_type GetSize() const {
+	constexpr size_type GetSize() const noexcept {
 		return head <= tail
 			? tail - head
-			: capacity - head + tail;
+			: buffer.size() - head + tail;
 	}
 
 	/**
 	 * Returns the number of elements that can be added to this
 	 * buffer.
 	 */
-	constexpr size_type GetSpace() const {
+	constexpr size_type GetSpace() const noexcept {
 		/* space = capacity - size - 1 */
 		return (head <= tail
-			? capacity - tail + head
+			? buffer.size() - tail + head
 			: head - tail)
 			- 1;
 	}
@@ -121,34 +96,34 @@ public:
 	 * Prepares writing.  Returns a buffer range which may be written.
 	 * When you are finished, call Append().
 	 */
-	Range Write() {
-		assert(head < capacity);
-		assert(tail < capacity);
+	constexpr Range Write() noexcept {
+		assert(head < buffer.size());
+		assert(tail < buffer.size());
 
 		size_type end = tail < head
 			? head - 1
 			/* the "head==0" is there so we don't write
 			   the last cell, as this situation cannot be
 			   represented by head/tail */
-			: capacity - (head == 0);
+			: buffer.size() - (head == 0);
 
-		return Range(data + tail, end - tail);
+		return buffer.subspan(tail, end - tail);
 	}
 
 	/**
 	 * Expands the tail of the buffer, after data has been written
 	 * to the buffer returned by Write().
 	 */
-	void Append(size_type n) {
-		assert(head < capacity);
-		assert(tail < capacity);
-		assert(n < capacity);
-		assert(tail + n <= capacity);
+	constexpr void Append(size_type n) noexcept {
+		assert(head < buffer.size());
+		assert(tail < buffer.size());
+		assert(n < buffer.size());
+		assert(tail + n <= buffer.size());
 		assert(head <= tail || tail + n < head);
 
 		tail += n;
 
-		if (tail == capacity) {
+		if (tail == buffer.size()) {
 			assert(head > 0);
 			tail = 0;
 		}
@@ -158,25 +133,59 @@ public:
 	 * Return a buffer range which may be read.  The buffer pointer is
 	 * writable, to allow modifications while parsing.
 	 */
-	Range Read() {
-		assert(head < capacity);
-		assert(tail < capacity);
+	constexpr Range Read() noexcept {
+		assert(head < buffer.size());
+		assert(tail < buffer.size());
 
-		return Range(data + head, (tail < head ? capacity : tail) - head);
+		return buffer.subspan(head, (tail < head ? buffer.size() : tail) - head);
 	}
 
 	/**
 	 * Marks a chunk as consumed.
 	 */
-	void Consume(size_type n) {
-		assert(head < capacity);
-		assert(tail < capacity);
-		assert(n < capacity);
-		assert(head + n <= capacity);
+	constexpr void Consume(size_type n) noexcept {
+		assert(head < buffer.size());
+		assert(tail < buffer.size());
+		assert(n < buffer.size());
+		assert(head + n <= buffer.size());
 		assert(tail < head || head + n <= tail);
 
 		head += n;
-		if (head == capacity)
+		if (head == buffer.size())
 			head = 0;
+	}
+
+	/**
+	 * Move data from the buffer to the destination.  This method
+	 * considers ring buffer wraparound.
+	 *
+	 * @return the number of items moved
+	 */
+	constexpr size_type MoveTo(Range dest) noexcept {
+		size_type n = 0;
+
+		auto a = Read();
+		if (a.size() > dest.size())
+			a = a.first(dest.size());
+
+		if (!a.empty()) {
+			dest = {std::move(a.begin(), a.end(), dest.begin()), dest.end()};
+			Consume(a.size());
+			n += a.size();
+
+			if (dest.empty())
+				return n;
+
+			if (auto b = Read(); !b.empty()) {
+				if (b.size() > dest.size())
+					b = b.first(dest.size());
+
+				std::move(b.begin(), b.end(), dest.begin());
+				Consume(b.size());
+				n += b.size();
+			}
+		}
+
+		return n;
 	}
 };

@@ -1,21 +1,5 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "SndfileDecoderPlugin.hxx"
 #include "../DecoderAPI.hxx"
@@ -27,6 +11,7 @@
 #include "Log.hxx"
 
 #include <exception>
+#include <utility> // for std::unreachable()
 
 #include <sndfile.h>
 
@@ -46,7 +31,8 @@ struct SndfileInputStream {
 	size_t Read(void *buffer, size_t size) {
 		/* libsndfile chokes on partial reads; therefore
 		   always force full reads */
-		return decoder_read_much(client, is, buffer, size);
+		return decoder_read_much(client, is,
+					 {reinterpret_cast<std::byte *>(buffer), size});
 	}
 };
 
@@ -144,7 +130,7 @@ sndfile_duration(const SF_INFO &info)
 	return SongTime::FromScale<uint64_t>(info.frames, info.samplerate);
 }
 
-gcc_pure
+[[gnu::pure]]
 static SampleFormat
 sndfile_sample_format(const SF_INFO &info) noexcept
 {
@@ -186,8 +172,7 @@ sndfile_read_frames(SNDFILE *sf, SampleFormat format,
 		return sf_readf_float(sf, (float *)buffer, n_frames);
 
 	default:
-		assert(false);
-		gcc_unreachable();
+		std::unreachable();
 	}
 }
 
@@ -228,7 +213,7 @@ sndfile_stream_decode(DecoderClient &client, InputStream &is)
 			break;
 
 		cmd = client.SubmitAudio(is,
-					 std::span{buffer, num_frames * frame_size},
+					 std::span{buffer, static_cast<size_t>(num_frames) * frame_size},
 					 0);
 		if (cmd == DecoderCommand::SEEK) {
 			sf_count_t c = client.GetSeekFrame();

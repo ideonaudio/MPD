@@ -1,26 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
 #include "DatabaseCommands.hxx"
 #include "PositionArg.hxx"
 #include "Request.hxx"
 #include "Partition.hxx"
+#include "client/StringNormalization.hxx"
 #include "db/DatabaseQueue.hxx"
 #include "db/DatabasePlaylist.hxx"
 #include "db/DatabasePrint.hxx"
@@ -29,6 +14,7 @@
 #include "protocol/RangeArg.hxx"
 #include "client/Client.hxx"
 #include "client/Response.hxx"
+#include "tag/Names.hxx"
 #include "tag/ParseName.hxx"
 #include "util/Exception.hxx"
 #include "util/StringAPI.hxx"
@@ -39,6 +25,8 @@
 
 #include <memory>
 #include <vector>
+
+#include <limits.h> // for UINT_MAX
 
 CommandResult
 handle_listfiles_db(Client &client, Response &r, const char *uri)
@@ -63,6 +51,9 @@ ParseSortTag(const char *s)
 {
 	if (StringIsEqualIgnoreCase(s, "Last-Modified"))
 		return TagType(SORT_TAG_LAST_MODIFIED);
+
+	if (StringIsEqualIgnoreCase(s, "Added"))
+		return TagType(SORT_TAG_ADDED);
 
 	TagType tag = tag_name_parse_i(s);
 	if (tag == TAG_NUM_OF_ITEM_TYPES)
@@ -106,7 +97,7 @@ ParseInsertPosition(Request &args, const playlist &playlist)
  * @param filter a buffer to be used for DatabaseSelection::filter
  */
 static DatabaseSelection
-ParseDatabaseSelection(Request args, bool fold_case, SongFilter &filter)
+ParseDatabaseSelection(Request args, bool fold_case, bool strip_diacritics, SongFilter &filter)
 {
 	RangeArg window = RangeArg::All();
 	if (args.size() >= 2 && StringIsEqual(args[args.size() - 2], "window")) {
@@ -132,7 +123,7 @@ ParseDatabaseSelection(Request args, bool fold_case, SongFilter &filter)
 	}
 
 	try {
-		filter.Parse(args, fold_case);
+		filter.Parse(args, fold_case, strip_diacritics);
 	} catch (...) {
 		throw ProtocolError(ACK_ERROR_ARG,
 				    GetFullMessage(std::current_exception()).c_str());
@@ -147,10 +138,10 @@ ParseDatabaseSelection(Request args, bool fold_case, SongFilter &filter)
 }
 
 static CommandResult
-handle_match(Client &client, Request args, Response &r, bool fold_case)
+handle_match(Client &client, Request args, Response &r, bool fold_case, bool strip_diacritics)
 {
 	SongFilter filter;
-	const auto selection = ParseDatabaseSelection(args, fold_case, filter);
+	const auto selection = ParseDatabaseSelection(args, fold_case, strip_diacritics, filter);
 
 	db_selection_print(r, client.GetPartition(),
 			   selection, true, false);
@@ -160,17 +151,18 @@ handle_match(Client &client, Request args, Response &r, bool fold_case)
 CommandResult
 handle_find(Client &client, Request args, Response &r)
 {
-	return handle_match(client, args, r, false);
+	return handle_match(client, args, r, false, false);
 }
 
 CommandResult
 handle_search(Client &client, Request args, Response &r)
 {
-	return handle_match(client, args, r, true);
+	auto strip_diacritics = client.StringNormalizationEnabled(SN_STRIP_DIACRITICS);
+	return handle_match(client, args, r, true, strip_diacritics);
 }
 
 static CommandResult
-handle_match_add(Client &client, Request args, bool fold_case)
+handle_match_add(Client &client, Request args, bool fold_case, bool strip_diacritics)
 {
 	auto &partition = client.GetPartition();
 	const auto queue_length = partition.playlist.queue.GetLength();
@@ -178,7 +170,7 @@ handle_match_add(Client &client, Request args, bool fold_case)
 		ParseInsertPosition(args, partition.playlist);
 
 	SongFilter filter;
-	const auto selection = ParseDatabaseSelection(args, fold_case, filter);
+	const auto selection = ParseDatabaseSelection(args, fold_case, strip_diacritics, filter);
 
 	AddFromDatabase(partition, selection);
 
@@ -200,13 +192,14 @@ handle_match_add(Client &client, Request args, bool fold_case)
 CommandResult
 handle_findadd(Client &client, Request args, Response &)
 {
-	return handle_match_add(client, args, false);
+	return handle_match_add(client, args, false, false);
 }
 
 CommandResult
 handle_searchadd(Client &client, Request args, Response &)
 {
-	return handle_match_add(client, args, true);
+	auto strip_diacritics = client.StringNormalizationEnabled(SN_STRIP_DIACRITICS);
+	return handle_match_add(client, args, true,  strip_diacritics);
 }
 
 CommandResult
@@ -217,7 +210,8 @@ handle_searchaddpl(Client &client, Request args, Response &)
 	const unsigned position = ParseQueuePosition(args, UINT_MAX);
 
 	SongFilter filter;
-	const auto selection = ParseDatabaseSelection(args, true, filter);
+	auto strip_diacritics = client.StringNormalizationEnabled(SN_STRIP_DIACRITICS);
+	const auto selection = ParseDatabaseSelection(args, true, strip_diacritics, filter);
 
 	const Database &db = client.GetDatabaseOrThrow();
 
@@ -231,8 +225,8 @@ handle_searchaddpl(Client &client, Request args, Response &)
 	return CommandResult::OK;
 }
 
-CommandResult
-handle_count(Client &client, Request args, Response &r)
+static CommandResult
+handle_count_internal(Client &client, Request args, Response &r, bool fold_case, bool strip_diacritics)
 {
 	TagType group = TAG_NUM_OF_ITEM_TYPES;
 	if (args.size() >= 2 && StringIsEqual(args[args.size() - 2], "group")) {
@@ -240,7 +234,7 @@ handle_count(Client &client, Request args, Response &r)
 		group = tag_name_parse_i(s);
 		if (group == TAG_NUM_OF_ITEM_TYPES) {
 			r.FmtError(ACK_ERROR_ARG,
-				   FMT_STRING("Unknown tag type: {}"), s);
+				   "Unknown tag type: {}", s);
 			return CommandResult::ERROR;
 		}
 
@@ -251,7 +245,7 @@ handle_count(Client &client, Request args, Response &r)
 	SongFilter filter;
 	if (!args.empty()) {
 		try {
-			filter.Parse(args, false);
+			filter.Parse(args, fold_case, strip_diacritics);
 		} catch (...) {
 			r.Error(ACK_ERROR_ARG,
 				GetFullMessage(std::current_exception()).c_str());
@@ -263,6 +257,19 @@ handle_count(Client &client, Request args, Response &r)
 
 	PrintSongCount(r, client.GetPartition(), "", &filter, group);
 	return CommandResult::OK;
+}
+
+CommandResult
+handle_count(Client &client, Request args, Response &r)
+{
+	return handle_count_internal(client, args, r, false, false);
+}
+
+CommandResult
+handle_searchcount(Client &client, Request args, Response &r)
+{
+	auto strip_diacritics = client.StringNormalizationEnabled(SN_STRIP_DIACRITICS);
+	return handle_count_internal(client, args, r, true, strip_diacritics);
 }
 
 CommandResult
@@ -309,8 +316,16 @@ handle_list(Client &client, Request args, Response &r)
 	const auto tagType = tag_name_parse_i(tag_name);
 	if (tagType == TAG_NUM_OF_ITEM_TYPES) {
 		r.FmtError(ACK_ERROR_ARG,
-			   FMT_STRING("Unknown tag type: {}"), tag_name);
+			   "Unknown tag type: {}", tag_name);
 		return CommandResult::ERROR;
+	}
+
+	RangeArg window = RangeArg::All();
+	if (args.size() >= 2 && StringIsEqual(args[args.size() - 2], "window")) {
+		window = args.ParseRange(args.size() - 1);
+
+		args.pop_back();
+		args.pop_back();
 	}
 
 	std::unique_ptr<SongFilter> filter;
@@ -323,7 +338,7 @@ handle_list(Client &client, Request args, Response &r)
 		/* for compatibility with < 0.12.0 */
 		if (tagType != TAG_ALBUM) {
 			r.FmtError(ACK_ERROR_ARG,
-				   FMT_STRING("should be \"{}\" for 3 arguments"),
+				   "should be {:?} for 3 arguments",
 				   tag_item_names[TAG_ALBUM]);
 			return CommandResult::ERROR;
 		}
@@ -338,7 +353,7 @@ handle_list(Client &client, Request args, Response &r)
 		const auto group = tag_name_parse_i(s);
 		if (group == TAG_NUM_OF_ITEM_TYPES) {
 			r.FmtError(ACK_ERROR_ARG,
-				   FMT_STRING("Unknown tag type: {}"), s);
+				   "Unknown tag type: {}", s);
 			return CommandResult::ERROR;
 		}
 
@@ -371,7 +386,8 @@ handle_list(Client &client, Request args, Response &r)
 
 	PrintUniqueTags(r, client.GetPartition(),
 			{&tag_types.front(), tag_types.size()},
-			filter.get());
+			filter.get(),
+			window);
 	return CommandResult::OK;
 }
 

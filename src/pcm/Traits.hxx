@@ -1,27 +1,11 @@
-/*
- * Copyright 2003-2022 The Music Player Daemon Project
- * http://www.musicpd.org
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License along
- * with this program; if not, write to the Free Software Foundation, Inc.,
- * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
- */
+// SPDX-License-Identifier: GPL-2.0-or-later
+// Copyright The Music Player Daemon Project
 
-#ifndef MPD_PCM_TRAITS_HXX
-#define MPD_PCM_TRAITS_HXX
+#pragma once
 
 #include "SampleFormat.hxx"
 
+#include <concepts>
 #include <cstddef>
 #include <cstdint>
 
@@ -160,13 +144,42 @@ struct SampleTraits<SampleFormat::FLOAT> {
 
 template<>
 struct SampleTraits<SampleFormat::DSD> {
-	typedef uint8_t value_type;
+	typedef std::byte value_type;
 	typedef value_type *pointer;
 	typedef const value_type *const_pointer;
 
 	static constexpr size_t SAMPLE_SIZE = sizeof(value_type);
 
-	static constexpr value_type SILENCE = 0x69;
+	/* 0x69 = 01101001
+	 * This pattern "on repeat" makes a low energy 352.8 kHz tone
+	 * and a high energy 1.0584 MHz tone which should be filtered
+	 * out completely by any playback system --> silence
+	 */
+	static constexpr value_type SILENCE{0x69};
 };
 
-#endif
+template<typename Traits>
+concept AnySampleTraits = requires {
+	typename Traits::value_type;
+	{ typename Traits::pointer{} } -> std::same_as<typename Traits::value_type *>;
+	{ typename Traits::const_pointer{} } -> std::same_as<const typename Traits::value_type *>;
+	{ Traits::SAMPLE_SIZE } -> std::same_as<const std::size_t &>;
+	{ Traits::SILENCE } -> std::same_as<const typename Traits::value_type &>;
+} && Traits::SAMPLE_SIZE == sizeof(typename Traits::value_type);
+
+template<typename Traits>
+concept ArithmeticSampleTraits = AnySampleTraits<Traits> && requires {
+	typename Traits::sum_type;
+	typename Traits::long_type;
+	{ Traits::MIN } -> std::same_as<const typename Traits::value_type &>;
+	{ Traits::MAX } -> std::same_as<const typename Traits::value_type &>;
+} && sizeof(typename Traits::sum_type) >= sizeof(typename Traits::value_type) &&
+	sizeof(typename Traits::long_type) >= sizeof(typename Traits::sum_type);
+
+template<typename Traits>
+concept IntegerSampleTraits = ArithmeticSampleTraits<Traits> && requires {
+	{ typename Traits::value_type{} } -> std::integral;
+	{ typename Traits::sum_type{} } -> std::integral;
+	{ typename Traits::long_type{} } -> std::integral;
+	{ Traits::BITS } -> std::same_as<const unsigned &>;
+} && Traits::BITS <= sizeof(typename Traits::value_type) * 8;
