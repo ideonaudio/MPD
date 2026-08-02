@@ -128,7 +128,7 @@ public:
 	MadDecoder(const MadDecoder &) = delete;
 	MadDecoder &operator=(const MadDecoder &) = delete;
 
-	void RunDecoder() noexcept;
+	void RunDecoder();
 	bool RunScan(TagHandler &handler) noexcept;
 
 private:
@@ -150,7 +150,7 @@ private:
 
 	bool DecodeFirstFrame(Tag *tag) noexcept;
 
-	void AllocateBuffers() noexcept {
+	void AllocateBuffers() {
 		assert(max_frames > 0);
 		assert(frame_offsets == nullptr);
 		assert(times == nullptr);
@@ -957,7 +957,7 @@ MadDecoder::Read() noexcept
 }
 
 inline void
-MadDecoder::RunDecoder() noexcept
+MadDecoder::RunDecoder()
 {
 	assert(client != nullptr);
 
