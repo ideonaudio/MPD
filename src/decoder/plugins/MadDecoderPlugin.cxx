@@ -32,6 +32,7 @@
 #include <string.h>
 
 static constexpr unsigned long FRAMES_CUSHION = 2000;
+static constexpr size_t MAX_ID3_TAG_SIZE = 4 * 1024 * 1024;
 
 enum class MadDecoderAction {
 	SKIP,
@@ -127,7 +128,7 @@ public:
 	MadDecoder(const MadDecoder &) = delete;
 	MadDecoder &operator=(const MadDecoder &) = delete;
 
-	void RunDecoder() noexcept;
+	void RunDecoder();
 	bool RunScan(TagHandler &handler) noexcept;
 
 private:
@@ -153,7 +154,7 @@ private:
 
 	bool DecodeFirstFrame(Tag *tag) noexcept;
 
-	void AllocateBuffers() noexcept {
+	void AllocateBuffers() {
 		assert(max_frames > 0);
 		assert(frame_offsets == nullptr);
 		assert(times == nullptr);
@@ -360,7 +361,15 @@ MadDecoder::DecodeNextFrame(bool skip, Tag *tag) noexcept
 							    stream.this_frame);
 
 			if (tagsize > 0) {
-				ParseId3((size_t)tagsize, tag);
+				const auto size = static_cast<size_t>(tagsize);
+				if (size > MAX_ID3_TAG_SIZE) {
+					FmtWarning(mad_domain,
+						   "ID3 tag is too large: {}",
+						   size);
+					return MadDecoderAction::SKIP;
+				}
+
+				ParseId3(size, tag);
 				return MadDecoderAction::CONT;
 			}
 		}
@@ -688,10 +697,28 @@ MadDecoder::DecodeFirstFrame(Tag *tag) noexcept
 		mute_frame = MadDecoderMuteFrame::SKIP;
 
 		if ((xing.flags & XING_FRAMES) && xing.frames) {
-			mad_timer_t duration = frame.header.duration;
-			mad_timer_multiply(&duration, xing.frames);
-			total_time = ToSongTime(duration);
-			max_frames = xing.frames;
+			/*
+			 * Each MPEG audio frame contains at least a four-byte
+			 * header.  Do not let a Xing header amplify a small
+			 * input into a large seek table allocation.  For
+			 * streams of unknown size, retain the conservative
+			 * estimate from FileSizeToSongLength().
+			 */
+			const offset_type available_frames =
+				input_stream.KnownSize()
+				? input_stream.GetSize() / 4
+				: FRAMES_CUSHION;
+
+			if (xing.frames > available_frames) {
+				FmtWarning(mad_domain,
+					   "ignoring implausible Xing frame count: {}",
+					   xing.frames);
+			} else {
+				mad_timer_t duration = frame.header.duration;
+				mad_timer_multiply(&duration, xing.frames);
+				total_time = ToSongTime(duration);
+				max_frames = xing.frames;
+			}
 		}
 
 		struct lame lame;
@@ -930,7 +957,7 @@ MadDecoder::Read() noexcept
 }
 
 inline void
-MadDecoder::RunDecoder() noexcept
+MadDecoder::RunDecoder()
 {
 	assert(client != nullptr);
 

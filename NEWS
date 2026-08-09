@@ -35,6 +35,9 @@ ver 0.24.14 (not yet released)
   - curl: bound WebDAV PROPFIND responses
 * input
   - qobuz: use HTTPS for API requests
+* decoder
+  - mad: limit ID3 tags to 4 MB
+  - mad: ignore implausible Xing frame counts
 * output
   - osx: fix format selection bugs
   - osx: fix volume truncation
