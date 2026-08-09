@@ -76,9 +76,9 @@ jobs:
 
       - name: Build
         run: |
-          mkdir -p output/android
-          cd ./output/android
-          ../../android/build.py \
+          mkdir -p output
+          cd ./output
+          ../android/build.py \
             $ANDROID_SDK_ROOT $ANDROID_NDK_LATEST_HOME \
             ${{matrix.abi}} \
             --buildtype=debugoptimized -Db_ndebug=true \
