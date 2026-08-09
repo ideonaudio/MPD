@@ -563,8 +563,8 @@ ffmpeg = FfmpegProject(
 )
 
 libmpg123 = AutotoolsProject(
-    'https://mpg123.de/download/mpg123-1.33.6.tar.bz2',
-    '0b10b3b33547f51e52694d069ca3cfe6',
+    'https://mpg123.de/download/mpg123-1.33.7.tar.bz2',
+    '31d0e35a4ca567ec9b5ebda6c3062bb4435d6d3eacd6ef0d95cadd7854dc03ee',
     'lib/libmpg123.a',
     [
         '--disable-shared', '--enable-static',
