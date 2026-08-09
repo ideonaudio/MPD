@@ -37,6 +37,10 @@ permissions:
 
 jobs:
   build-android:
+    strategy:
+      matrix:
+        abi: [arm64-v8a, x86_64]
+
     runs-on: ubuntu-24.04
     steps:
       - id: checkout
@@ -59,7 +63,7 @@ jobs:
         run: |
           mkdir -p output/android
           cd ./output/android
-          ../../android/build.py $ANDROID_SDK_ROOT $ANDROID_NDK_HOME arm64-v8a \
+          ../../android/build.py $ANDROID_SDK_ROOT $ANDROID_NDK_HOME ${{matrix.abi}} \
             --buildtype=debugoptimized -Db_ndebug=true \
             -Dwrap_mode=forcefallback 
 
