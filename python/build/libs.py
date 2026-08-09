@@ -83,8 +83,8 @@ gme = CmakeProject(
 )
 
 ffmpeg = FfmpegProject(
-    'https://ffmpeg.org/releases/ffmpeg-8.1.2.tar.xz',
-    '464beb5e7bf0c311e68b45ae2f04e9cc2af88851abb4082231742a74d97b524c',
+    'https://ffmpeg.org/releases/ffmpeg-9.0.tar.xz',
+    '7f607a00dd0d28a729d5a4811205812eef01cf6ef6155025febb6f36a9062d52',
     'lib/libavcodec.a',
     [
         '--disable-shared', '--enable-static',
@@ -563,8 +563,8 @@ ffmpeg = FfmpegProject(
 )
 
 libmpg123 = AutotoolsProject(
-    'https://mpg123.de/download/mpg123-1.33.6.tar.bz2',
-    '0b10b3b33547f51e52694d069ca3cfe6',
+    'https://mpg123.de/download/mpg123-1.33.7.tar.bz2',
+    '31d0e35a4ca567ec9b5ebda6c3062bb4435d6d3eacd6ef0d95cadd7854dc03ee',
     'lib/libmpg123.a',
     [
         '--disable-shared', '--enable-static',
