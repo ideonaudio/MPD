@@ -266,6 +266,13 @@ MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 	if (tagsize <= count) {
 		mad_stream_skip(&(stream), tagsize);
 	} else {
+		if (tagsize > MAX_ID3_TAG_SIZE) {
+			FmtWarning(mad_domain,
+				   "ID3 tag is too large: {}",
+				   tagsize);
+			return;
+		}
+
 		allocated = std::make_unique_for_overwrite<std::byte[]>(tagsize);
 		std::byte *dest = std::copy_n(id3_data, count, allocated.get());
 		mad_stream_skip(&(stream), count);
@@ -362,15 +369,7 @@ MadDecoder::DecodeNextFrame(bool skip, Tag *tag) noexcept
 							    stream.this_frame);
 
 			if (tagsize > 0) {
-				const auto size = static_cast<size_t>(tagsize);
-				if (size > MAX_ID3_TAG_SIZE) {
-					FmtWarning(mad_domain,
-						   "ID3 tag is too large: {}",
-						   size);
-					return MadDecoderAction::CONT;
-				}
-
-				ParseId3(size, tag);
+				ParseId3(tagsize, tag);
 				return MadDecoderAction::CONT;
 			}
 		}
