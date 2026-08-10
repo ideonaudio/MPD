@@ -125,8 +125,6 @@ dsdlib_tag_id3(InputStream &is, TagHandler &handler,
 	const id3_length_t count = count64;
 
 	auto *const id3_buf = new id3_byte_t[count];
-	if (id3_buf == nullptr)
-		return false;
 
 	if (!decoder_read_full(nullptr, is,
 			       {reinterpret_cast<std::byte *>(id3_buf), count})) {
