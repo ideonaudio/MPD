@@ -35,7 +35,6 @@ static constexpr unsigned long FRAMES_CUSHION = 2000;
 static constexpr size_t MAX_ID3_TAG_SIZE = 4 * 1024 * 1024;
 
 enum class MadDecoderAction {
-	SKIP,
 	BREAK,
 	CONT,
 	OK
@@ -338,7 +337,7 @@ static MadDecoderAction
 RecoverFrameError(const struct mad_stream &stream) noexcept
 {
 	if (MAD_RECOVERABLE(stream.error))
-		return MadDecoderAction::SKIP;
+		return MadDecoderAction::CONT;
 
 	FmtWarning(mad_domain,
 		   "unrecoverable frame level error: {}",
@@ -368,7 +367,7 @@ MadDecoder::DecodeNextFrame(bool skip, Tag *tag) noexcept
 					FmtWarning(mad_domain,
 						   "ID3 tag is too large: {}",
 						   size);
-					return MadDecoderAction::SKIP;
+					return MadDecoderAction::CONT;
 				}
 
 				ParseId3(size, tag);
@@ -383,13 +382,13 @@ MadDecoder::DecodeNextFrame(bool skip, Tag *tag) noexcept
 	if (layer == (mad_layer)0) {
 		if (new_layer != MAD_LAYER_II && new_layer != MAD_LAYER_III) {
 			/* Only layer 2 and 3 have been tested to work */
-			return MadDecoderAction::SKIP;
+			return MadDecoderAction::CONT;
 		}
 
 		layer = new_layer;
 	} else if (new_layer != layer) {
 		/* Don't decode frames with a different layer than the first */
-		return MadDecoderAction::SKIP;
+		return MadDecoderAction::CONT;
 	}
 
 	if (!skip && mad_frame_decode(&frame, &stream))
@@ -673,7 +672,6 @@ MadDecoder::DecodeFirstFrame(Tag *tag) noexcept
 	while (true) {
 		const auto action = DecodeNextFrame(false, tag);
 		switch (action) {
-		case MadDecoderAction::SKIP:
 		case MadDecoderAction::CONT:
 			continue;
 
@@ -936,7 +934,6 @@ MadDecoder::LoadNextFrame() noexcept
 			client->SubmitTag(input_stream, std::move(tag));
 
 		switch (action) {
-		case MadDecoderAction::SKIP:
 		case MadDecoderAction::CONT:
 			continue;
 
