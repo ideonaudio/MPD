@@ -103,6 +103,20 @@ dsdiff_read_payload(DecoderClient *client, InputStream &is,
 }
 
 /**
+ * Read a payload that must be at least the size of the specified
+ * span.
+ */
+static bool
+dsdiff_read_partial_payload(DecoderClient *client, InputStream &is,
+			    const DsdiffChunkHeader &header,
+			    std::span<std::byte> dest)
+{
+	return header.GetSize() >= dest.size() &&
+		decoder_read_full(client, is, dest) &&
+		dsdlib_skip(client, is, header.GetPaddedSize() - dest.size());
+}
+
+/**
  * Read and parse a "SND" chunk inside "PROP".
  */
 static bool
@@ -136,19 +150,15 @@ dsdiff_read_prop_snd(DecoderClient *client, InputStream &is,
 			metadata.sample_rate = FromBE32(sample_rate);
 		} else if (header.id.Equals("CHNL")) {
 			uint16_t channels;
-			if (header.GetSize() < sizeof(channels) ||
-			    !decoder_read_full(client, is,
-					       ReferenceAsWritableBytes(channels)) ||
-			    !dsdlib_skip_to(client, is, chunk_end_offset))
+			if (!dsdiff_read_partial_payload(client, is, header,
+							 ReferenceAsWritableBytes(channels)))
 				return false;
 
 			metadata.channels = FromBE16(channels);
 		} else if (header.id.Equals("CMPR")) {
 			DsdId type;
-			if (header.GetSize() < sizeof(type) ||
-			    !decoder_read_full(client, is,
-					       ReferenceAsWritableBytes(type)) ||
-			    !dsdlib_skip_to(client, is, chunk_end_offset))
+			if (!dsdiff_read_partial_payload(client, is, header,
+							 ReferenceAsWritableBytes(type)))
 				return false;
 
 			if (!type.Equals("DSD "))
