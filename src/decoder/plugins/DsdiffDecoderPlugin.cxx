@@ -162,11 +162,9 @@ dsdiff_read_prop_snd(DecoderClient *client, InputStream &is,
 static bool
 dsdiff_read_prop(DecoderClient *client, InputStream &is,
 		 DsdiffMetaData &metadata,
-		 const DsdiffChunkHeader &prop_header)
+		 const offset_type prop_size,
+		 const offset_type end_offset)
 {
-	uint64_t prop_size = prop_header.GetSize();
-	const offset_type end_offset = is.GetOffset() + prop_size;
-
 	DsdId prop_id;
 	if (prop_size < sizeof(prop_id) ||
 	    !dsdiff_read_id(client, is, prop_id))
@@ -316,21 +314,20 @@ dsdiff_read_metadata(DecoderClient *client, InputStream &is,
 					      chunk_header))
 			return false;
 
+		const offset_type chunk_size = chunk_header.GetSize();
+		offset_type chunk_end_offset;
+		if (AddOverflow(is.GetOffset(), chunk_size, chunk_end_offset))
+			return false;
+
 		if (chunk_header.id.Equals("PROP")) {
 			if (!dsdiff_read_prop(client, is, metadata,
-					      chunk_header))
+					      chunk_size, chunk_end_offset))
 					return false;
 		} else if (chunk_header.id.Equals("DSD ")) {
-			const offset_type chunk_size = chunk_header.GetSize();
 			metadata.chunk_size = chunk_size;
 			return true;
 		} else {
 			/* ignore unknown chunk */
-			const offset_type chunk_size = chunk_header.GetSize();
-			offset_type chunk_end_offset;
-			if (AddOverflow(is.GetOffset(), chunk_size, chunk_end_offset))
-				return false;
-
 			if (!dsdlib_skip_to(client, is, chunk_end_offset))
 				return false;
 		}
