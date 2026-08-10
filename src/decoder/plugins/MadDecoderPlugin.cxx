@@ -17,6 +17,7 @@
 #include <mad.h>
 
 #ifdef ENABLE_ID3TAG
+#include "tag/Id3Limits.hxx"
 #include "tag/Id3MixRamp.hxx"
 #include "tag/Id3Parse.hxx"
 #include "tag/Id3ReplayGain.hxx"
@@ -32,7 +33,6 @@
 #include <string.h>
 
 static constexpr unsigned long FRAMES_CUSHION = 2000;
-static constexpr size_t MAX_ID3_TAG_SIZE = 4 * 1024 * 1024;
 
 enum class MadDecoderAction {
 	BREAK,

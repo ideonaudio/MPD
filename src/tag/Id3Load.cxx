@@ -2,6 +2,7 @@
 // Copyright The Music Player Daemon Project
 
 #include "Id3Load.hxx"
+#include "Id3Limits.hxx"
 #include "Id3Parse.hxx"
 #include "RiffId3.hxx"
 #include "Aiff.hxx"
@@ -47,7 +48,7 @@ try {
 
 	const std::size_t tag_size = static_cast<std::size_t>(query);
 
-	if (tag_size > 4 * 1024 * 1024)
+	if (tag_size > MAX_ID3_TAG_SIZE)
 		return nullptr;
 
 	/* Found a tag.  Allocate a buffer and read it in. */
@@ -188,7 +189,7 @@ try {
 	if (size == 0)
 		return nullptr;
 
-	if (size > 4 * 1024 * 1024)
+	if (size > MAX_ID3_TAG_SIZE)
 		/* too large, don't allocate so much memory */
 		return nullptr;
 

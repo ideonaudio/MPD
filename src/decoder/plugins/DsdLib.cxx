@@ -14,6 +14,7 @@
 #include "util/IntOverflow.hxx"
 
 #ifdef ENABLE_ID3TAG
+#include "tag/Id3Limits.hxx"
 #include "tag/Id3Parse.hxx"
 #include "tag/Id3Scan.hxx"
 #include "util/AllocatedArray.hxx"
@@ -117,7 +118,7 @@ dsdlib_tag_id3(InputStream &is, TagHandler &handler,
 		return false;
 
 	const auto count64 = size - tagoffset;
-	if (count64 < 10 || count64 > 4 * 1024 * 1024)
+	if (count64 < 10 || count64 > MAX_ID3_TAG_SIZE)
 		return false;
 
 	if (!dsdlib_skip_to(nullptr, is, tagoffset))
