@@ -87,6 +87,9 @@ dsdiff_read_chunk_header(DecoderClient *client, InputStream &is,
 	return decoder_read_full(client, is, ReferenceAsWritableBytes(header));
 }
 
+/**
+ * Read a payload that must be exactly the size of the specified span.
+ */
 static bool
 dsdiff_read_payload(DecoderClient *client, InputStream &is,
 		    const DsdiffChunkHeader &header,
