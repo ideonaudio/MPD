@@ -49,7 +49,7 @@ jobs:
       - name: "Cache third-party library tarballs"
         uses: actions/cache@v6
         with:
-          key: libs-${{hashFiles('python/**')}}
+          key: lib-tarballs-android-${{hashFiles('android/build.py', 'python/**')}}
           path: |
             ${{github.workspace}}/output/lib/download
 
