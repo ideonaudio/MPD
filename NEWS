@@ -4,6 +4,7 @@ ver 0.24.14 (not yet released)
 * input
   - qobuz: use HTTPS for API requests
 * decoder
+  - dsdiff: fix tag parser
   - dsdiff: reject overflowing chunk offsets
   - mad: limit ID3 tags to 4 MB
   - mad: ignore implausible Xing frame counts

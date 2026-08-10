@@ -39,6 +39,7 @@ dsdlib_skip_to(DecoderClient *client, InputStream &is,
 	if (is.IsSeekable()) {
 		try {
 			is.LockSeek(offset);
+			return true;
 		} catch (...) {
 			return false;
 		}
@@ -63,6 +64,7 @@ dsdlib_skip(DecoderClient *client, InputStream &is,
 	if (is.IsSeekable()) {
 		try {
 			is.LockSeek(is.GetOffset() + delta);
+			return true;
 		} catch (...) {
 			return false;
 		}
