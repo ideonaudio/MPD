@@ -1,7 +1,6 @@
 #!/usr/bin/env -S python3 -u
 
 import os, os.path
-import shutil
 import sys, subprocess
 
 if len(sys.argv) < 4:
@@ -66,10 +65,8 @@ configure_args += [
 from build.meson import configure as run_meson
 run_meson(toolchain, mpd_path, '.', configure_args)
 
-ninja = shutil.which("ninja")
-subprocess.check_call([ninja], env=toolchain.env)
-
-subprocess.check_call([ninja, 'install'], env=toolchain.env)
+subprocess.check_call(['ninja'], env=toolchain.env)
+subprocess.check_call(['ninja', 'install'], env=toolchain.env)
 
 print("""
 -------------------------------------

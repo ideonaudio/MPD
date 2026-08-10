@@ -2,7 +2,6 @@
 
 import os, os.path
 import sys, subprocess
-import shutil
 
 configure_args = sys.argv[1:]
 
@@ -62,4 +61,4 @@ for x in thirdparty_libs:
 
 from build.meson import configure as run_meson
 run_meson(toolchain, mpd_path, '.', configure_args)
-subprocess.check_call(['/usr/bin/ninja'], env=toolchain.env)
+subprocess.check_call(['ninja'], env=toolchain.env)
