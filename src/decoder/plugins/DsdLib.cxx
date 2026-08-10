@@ -12,6 +12,7 @@
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
 #include "tag/Id3Scan.hxx"
+#include "util/IntOverflow.hxx"
 
 #ifdef ENABLE_ID3TAG
 #include <id3tag.h>
@@ -62,8 +63,12 @@ dsdlib_skip(DecoderClient *client, InputStream &is,
 		return true;
 
 	if (is.IsSeekable()) {
+		offset_type new_offset;
+		if (AddOverflow(is.GetOffset(), delta, new_offset))
+			return false;
+
 		try {
-			is.LockSeek(is.GetOffset() + delta);
+			is.LockSeek(new_offset);
 			return true;
 		} catch (...) {
 			return false;
