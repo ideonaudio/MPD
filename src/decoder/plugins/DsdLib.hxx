@@ -56,5 +56,5 @@ dsdlib_valid_freq(uint32_t samplefreq) noexcept;
  * error
  */
 bool
-dsdlib_tag_id3(InputStream &is, TagHandler &handler,
-	       offset_type tagoffset);
+dsdlib_tag_id3(DecoderClient *client, InputStream &is,
+	       TagHandler &handler, offset_type tagoffset);

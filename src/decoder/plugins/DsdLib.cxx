@@ -82,8 +82,8 @@ dsdlib_valid_freq(uint32_t samplefreq) noexcept
 
 #ifdef ENABLE_ID3TAG
 bool
-dsdlib_tag_id3(InputStream &is, TagHandler &handler,
-	       offset_type tagoffset)
+dsdlib_tag_id3(DecoderClient *client, InputStream &is,
+	       TagHandler &handler, offset_type tagoffset)
 {
 	if (tagoffset == 0 || !is.KnownSize())
 		return false;
@@ -97,14 +97,14 @@ dsdlib_tag_id3(InputStream &is, TagHandler &handler,
 	if (count64 < 10 || count64 > MAX_ID3_TAG_SIZE)
 		return false;
 
-	if (!dsdlib_skip_to(nullptr, is, tagoffset))
+	if (!dsdlib_skip_to(client, is, tagoffset))
 		return false;
 
 	const id3_length_t count = count64;
 
 	AllocatedArray<std::byte> id3_buf{count};
 
-	if (!decoder_read_full(nullptr, is, id3_buf))
+	if (!decoder_read_full(client, is, id3_buf))
 		return false;
 
 	const auto id3_tag = id3_tag_parse(id3_buf);

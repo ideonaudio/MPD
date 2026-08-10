@@ -305,7 +305,7 @@ dsdiff_read_metadata_extra(DecoderClient *client, InputStream &is,
 	if (id3_offset != 0) {
 		/* a ID3 tag has preference over the other tags, do not process
 		   other tags if we have one */
-		if (dsdlib_tag_id3(is, handler, id3_offset))
+		if (dsdlib_tag_id3(client, is, handler, id3_offset))
 			return true;
 	}
 #endif
