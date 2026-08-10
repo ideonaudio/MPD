@@ -53,10 +53,13 @@ jobs:
           path: |
             ${{github.workspace}}/output/lib/download
 
-      - name: "Cache third-party libraries"
-        uses: actions/cache@v6
+      - name: "Restore third-party libraries"
+        id: cache-libs
+        uses: actions/cache/restore@v6
         with:
-          key: libs-android-${{matrix.abi}}-${{hashFiles('android/configure.py', 'python/**')}}
+          key: libs-android-${{matrix.abi}}-${{hashFiles('android/configure.py', 'python/**')}}-${{github.run_id}}
+          restore-keys: |
+            libs-android-${{matrix.abi}}-${{hashFiles('android/configure.py', 'python/**')}}-
           path: |
             ${{github.workspace}}/output/lib/*/root
 
@@ -82,6 +85,27 @@ jobs:
             --buildtype=debugoptimized -Db_ndebug=true \
             -Dwrap_mode=forcefallback 
 
+      # If any library was built (i.e. a library build directory exists),
+      # save the cache, even if the cache was restored successfully (which
+      # would make actions/cache skip the save) and even if the build has
+      # failed.
+      - name: "Check for third-party library builds"
+        id: check-libs
+        if: always()
+        run: |
+          if ls -d output/lib/*/build >/dev/null 2>&1; then
+            echo "built=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: "Save third-party libraries"
+        if: always() && steps.check-libs.outputs.built == 'true'
+        uses: actions/cache/save@v6
+        with:
+          key: ${{steps.cache-libs.outputs.cache-primary-key}}
+          path: |
+            ${{github.workspace}}/output/lib/*/root
+
+
       - name: Build Native
         run: meson compile -C output --verbose
 
@@ -93,4 +117,3 @@ jobs:
           cd ./android
           export JAVA_HOME=$JAVA_HOME_17_X64
           ./gradlew assembleDebug
-
