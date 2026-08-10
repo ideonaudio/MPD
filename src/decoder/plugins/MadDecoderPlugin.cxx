@@ -270,6 +270,9 @@ MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 			FmtWarning(mad_domain,
 				   "ID3 tag is too large: {}",
 				   tagsize);
+
+			mad_stream_skip(&stream, count);
+			decoder_skip(client, input_stream, tagsize - count);
 			return;
 		}
 
