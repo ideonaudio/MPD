@@ -476,6 +476,7 @@ dsdiff_scan_stream(InputStream &is, TagHandler &handler)
 		return false;
 
 	const auto audio_format = metadata.ToAudioFormat();
+	handler.OnAudioFormat(audio_format);
 
 	/* calculate song time and add as tag */
 	uint64_t n_frames = metadata.chunk_size / metadata.channels;
