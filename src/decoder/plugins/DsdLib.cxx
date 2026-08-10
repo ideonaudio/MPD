@@ -14,8 +14,9 @@
 #include "util/IntOverflow.hxx"
 
 #ifdef ENABLE_ID3TAG
+#include "tag/Id3Parse.hxx"
 #include "tag/Id3Scan.hxx"
-#include <id3tag.h>
+#include "util/AllocatedArray.hxx"
 #endif
 
 #include <string.h>
@@ -124,22 +125,17 @@ dsdlib_tag_id3(InputStream &is, TagHandler &handler,
 
 	const id3_length_t count = count64;
 
-	auto *const id3_buf = new id3_byte_t[count];
+	AllocatedArray<std::byte> id3_buf{count};
 
-	if (!decoder_read_full(nullptr, is,
-			       {reinterpret_cast<std::byte *>(id3_buf), count})) {
-		delete[] id3_buf;
+	if (!decoder_read_full(nullptr, is, id3_buf))
 		return false;
-	}
 
-	struct id3_tag *id3_tag = id3_tag_parse(id3_buf, count);
-	delete[] id3_buf;
+	const auto id3_tag = id3_tag_parse(id3_buf);
+	id3_buf = nullptr;
 	if (id3_tag == nullptr)
 		return false;
 
-	scan_id3_tag(id3_tag, handler);
-
-	id3_tag_delete(id3_tag);
+	scan_id3_tag(id3_tag.get(), handler);
 	return true;
 }
 #endif
