@@ -9,6 +9,7 @@ ver 0.24.14 (not yet released)
   - dsdiff: reject overflowing chunk offsets
   - mad: limit ID3 tags to 4 MB
   - mad: ignore implausible Xing frame counts
+  - modplug, openmpt: fix error handling bug
 * output
   - osx: fix format selection bugs
   - osx: fix volume truncation
