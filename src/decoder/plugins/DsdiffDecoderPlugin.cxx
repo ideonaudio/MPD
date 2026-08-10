@@ -22,6 +22,8 @@
 #include "tag/Handler.hxx"
 #include "DsdLib.hxx"
 
+using std::string_view_literals::operator""sv;
+
 struct DsdiffHeader {
 	DsdId id;
 	PackedBE64 size;
@@ -146,27 +148,27 @@ dsdiff_read_prop_snd(DecoderClient *client, InputStream &is,
 		if (chunk_end_offset > end_offset)
 			return false;
 
-		if (header.id.Equals("FS  ")) {
+		if (header.id.Equals("FS  "sv)) {
 			uint32_t sample_rate;
 			if (!dsdiff_read_payload(client, is, header,
 						 ReferenceAsWritableBytes(sample_rate)))
 				return false;
 
 			metadata.sample_rate = FromBE32(sample_rate);
-		} else if (header.id.Equals("CHNL")) {
+		} else if (header.id.Equals("CHNL"sv)) {
 			uint16_t channels;
 			if (!dsdiff_read_partial_payload(client, is, header,
 							 ReferenceAsWritableBytes(channels)))
 				return false;
 
 			metadata.channels = FromBE16(channels);
-		} else if (header.id.Equals("CMPR")) {
+		} else if (header.id.Equals("CMPR"sv)) {
 			DsdId type;
 			if (!dsdiff_read_partial_payload(client, is, header,
 							 ReferenceAsWritableBytes(type)))
 				return false;
 
-			if (!type.Equals("DSD "))
+			if (!type.Equals("DSD "sv))
 				/* only uncompressed DSD audio data
 				   is implemented */
 				return false;
@@ -195,7 +197,7 @@ dsdiff_read_prop(DecoderClient *client, InputStream &is,
 	    !dsdiff_read_id(client, is, prop_id))
 		return false;
 
-	if (prop_id.Equals("SND "))
+	if (prop_id.Equals("SND "sv))
 		return dsdiff_read_prop_snd(client, is, metadata, prop_size, end_offset);
 	else
 		/* ignore unknown PROP chunk */
@@ -271,23 +273,23 @@ dsdiff_read_metadata_extra(DecoderClient *client, InputStream &is,
 		offset_type chunk_size = chunk_header.GetSize();
 
 		/* DIIN chunk, is directly followed by other chunks  */
-		if (chunk_header.id.Equals("DIIN"))
+		if (chunk_header.id.Equals("DIIN"sv))
 			chunk_size = 0;
 
 		/* DIAR chunk - DSDIFF native tag for Artist */
-		if (chunk_header.id.Equals("DIAR")) {
+		if (chunk_header.id.Equals("DIAR"sv)) {
 			chunk_size = chunk_header.GetSize();
 			artist_offset = is.GetOffset();
 		}
 
 		/* DITI chunk - DSDIFF native tag for Title */
-		if (chunk_header.id.Equals("DITI")) {
+		if (chunk_header.id.Equals("DITI"sv)) {
 			chunk_size = chunk_header.GetSize();
 			title_offset = is.GetOffset();
 		}
 #ifdef ENABLE_ID3TAG
 		/* 'ID3 ' chunk, offspec. Used by sacdextract */
-		if (chunk_header.id.Equals("ID3 ")) {
+		if (chunk_header.id.Equals("ID3 "sv)) {
 			chunk_size = chunk_header.GetSize();
 			id3_offset = is.GetOffset();
 		}
@@ -330,8 +332,8 @@ dsdiff_read_metadata(DecoderClient *client, InputStream &is,
 {
 	DsdiffHeader header;
 	if (!decoder_read_full(client, is, ReferenceAsWritableBytes(header)) ||
-	    !header.id.Equals("FRM8") ||
-	    !header.format.Equals("DSD "))
+	    !header.id.Equals("FRM8"sv) ||
+	    !header.format.Equals("DSD "sv))
 		return false;
 
 	while (true) {
@@ -344,11 +346,11 @@ dsdiff_read_metadata(DecoderClient *client, InputStream &is,
 		if (AddOverflow(is.GetOffset(), chunk_size, chunk_end_offset))
 			return false;
 
-		if (chunk_header.id.Equals("PROP")) {
+		if (chunk_header.id.Equals("PROP"sv)) {
 			if (!dsdiff_read_prop(client, is, metadata,
 					      chunk_size, chunk_end_offset))
 					return false;
-		} else if (chunk_header.id.Equals("DSD ")) {
+		} else if (chunk_header.id.Equals("DSD "sv)) {
 			metadata.chunk_size = chunk_size;
 			return true;
 		} else {

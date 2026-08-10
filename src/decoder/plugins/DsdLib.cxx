@@ -20,17 +20,7 @@
 #include "util/AllocatedArray.hxx"
 #endif
 
-#include <string.h>
 #include <stdlib.h>
-
-bool
-DsdId::Equals(const char *s) const noexcept
-{
-	assert(s != nullptr);
-	assert(strlen(s) == sizeof(value));
-
-	return memcmp(value, s, sizeof(value)) == 0;
-}
 
 bool
 dsdlib_skip_to(DecoderClient *client, InputStream &is,

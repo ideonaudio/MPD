@@ -6,6 +6,7 @@
 #include "input/Offset.hxx"
 
 #include <cstdint>
+#include <string_view>
 
 class TagHandler;
 class DecoderClient;
@@ -14,8 +15,9 @@ class InputStream;
 struct DsdId {
 	char value[4];
 
-	[[gnu::pure]]
-	bool Equals(const char *s) const noexcept;
+	constexpr bool Equals(std::string_view other) const noexcept {
+		return other == std::string_view{value, 4};
+	}
 };
 
 /**
