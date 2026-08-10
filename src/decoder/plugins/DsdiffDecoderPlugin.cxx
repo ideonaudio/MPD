@@ -105,11 +105,18 @@ dsdiff_read_payload(DecoderClient *client, InputStream &is,
 static bool
 dsdiff_read_prop_snd(DecoderClient *client, InputStream &is,
 		     DsdiffMetaData &metadata,
-		     offset_type end_offset)
+		     const offset_type prop_size,
+		     const offset_type end_offset)
 {
 	DsdiffChunkHeader header;
 	while (is.GetOffset() + sizeof(header) <= end_offset) {
 		if (!dsdiff_read_chunk_header(client, is, header))
+			return false;
+
+		/* by disallowing sub-chunks larger than the parent
+		   "PROP" chunk, follow-up integer overflows are
+		   avoided */
+		if (header.GetSize() > prop_size)
 			return false;
 
 		offset_type chunk_end_offset = is.GetOffset()
@@ -171,7 +178,7 @@ dsdiff_read_prop(DecoderClient *client, InputStream &is,
 		return false;
 
 	if (prop_id.Equals("SND "))
-		return dsdiff_read_prop_snd(client, is, metadata, end_offset);
+		return dsdiff_read_prop_snd(client, is, metadata, prop_size, end_offset);
 	else
 		/* ignore unknown PROP chunk */
 		return dsdlib_skip_to(client, is, end_offset);
