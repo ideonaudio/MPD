@@ -33,7 +33,7 @@ mod_loadfile(const Domain *domain, DecoderClient *client, InputStream &is)
 		buffer_size = size;
 	}
 
-	auto buffer = AllocatedArray<std::byte>(buffer_size);
+	AllocatedArray<std::byte> buffer{buffer_size};
 
 	std::byte *p = buffer.data();
 	std::byte *const end = p + buffer.size();
