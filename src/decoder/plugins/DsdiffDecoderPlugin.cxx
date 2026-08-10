@@ -62,6 +62,11 @@ struct DsdiffMetaData {
 	unsigned sample_rate, channels;
 	bool bitreverse;
 	offset_type chunk_size;
+
+	AudioFormat ToAudioFormat() const {
+		return CheckAudioFormat(sample_rate / 8, SampleFormat::DSD, channels);
+	}
+
 };
 
 static bool lsbitfirst;
@@ -439,9 +444,7 @@ dsdiff_stream_decode(DecoderClient &client, InputStream &is)
 	if (!dsdiff_read_metadata(&client, is, metadata, chunk_header))
 		return;
 
-	auto audio_format = CheckAudioFormat(metadata.sample_rate / 8,
-					     SampleFormat::DSD,
-					     metadata.channels);
+	const auto audio_format = metadata.ToAudioFormat();
 
 	/* calculate song time from DSD chunk size and sample frequency */
 	offset_type chunk_size = metadata.chunk_size;
@@ -472,15 +475,12 @@ dsdiff_scan_stream(InputStream &is, TagHandler &handler)
 	if (!dsdiff_read_metadata(nullptr, is, metadata, chunk_header))
 		return false;
 
-	const auto sample_rate = metadata.sample_rate / 8;
-	if (!audio_valid_sample_rate(sample_rate) ||
-	    !audio_valid_channel_count(metadata.channels))
-		return false;
+	const auto audio_format = metadata.ToAudioFormat();
 
 	/* calculate song time and add as tag */
 	uint64_t n_frames = metadata.chunk_size / metadata.channels;
 	auto songtime = SongTime::FromScale<uint64_t>(n_frames,
-						      sample_rate);
+						      audio_format.sample_rate);
 	handler.OnDuration(songtime);
 
 	/* Read additional metadata and created tags if available */
