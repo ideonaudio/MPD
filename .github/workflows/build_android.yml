@@ -82,7 +82,8 @@ jobs:
             --buildtype=debugoptimized -Db_ndebug=true \
             -Dwrap_mode=forcefallback 
 
-          cd -
+      - name: Build Java
+        run: |
           cd ./android
           export JAVA_HOME=$JAVA_HOME_17_X64
           ./gradlew assembleDebug
