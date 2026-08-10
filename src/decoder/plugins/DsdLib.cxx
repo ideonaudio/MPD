@@ -34,31 +34,7 @@ dsdlib_skip_to(DecoderClient *client, InputStream &is,
 	if (is.GetOffset() > offset)
 		return false;
 
-	return dsdlib_skip(client, is, offset - is.GetOffset());
-}
-
-bool
-dsdlib_skip(DecoderClient *client, InputStream &is,
-	    offset_type delta)
-{
-	if (delta == 0)
-		return true;
-
-	if (is.IsSeekable()) {
-		offset_type new_offset;
-		if (AddOverflow(is.GetOffset(), delta, new_offset))
-			return false;
-
-		is.LockSeek(is.GetOffset() + delta);
-		return true;
-	}
-
-	if (delta > 1024 * 1024)
-		/* don't skip more than one megabyte; it would be too
-		   expensive */
-		return false;
-
-	return decoder_skip(client, is, delta);
+	return decoder_skip(client, is, offset - is.GetOffset());
 }
 
 bool

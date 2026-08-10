@@ -116,11 +116,11 @@ dsdiff_read_payload(DecoderClient *client, InputStream &is,
 static bool
 dsdiff_read_partial_payload(DecoderClient *client, InputStream &is,
 			    const DsdiffChunkHeader &header,
-			    std::span<std::byte> dest)
+			    std::span<std::byte> dest) noexcept
 {
 	return header.GetSize() >= dest.size() &&
 		decoder_read_full(client, is, dest) &&
-		dsdlib_skip(client, is, header.GetPaddedSize() - dest.size());
+		decoder_skip(client, is, header.GetPaddedSize() - dest.size());
 }
 
 /**
@@ -252,7 +252,7 @@ dsdiff_read_metadata_extra(DecoderClient *client, InputStream &is,
 {
 
 	/* skip from DSD data to next chunk header */
-	if (!dsdlib_skip(client, is, metadata.chunk_size))
+	if (!decoder_skip(client, is, metadata.chunk_size))
 		return false;
 	if (!dsdiff_read_chunk_header(client, is, chunk_header))
 		return false;
@@ -295,7 +295,7 @@ dsdiff_read_metadata_extra(DecoderClient *client, InputStream &is,
 		}
 #endif
 
-		if (!dsdlib_skip(client, is, chunk_size))
+		if (!decoder_skip(client, is, chunk_size))
 			break;
 	} while (dsdiff_read_chunk_header(client, is, chunk_header));
 

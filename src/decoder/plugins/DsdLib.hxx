@@ -32,16 +32,6 @@ dsdlib_skip_to(DecoderClient *client, InputStream &is,
 	       offset_type offset);
 
 /**
- * Skip some bytes from the #InputStream.
- *
- * On error, either throws exception or returns false.
- */
-[[nodiscard]]
-bool
-dsdlib_skip(DecoderClient *client, InputStream &is,
-	    offset_type delta);
-
-/**
  * Check if the sample frequency is a valid DSD frequency.
  **/
 [[gnu::const]]
