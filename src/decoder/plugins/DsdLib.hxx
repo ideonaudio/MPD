@@ -1,10 +1,8 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // Copyright The Music Player Daemon Project
 
-#ifndef MPD_DECODER_DSDLIB_HXX
-#define MPD_DECODER_DSDLIB_HXX
+#pragma once
 
-#include "util/ByteOrder.hxx"
 #include "input/Offset.hxx"
 
 #include <cstdint>
@@ -57,5 +55,3 @@ dsdlib_valid_freq(uint32_t samplefreq) noexcept;
 bool
 dsdlib_tag_id3(InputStream &is, TagHandler &handler,
 	       offset_type tagoffset);
-
-#endif
