@@ -7,6 +7,7 @@
 #include "RiffId3.hxx"
 #include "Aiff.hxx"
 #include "input/InputStream.hxx"
+#include "util/AllocatedArray.hxx"
 
 #include <id3tag.h>
 
@@ -193,9 +194,9 @@ try {
 		/* too large, don't allocate so much memory */
 		return nullptr;
 
-	auto buffer = std::make_unique_for_overwrite<std::byte[]>(size);
-	is.ReadFull(lock, std::span{buffer.get(), size});
-	return id3_tag_parse(std::span{buffer.get(), size});
+	AllocatedArray<std::byte> buffer{size};
+	is.ReadFull(lock, buffer);
+	return id3_tag_parse(buffer);
 } catch (...) {
 	return nullptr;
 }
