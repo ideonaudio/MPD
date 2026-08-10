@@ -16,12 +16,11 @@
 #include "input/InputStream.hxx"
 #include "pcm/CheckAudioFormat.hxx"
 #include "util/BitReverse.hxx"
+#include "util/IntOverflow.hxx"
 #include "util/PackedBigEndian.hxx"
 #include "util/SpanCast.hxx"
 #include "tag/Handler.hxx"
 #include "DsdLib.hxx"
-
-#include <limits>
 
 struct DsdiffHeader {
 	DsdId id;
@@ -328,12 +327,9 @@ dsdiff_read_metadata(DecoderClient *client, InputStream &is,
 		} else {
 			/* ignore unknown chunk */
 			const offset_type chunk_size = chunk_header.GetSize();
-			if (chunk_size >
-			    std::numeric_limits<offset_type>::max() - is.GetOffset())
+			offset_type chunk_end_offset;
+			if (AddOverflow(is.GetOffset(), chunk_size, chunk_end_offset))
 				return false;
-
-			const offset_type chunk_end_offset =
-				is.GetOffset() + chunk_size;
 
 			if (!dsdlib_skip_to(client, is, chunk_end_offset))
 				return false;
