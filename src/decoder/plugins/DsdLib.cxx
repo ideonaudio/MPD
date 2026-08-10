@@ -11,10 +11,10 @@
 #include "DsdLib.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "tag/Id3Scan.hxx"
 #include "util/IntOverflow.hxx"
 
 #ifdef ENABLE_ID3TAG
+#include "tag/Id3Scan.hxx"
 #include <id3tag.h>
 #endif
 
