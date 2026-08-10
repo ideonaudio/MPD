@@ -17,6 +17,7 @@
 #include <mad.h>
 
 #ifdef ENABLE_ID3TAG
+#include "tag/Id3Limits.hxx"
 #include "tag/Id3MixRamp.hxx"
 #include "tag/Id3Parse.hxx"
 #include "tag/Id3ReplayGain.hxx"
@@ -32,10 +33,8 @@
 #include <string.h>
 
 static constexpr unsigned long FRAMES_CUSHION = 2000;
-static constexpr size_t MAX_ID3_TAG_SIZE = 4 * 1024 * 1024;
 
 enum class MadDecoderAction {
-	SKIP,
 	BREAK,
 	CONT,
 	OK
@@ -51,6 +50,19 @@ enum class MadDecoderMuteFrame {
 static constexpr unsigned DECODERDELAY = 529;
 
 static constexpr Domain mad_domain("mad");
+
+static constexpr std::span<const std::byte>
+ThisFrameSpan(const struct mad_stream &stream) noexcept
+{
+	assert(stream.this_frame != nullptr);
+	assert(stream.bufend != nullptr);
+	assert(stream.bufend >= stream.this_frame);
+
+	return {
+		reinterpret_cast<const std::byte *>(stream.this_frame),
+		static_cast<std::size_t>(stream.bufend - stream.this_frame),
+	};
+}
 
 [[gnu::const]]
 static SongTime
@@ -256,28 +268,38 @@ MadDecoder::FillBuffer() noexcept
 inline void
 MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 {
+	auto this_frame = ThisFrameSpan(stream);
+
 #ifdef ENABLE_ID3TAG
 	std::unique_ptr<std::byte[]> allocated;
 
-	const id3_length_t count = stream.bufend - stream.this_frame;
-
-	const std::byte *id3_data = reinterpret_cast<const std::byte *>(stream.this_frame);
-	if (tagsize <= count) {
+	if (tagsize <= this_frame.size()) {
+		this_frame = this_frame.first(tagsize);
 		mad_stream_skip(&(stream), tagsize);
 	} else {
-		allocated = std::make_unique_for_overwrite<std::byte[]>(tagsize);
-		std::byte *dest = std::copy_n(id3_data, count, allocated.get());
-		mad_stream_skip(&(stream), count);
+		if (tagsize > MAX_ID3_TAG_SIZE) {
+			FmtWarning(mad_domain,
+				   "ID3 tag is too large: {}",
+				   tagsize);
 
-		if (!decoder_read_full(client, input_stream, {dest, tagsize - count})) {
+			mad_stream_skip(&stream, this_frame.size());
+			decoder_skip(client, input_stream, tagsize - this_frame.size());
+			return;
+		}
+
+		allocated = std::make_unique_for_overwrite<std::byte[]>(tagsize);
+		std::byte *dest = std::copy(this_frame.begin(), this_frame.end(), allocated.get());
+		mad_stream_skip(&(stream), this_frame.size());
+
+		if (!decoder_read_full(client, input_stream, {dest, tagsize - this_frame.size()})) {
 			LogDebug(mad_domain, "error parsing ID3 tag");
 			return;
 		}
 
-		id3_data = allocated.get();
+		this_frame = {allocated.get(), tagsize};
 	}
 
-	const UniqueId3Tag id3_tag = id3_tag_parse(std::span{id3_data, tagsize});
+	const UniqueId3Tag id3_tag = id3_tag_parse(this_frame);
 	if (id3_tag == nullptr)
 		return;
 
@@ -285,9 +307,8 @@ MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 		*mpd_tag = tag_id3_import(id3_tag.get());
 
 	if (client != nullptr) {
-		ReplayGainInfo rgi;
-
-		if (Id3ToReplayGainInfo(rgi, id3_tag.get())) {
+		if (ReplayGainInfo rgi;
+		    Id3ToReplayGainInfo(rgi, id3_tag.get())) {
 			client->SubmitReplayGain(&rgi);
 			found_replay_gain = true;
 		}
@@ -303,13 +324,11 @@ MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 	/* This code is enabled when libid3tag is disabled.  Instead
 	   of parsing the ID3 frame, it just skips it. */
 
-	size_t count = stream.bufend - stream.this_frame;
-
-	if (tagsize <= count) {
+	if (tagsize <= this_frame.size()) {
 		mad_stream_skip(&stream, tagsize);
 	} else {
-		mad_stream_skip(&stream, count);
-		decoder_skip(client, input_stream, tagsize - count);
+		mad_stream_skip(&stream, this_frame.size());
+		decoder_skip(client, input_stream, tagsize - this_frame.size());
 	}
 #endif
 }
@@ -336,7 +355,7 @@ static MadDecoderAction
 RecoverFrameError(const struct mad_stream &stream) noexcept
 {
 	if (MAD_RECOVERABLE(stream.error))
-		return MadDecoderAction::SKIP;
+		return MadDecoderAction::CONT;
 
 	FmtWarning(mad_domain,
 		   "unrecoverable frame level error: {}",
@@ -361,15 +380,7 @@ MadDecoder::DecodeNextFrame(bool skip, Tag *tag) noexcept
 							    stream.this_frame);
 
 			if (tagsize > 0) {
-				const auto size = static_cast<size_t>(tagsize);
-				if (size > MAX_ID3_TAG_SIZE) {
-					FmtWarning(mad_domain,
-						   "ID3 tag is too large: {}",
-						   size);
-					return MadDecoderAction::SKIP;
-				}
-
-				ParseId3(size, tag);
+				ParseId3(tagsize, tag);
 				return MadDecoderAction::CONT;
 			}
 		}
@@ -381,13 +392,13 @@ MadDecoder::DecodeNextFrame(bool skip, Tag *tag) noexcept
 	if (layer == (mad_layer)0) {
 		if (new_layer != MAD_LAYER_II && new_layer != MAD_LAYER_III) {
 			/* Only layer 2 and 3 have been tested to work */
-			return MadDecoderAction::SKIP;
+			return MadDecoderAction::CONT;
 		}
 
 		layer = new_layer;
 	} else if (new_layer != layer) {
 		/* Don't decode frames with a different layer than the first */
-		return MadDecoderAction::SKIP;
+		return MadDecoderAction::CONT;
 	}
 
 	if (!skip && mad_frame_decode(&frame, &stream))
@@ -671,7 +682,6 @@ MadDecoder::DecodeFirstFrame(Tag *tag) noexcept
 	while (true) {
 		const auto action = DecodeNextFrame(false, tag);
 		switch (action) {
-		case MadDecoderAction::SKIP:
 		case MadDecoderAction::CONT:
 			continue;
 
@@ -936,7 +946,6 @@ MadDecoder::LoadNextFrame() noexcept
 			client->SubmitTag(input_stream, std::move(tag));
 
 		switch (action) {
-		case MadDecoderAction::SKIP:
 		case MadDecoderAction::CONT:
 			continue;
 
