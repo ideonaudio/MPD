@@ -4,6 +4,7 @@
 #pragma once
 
 #include "input/Offset.hxx"
+#include "util/FixedString.hxx"
 
 #include <cstdint>
 #include <string_view>
@@ -13,10 +14,10 @@ class DecoderClient;
 class InputStream;
 
 struct DsdId {
-	char value[4];
+	FixedString<4> value;
 
 	constexpr bool Equals(std::string_view other) const noexcept {
-		return other == std::string_view{value, 4};
+		return other == std::string_view{value};
 	}
 };
 
