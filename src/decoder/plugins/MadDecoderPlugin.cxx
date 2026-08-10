@@ -310,9 +310,8 @@ MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 		*mpd_tag = tag_id3_import(id3_tag.get());
 
 	if (client != nullptr) {
-		ReplayGainInfo rgi;
-
-		if (Id3ToReplayGainInfo(rgi, id3_tag.get())) {
+		if (ReplayGainInfo rgi;
+		    Id3ToReplayGainInfo(rgi, id3_tag.get())) {
 			client->SubmitReplayGain(&rgi);
 			found_replay_gain = true;
 		}
