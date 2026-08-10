@@ -75,7 +75,7 @@ jobs:
       - id: cache-ccache
         uses: hendrikmuhs/ccache-action@v1
         with:
-          key: android
+          key: android-${{ matrix.abi }}
 
       - name: Configure
         run: |
