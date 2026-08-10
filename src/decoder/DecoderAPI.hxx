@@ -13,6 +13,7 @@
 // IWYU pragma: begin_exports
 
 #include "Client.hxx"
+#include "input/Offset.hxx"
 #include "input/Ptr.hxx"
 #include "Command.hxx"
 #include "DecoderPlugin.hxx"
@@ -86,4 +87,4 @@ decoder_read_full(DecoderClient *decoder, InputStream &is,
  * @return true on success, false on error or command
  */
 bool
-decoder_skip(DecoderClient *decoder, InputStream &is, size_t size) noexcept;
+decoder_skip(DecoderClient *decoder, InputStream &is, offset_type delta) noexcept;

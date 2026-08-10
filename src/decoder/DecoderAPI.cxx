@@ -58,17 +58,20 @@ decoder_read_full(DecoderClient *client, InputStream &is,
 }
 
 bool
-decoder_skip(DecoderClient *client, InputStream &is, size_t size) noexcept
+decoder_skip(DecoderClient *client, InputStream &is, offset_type delta) noexcept
 {
-	while (size > 0) {
+	while (delta > 0) {
 		std::byte buffer[1024];
 
-		size_t nbytes = decoder_read(client, is,
-					     std::span{buffer, std::min(sizeof(buffer), size)});
+		std::span<std::byte> dest{buffer};
+		if (delta < dest.size())
+			dest = dest.first(delta);
+
+		size_t nbytes = decoder_read(client, is, dest);
 		if (nbytes == 0)
 			return false;
 
-		size -= nbytes;
+		delta -= nbytes;
 	}
 
 	return true;
