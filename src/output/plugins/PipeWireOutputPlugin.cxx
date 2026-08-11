@@ -914,9 +914,6 @@ PipeWireOutput::Cancel() noexcept
 	if (drained)
 		return;
 
-	/* clear MPD's ring buffer */
-	ring_buffer.Clear();
-
 	/* clear libpipewire's buffer */
 	pw_stream_flush(stream, false);
 	drained = true;
@@ -929,6 +926,11 @@ PipeWireOutput::Cancel() noexcept
 		active = false;
 		pw_stream_set_active(stream, false);
 	}
+
+	/* clear MPD's ring buffer; this must be done only after the
+	   "process" callback has been disabled, because
+	   RingBuffer::Clear() is not thread-safe */
+	ring_buffer.Clear();
 }
 
 bool
