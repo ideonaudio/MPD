@@ -25,6 +25,7 @@
 #include "event/InjectEvent.hxx"
 #include "event/FineTimerEvent.hxx"
 #include "event/Call.hxx"
+#include "event/Loop.hxx"
 #include "util/RingBuffer.hxx"
 #include "Log.hxx"
 
@@ -367,7 +368,11 @@ private:
 	snd_pcm_sframes_t WriteFromPeriodBuffer() noexcept;
 
 	void LockCaughtError() noexcept {
+		assert(GetEventLoop().IsInside());
+
 		period_buffer.Clear();
+
+		silence_timer.Cancel();
 
 		const std::lock_guard lock{mutex};
 		error = std::current_exception();
