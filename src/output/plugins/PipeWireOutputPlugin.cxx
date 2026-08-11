@@ -369,7 +369,12 @@ PipeWireOutput::Enable()
 	if (thread_loop == nullptr)
 		throw MakeErrno("pw_thread_loop_new() failed");
 
-	pw_thread_loop_start(thread_loop);
+	if (int error = pw_thread_loop_start(thread_loop); error < 0) {
+		pw_thread_loop_destroy(thread_loop);
+		thread_loop = nullptr;
+
+		throw PipeWire::MakeError(error, "pw_thread_loop_start() failed");
+	}
 
 	stream = nullptr;
 }
