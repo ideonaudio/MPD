@@ -506,6 +506,8 @@ PipeWireOutput::Open(AudioFormat &audio_format)
 				       PW_KEY_APP_NAME, "Music Player Daemon",
 				       PW_KEY_APP_ICON_NAME, "mpd",
 				       nullptr);
+	if (props == nullptr)
+		throw MakeErrno("pw_properties_new() failed");
 
 	pw_properties_setf(props, PW_KEY_NODE_NAME, "mpd.%s", name);
 
