@@ -10,6 +10,7 @@
 #include "pcm/Silence.hxx"
 #include "lib/fmt/ExceptionFormatter.hxx"
 #include "system/Error.hxx"
+#include "time/PeriodClock.hxx"
 #include "util/BitReverse.hxx"
 #include "util/Domain.hxx"
 #include "util/RingBuffer.hxx"
@@ -151,6 +152,8 @@ class PipeWireOutput final : AudioOutput {
 	 * generate silence.
 	 */
 	std::atomic_bool silence_inserted;
+
+	PeriodClock throttle_silence_log;
 
 	explicit PipeWireOutput(const ConfigBlock &block);
 
@@ -844,7 +847,8 @@ PipeWireOutput::Play(std::span<const std::byte> src)
 	if (silence_inserted.load(std::memory_order_relaxed)) {
 		silence_inserted.store(false, std::memory_order_relaxed);
 
-		LogWarning(pipewire_output_domain, "Decoder is too slow; playing silence to avoid xrun");
+		if (throttle_silence_log.CheckUpdate(std::chrono::seconds(5)))
+			LogWarning(pipewire_output_domain, "Decoder is too slow; playing silence to avoid xrun");
 	}
 
 	const PipeWire::ThreadLoopLock lock(thread_loop);
