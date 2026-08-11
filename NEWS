@@ -18,6 +18,7 @@ ver 0.24.14 (not yet released)
   - pipewire: fix uninitialized variable
   - pipewire: fix thread-safety bugs
   - pipewire: fix deadlock bug
+  - pipewire: fix ring buffer corruption bug
 * Windows
   - enable the "mpg123" decoder plugin
   - fix shutdown in console mode
