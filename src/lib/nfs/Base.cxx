@@ -2,6 +2,7 @@
 // Copyright The Music Player Daemon Project
 
 #include "Base.hxx"
+#include "util/StringAPI.hxx"
 
 #include <algorithm> // for std::copy()
 #include <array>
@@ -33,7 +34,7 @@ nfs_check_base(const char *server, const char *path) noexcept
 	assert(server != nullptr);
 	assert(path != nullptr);
 
-	return strcmp(nfs_base_server.data(), server) == 0 &&
+	return StringIsEqual(nfs_base_server.data(), server) &&
 		memcmp(nfs_base_export_name.data(), path,
 		       nfs_base_export_name_length) == 0 &&
 		(path[nfs_base_export_name_length] == 0 ||
