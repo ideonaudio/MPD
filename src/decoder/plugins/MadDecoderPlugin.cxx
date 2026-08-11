@@ -282,8 +282,8 @@ MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 				   "ID3 tag is too large: {}",
 				   tagsize);
 
-			mad_stream_skip(&stream, this_frame.size());
-			decoder_skip(client, input_stream, tagsize - this_frame.size());
+			if (decoder_skip(client, input_stream, tagsize - this_frame.size()))
+				mad_stream_skip(&stream, this_frame.size());
 			return;
 		}
 
@@ -327,8 +327,8 @@ MadDecoder::ParseId3(size_t tagsize, Tag *mpd_tag) noexcept
 	if (tagsize <= this_frame.size()) {
 		mad_stream_skip(&stream, tagsize);
 	} else {
-		mad_stream_skip(&stream, this_frame.size());
-		decoder_skip(client, input_stream, tagsize - this_frame.size());
+		if (decoder_skip(client, input_stream, tagsize - this_frame.size()))
+			mad_stream_skip(&stream, this_frame.size());
 	}
 #endif
 }
