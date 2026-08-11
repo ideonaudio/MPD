@@ -3,12 +3,11 @@
 
 #include "Base.hxx"
 #include "util/StringAPI.hxx"
+#include "util/StringCompare.hxx"
 
 #include <algorithm> // for std::copy()
 #include <array>
 #include <cassert>
-
-#include <string.h>
 
 static std::array<char, 64> nfs_base_server;
 static std::array<char, 256> nfs_base_export_name;
@@ -35,8 +34,7 @@ nfs_check_base(const char *server, const char *path) noexcept
 	assert(path != nullptr);
 
 	return StringIsEqual(nfs_base_server.data(), server) &&
-		memcmp(nfs_base_export_name.data(), path,
-		       nfs_base_export_name_length) == 0 &&
+		StringStartsWith(path, {nfs_base_export_name.data(), nfs_base_export_name_length}) &&
 		(path[nfs_base_export_name_length] == 0 ||
 		 path[nfs_base_export_name_length] == '/')
 		? path + nfs_base_export_name_length
