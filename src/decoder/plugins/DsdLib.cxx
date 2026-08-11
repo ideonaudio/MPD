@@ -11,7 +11,6 @@
 #include "DsdLib.hxx"
 #include "../DecoderAPI.hxx"
 #include "input/InputStream.hxx"
-#include "util/IntOverflow.hxx"
 
 #ifdef ENABLE_ID3TAG
 #include "tag/Id3Limits.hxx"
