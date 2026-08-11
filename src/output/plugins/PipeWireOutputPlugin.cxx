@@ -154,17 +154,6 @@ public:
 		return new PipeWireOutput(block);
 	}
 
-	static constexpr struct pw_stream_events MakeStreamEvents() noexcept {
-		struct pw_stream_events events{};
-		events.version = PW_VERSION_STREAM_EVENTS;
-		events.state_changed = StateChanged;
-		events.process = Process;
-		events.drained = Drained;
-		events.control_info = ControlInfo;
-		events.param_changed = ParamChanged;
-		return events;
-	}
-
 	void SetVolume(float volume);
 
 	void SetMixer(PipeWireMixer &_mixer) noexcept;
@@ -261,6 +250,15 @@ private:
 		o.ParamChanged(id, param);
 	}
 
+	static constexpr struct pw_stream_events stream_events{
+		.version = PW_VERSION_STREAM_EVENTS,
+		.state_changed = StateChanged,
+		.control_info = ControlInfo,
+		.param_changed = ParamChanged,
+		.process = Process,
+		.drained = Drained,
+	};
+
 	/* virtual methods from class AudioOutput */
 	void Enable() override;
 	void Disable() noexcept override;
@@ -286,8 +284,6 @@ private:
 
 	void SendTag(const Tag &tag) override;
 };
-
-static constexpr auto stream_events = PipeWireOutput::MakeStreamEvents();
 
 inline
 PipeWireOutput::PipeWireOutput(const ConfigBlock &block)
