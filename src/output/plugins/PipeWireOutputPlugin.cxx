@@ -996,8 +996,7 @@ PipeWireOutput::SendTag(const Tag &tag)
 	const PipeWire::ThreadLoopLock lock(thread_loop);
 	CheckThrowError();
 
-	auto rc = pw_stream_update_properties(stream, &dict);
-	if (rc < 0)
+	if (int error = pw_stream_update_properties(stream, &dict); error < 0)
 		LogWarning(pipewire_output_domain, "Error updating properties");
 }
 
