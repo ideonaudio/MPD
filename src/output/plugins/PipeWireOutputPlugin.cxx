@@ -53,6 +53,12 @@ class PipeWireOutput final : AudioOutput {
 	struct pw_thread_loop *thread_loop = nullptr;
 	struct pw_stream *stream;
 
+	/**
+	 * If #disconnected, this contains a human-readable
+	 * description of the problem.  Used by CheckThrowError().
+	 *
+	 * Protected by #thread_loop's lock.
+	 */
 	std::string error_message;
 
 	std::byte pod_buffer[1024];
@@ -170,6 +176,9 @@ public:
 	}
 
 private:
+	/**
+	 * Caller must lock the #thread_loop.
+	 */
 	void CheckThrowError() {
 		if (disconnected) {
 			if (error_message.empty())
