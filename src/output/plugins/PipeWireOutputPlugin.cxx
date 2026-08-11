@@ -645,7 +645,7 @@ inline void
 PipeWireOutput::DsdFormatChanged(const struct spa_pod &param) noexcept
 {
 	uint32_t media_type, media_subtype;
-	struct spa_audio_info_dsd dsd;
+	struct spa_audio_info_dsd dsd{};
 
 	if (spa_format_parse(&param, &media_type, &media_subtype) >= 0 &&
 	    media_type == SPA_MEDIA_TYPE_audio &&
