@@ -13,6 +13,7 @@ ver 0.24.14 (not yet released)
 * output
   - alsa: remove logging calls from the real-time thread
   - alsa: remove option "thesycon_dsd_workaround"
+  - alsa: fix corruption bug with "stop_dsd_silence"
   - osx: fix format selection bugs
   - osx: fix volume truncation
   - pipewire: remove logging calls from the real-time thread

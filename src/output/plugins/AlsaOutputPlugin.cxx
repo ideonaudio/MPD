@@ -965,6 +965,11 @@ AlsaOutput::Drain()
 
 	cond.wait(lock, [this]{ return !drain || !active || interrupted; });
 
+	/* the stream is discontinuous now; discard the incomplete
+	   block which may still be inside the PcmExport instance,
+	   because it would otherwise be prepended to the next song */
+	pcm_export->Reset();
+
 	if (error)
 		std::rethrow_exception(error);
 }
@@ -1016,6 +1021,7 @@ AlsaOutput::Cancel() noexcept
 		in_stop_dsd_silence = true;
 		drain = true;
 		cond.wait(lock, [this]{ return !drain || !active; });
+		pcm_export->Reset();
 		return;
 	}
 #endif
