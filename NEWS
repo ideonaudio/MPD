@@ -34,6 +34,8 @@ ver 0.25 (not yet released)
 ver 0.24.14 (not yet released)
 * storage
   - curl: bound WebDAV PROPFIND responses
+* storage
+  - nfs: fix use-after-free bug after timeout
 * input
   - qobuz: use HTTPS for API requests
 * decoder
@@ -44,8 +46,16 @@ ver 0.24.14 (not yet released)
   - mad: ignore implausible Xing frame counts
   - modplug, openmpt: fix error handling bug
 * output
+  - alsa: remove logging calls from the real-time thread
+  - alsa: remove option "thesycon_dsd_workaround"
+  - alsa: fix corruption bug with "stop_dsd_silence"
   - osx: fix format selection bugs
   - osx: fix volume truncation
+  - pipewire: remove logging calls from the real-time thread
+  - pipewire: fix uninitialized variable
+  - pipewire: fix thread-safety bugs
+  - pipewire: fix deadlock bug
+  - pipewire: fix ring buffer corruption bug
 * Windows
   - enable the "mpg123" decoder plugin
   - fix shutdown in console mode
