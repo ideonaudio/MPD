@@ -997,7 +997,7 @@ PipeWireOutput::SendTag(const Tag &tag)
 	CheckThrowError();
 
 	if (int error = pw_stream_update_properties(stream, &dict); error < 0)
-		LogWarning(pipewire_output_domain, "Error updating properties");
+		throw PipeWire::MakeError(error, "pw_stream_update_properties() failed");
 }
 
 void
