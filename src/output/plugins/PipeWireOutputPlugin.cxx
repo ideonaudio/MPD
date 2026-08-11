@@ -766,8 +766,17 @@ PipeWireOutput::Process() noexcept
 	auto &d = buffer.datas[0];
 
 	const std::span<std::byte> dest{reinterpret_cast<std::byte *>(d.data), d.maxsize};
-	if (dest.data() == nullptr)
+	if (dest.data() == nullptr) {
+		/* this is not supposed to happen: due to
+		   PW_STREAM_FLAG_MAP_BUFFERS, libpipewire maps all
+		   buffers for us, except for DmaBufs which are not
+		   marked mappable, and we never negotiate DmaBuf; but
+		   just in case, give the buffer back instead of
+		   leaking it */
+		d.chunk->size = 0;
+		pw_stream_queue_buffer(stream, b);
 		return;
+	}
 
 	std::size_t chunk_size = frame_size;
 
