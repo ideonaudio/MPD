@@ -14,6 +14,7 @@ ver 0.24.14 (not yet released)
   - osx: fix format selection bugs
   - osx: fix volume truncation
   - pipewire: fix uninitialized variable
+  - pipewire: fix thread-safety bug
 * Windows
   - enable the "mpg123" decoder plugin
   - fix shutdown in console mode

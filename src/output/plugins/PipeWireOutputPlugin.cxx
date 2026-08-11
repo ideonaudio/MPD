@@ -930,8 +930,6 @@ PipeWireOutput::SetMixer(PipeWireMixer &_mixer) noexcept
 void
 PipeWireOutput::SendTag(const Tag &tag)
 {
-	CheckThrowError();
-
 	static constexpr struct {
 		TagType mpd;
 		const char *pipewire;
@@ -959,6 +957,7 @@ PipeWireOutput::SendTag(const Tag &tag)
 	struct spa_dict dict = SPA_DICT_INIT(items.data(), (uint32_t)items.size());
 
 	const PipeWire::ThreadLoopLock lock(thread_loop);
+	CheckThrowError();
 
 	auto rc = pw_stream_update_properties(stream, &dict);
 	if (rc < 0)
