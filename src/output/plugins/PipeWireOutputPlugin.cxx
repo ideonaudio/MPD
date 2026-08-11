@@ -819,8 +819,6 @@ PipeWireOutput::Process() noexcept
 std::chrono::steady_clock::duration
 PipeWireOutput::Delay() const noexcept
 {
-	const PipeWire::ThreadLoopLock lock(thread_loop);
-
 	auto result = std::chrono::steady_clock::duration::zero();
 	if (paused)
 		/* idle while paused */
