@@ -95,6 +95,9 @@ bool
 decoder_seek(DecoderClient *client, InputStream &is, offset_type new_offset) noexcept
 {
 	if (is.IsSeekable()) {
+		if (client != nullptr)
+			return client->Seek(is, new_offset);
+
 		try {
 			is.LockSeek(new_offset);
 			return true;
