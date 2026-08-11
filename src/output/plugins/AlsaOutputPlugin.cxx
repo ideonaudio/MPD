@@ -963,7 +963,7 @@ AlsaOutput::Drain()
 
 	Activate();
 
-	cond.wait(lock, [this]{ return !drain || !active; });
+	cond.wait(lock, [this]{ return !drain || !active || interrupted; });
 
 	if (error)
 		std::rethrow_exception(error);
