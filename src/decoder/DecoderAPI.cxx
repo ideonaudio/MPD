@@ -67,13 +67,7 @@ decoder_skip(DecoderClient *client, InputStream &is, offset_type delta) noexcept
 		if (AddOverflow(is.GetOffset(), delta, new_offset))
 			return false;
 
-		try {
-			is.LockSeek(new_offset);
-			return true;
-		} catch (...) {
-			LogError(std::current_exception());
-			return false;
-		}
+		return decoder_seek(client, is, new_offset);
 	}
 
 	if (delta > 4 * 1024 * 1024)
@@ -95,4 +89,23 @@ decoder_skip(DecoderClient *client, InputStream &is, offset_type delta) noexcept
 	}
 
 	return true;
+}
+
+bool
+decoder_seek(DecoderClient *client, InputStream &is, offset_type new_offset) noexcept
+{
+	if (is.IsSeekable()) {
+		try {
+			is.LockSeek(new_offset);
+			return true;
+		} catch (...) {
+			LogError(std::current_exception());
+			return false;
+		}
+	}
+
+	if (is.GetOffset() > new_offset)
+		return false;
+
+	return decoder_skip(client, is, new_offset - is.GetOffset());
 }

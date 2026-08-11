@@ -175,7 +175,7 @@ dsdiff_read_prop_snd(DecoderClient *client, InputStream &is,
 		} else {
 			/* ignore unknown chunk */
 
-			if (!dsdlib_skip_to(client, is, chunk_end_offset))
+			if (!decoder_seek(client, is, chunk_end_offset))
 				return false;
 		}
 	}
@@ -201,7 +201,7 @@ dsdiff_read_prop(DecoderClient *client, InputStream &is,
 		return dsdiff_read_prop_snd(client, is, metadata, prop_size, end_offset);
 	else
 		/* ignore unknown PROP chunk */
-		return dsdlib_skip_to(client, is, end_offset);
+		return decoder_seek(client, is, end_offset);
 }
 
 static void
@@ -210,7 +210,7 @@ dsdiff_handle_native_tag(DecoderClient *client, InputStream &is,
 			 offset_type tagoffset,
 			 TagType type)
 {
-	if (!dsdlib_skip_to(client, is, tagoffset))
+	if (!decoder_seek(client, is, tagoffset))
 		return;
 
 	struct dsdiff_native_tag metatag;
@@ -355,7 +355,7 @@ dsdiff_read_metadata(DecoderClient *client, InputStream &is,
 			return true;
 		} else {
 			/* ignore unknown chunk */
-			if (!dsdlib_skip_to(client, is, chunk_end_offset))
+			if (!decoder_seek(client, is, chunk_end_offset))
 				return false;
 		}
 	}
@@ -404,8 +404,8 @@ dsdiff_decode_chunk(DecoderClient &client, InputStream &is,
 			}
 
 			try {
-				if (dsdlib_skip_to(&client, is,
-						   start_offset + offset)) {
+				if (decoder_seek(&client, is,
+						 start_offset + offset)) {
 					client.CommandFinished();
 					remaining_bytes = total_bytes - offset;
 				} else

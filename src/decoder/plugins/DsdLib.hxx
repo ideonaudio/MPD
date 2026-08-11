@@ -22,16 +22,6 @@ struct DsdId {
 };
 
 /**
- * Skip the #InputStream to the specified offset.
- *
- * On error, either throws exception or returns false.
- */
-[[nodiscard]]
-bool
-dsdlib_skip_to(DecoderClient *client, InputStream &is,
-	       offset_type offset);
-
-/**
  * Check if the sample frequency is a valid DSD frequency.
  **/
 [[gnu::const]]

@@ -88,3 +88,11 @@ decoder_read_full(DecoderClient *decoder, InputStream &is,
  */
 bool
 decoder_skip(DecoderClient *decoder, InputStream &is, offset_type delta) noexcept;
+
+/**
+ * Wrapper for InputStream::LockSeek().
+ *
+ * @return true on success, false on error or command
+ */
+bool
+decoder_seek(DecoderClient *decoder, InputStream &is, offset_type new_offset) noexcept;

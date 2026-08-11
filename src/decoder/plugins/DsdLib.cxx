@@ -9,32 +9,17 @@
 
 #include "config.h"
 #include "DsdLib.hxx"
-#include "../DecoderAPI.hxx"
-#include "input/InputStream.hxx"
 
 #ifdef ENABLE_ID3TAG
+#include "../DecoderAPI.hxx"
 #include "tag/Id3Limits.hxx"
 #include "tag/Id3Parse.hxx"
 #include "tag/Id3Scan.hxx"
+#include "input/InputStream.hxx"
 #include "util/AllocatedArray.hxx"
 #endif
 
 #include <stdlib.h>
-
-bool
-dsdlib_skip_to(DecoderClient *client, InputStream &is,
-	       offset_type offset)
-{
-	if (is.IsSeekable()) {
-		is.LockSeek(offset);
-		return true;
-	}
-
-	if (is.GetOffset() > offset)
-		return false;
-
-	return decoder_skip(client, is, offset - is.GetOffset());
-}
 
 bool
 dsdlib_valid_freq(uint32_t samplefreq) noexcept
@@ -72,7 +57,7 @@ dsdlib_tag_id3(DecoderClient *client, InputStream &is,
 	if (count64 < 10 || count64 > MAX_ID3_TAG_SIZE)
 		return false;
 
-	if (!dsdlib_skip_to(client, is, tagoffset))
+	if (!decoder_seek(client, is, tagoffset))
 		return false;
 
 	const id3_length_t count = count64;

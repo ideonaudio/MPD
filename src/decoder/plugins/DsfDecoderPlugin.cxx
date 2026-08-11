@@ -261,7 +261,7 @@ dsf_decode_chunk(DecoderClient &client, InputStream &is,
 				start_offset + block * block_size;
 
 			try {
-				if (dsdlib_skip_to(&client, is, offset)) {
+				if (decoder_seek(&client, is, offset)) {
 					client.CommandFinished();
 					i = block;
 				} else
