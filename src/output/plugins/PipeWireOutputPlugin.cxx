@@ -38,6 +38,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <numeric>
 #include <stdexcept>
 #include <string>
@@ -143,6 +144,13 @@ class PipeWireOutput final : AudioOutput {
 	bool drain_requested;
 
 	bool drained;
+
+	/**
+	 * Set to true from a real-time thread to ask the output
+	 * thread to log an xrun which required the producer to
+	 * generate silence.
+	 */
+	std::atomic_bool silence_inserted;
 
 	explicit PipeWireOutput(const ConfigBlock &block);
 
@@ -492,6 +500,7 @@ PipeWireOutput::Open(AudioFormat &audio_format)
 	restore_volume = true;
 
 	paused = false;
+	silence_inserted.store(false, std::memory_order_relaxed);
 
 	/* stay inactive (PW_STREAM_FLAG_INACTIVE) until the ring
 	   buffer has been filled */
@@ -797,7 +806,9 @@ PipeWireOutput::Process() noexcept
 		nbytes = max_chunks * chunk_size;
 		PcmSilence(dest.first(nbytes), sample_format);
 
-		LogWarning(pipewire_output_domain, "Decoder is too slow; playing silence to avoid xrun");
+		/* this is a real-time thread, so we must not log
+		   here; let the output thread do it */
+		silence_inserted.store(true, std::memory_order_relaxed);
 	}
 
 	auto &chunk = *d.chunk;
@@ -830,6 +841,12 @@ PipeWireOutput::Delay() const noexcept
 std::size_t
 PipeWireOutput::Play(std::span<const std::byte> src)
 {
+	if (silence_inserted.load(std::memory_order_relaxed)) {
+		silence_inserted.store(false, std::memory_order_relaxed);
+
+		LogWarning(pipewire_output_domain, "Decoder is too slow; playing silence to avoid xrun");
+	}
+
 	const PipeWire::ThreadLoopLock lock(thread_loop);
 
 	paused = false;

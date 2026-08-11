@@ -233,6 +233,13 @@ class AlsaOutput final
 
 	std::atomic_bool paused;
 
+	/**
+	 * Set to true from a real-time thread to ask the output
+	 * thread to log an xrun which required the producer to
+	 * generate silence.
+	 */
+	std::atomic_bool silence_inserted;
+
 public:
 	AlsaOutput(EventLoop &loop, const ConfigBlock &block);
 
@@ -765,6 +772,7 @@ void
 AlsaOutput::Open(AudioFormat &audio_format)
 {
 	paused = false;
+	silence_inserted.store(false, std::memory_order_relaxed);
 
 #ifdef ENABLE_DSD
 	bool dop;
@@ -1215,6 +1223,13 @@ AlsaOutput::Play(std::span<const std::byte> src)
 	assert(!src.empty());
 	assert(src.size() % in_frame_size == 0);
 
+	if (silence_inserted.load(std::memory_order_relaxed)) {
+		silence_inserted.store(false, std::memory_order_relaxed);
+
+		if (throttle_silence_log.CheckUpdate(std::chrono::seconds(5)))
+			LogWarning(alsa_output_domain, "Decoder is too slow; playing silence to avoid xrun");
+	}
+
 	paused = false;
 
 	const size_t max_frames = LockWaitWriteAvailable();
@@ -1332,8 +1347,9 @@ try {
 			return;
 		}
 
-		if (throttle_silence_log.CheckUpdate(std::chrono::seconds(5)))
-			LogWarning(alsa_output_domain, "Decoder is too slow; playing silence to avoid xrun");
+		/* this is a real-time thread, so we must not log
+		   here; let the output thread do it */
+		silence_inserted.store(true, std::memory_order_relaxed);
 
 		/* insert some silence if the buffer has not enough
 		   data yet, to avoid ALSA xrun */
