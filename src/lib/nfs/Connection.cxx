@@ -587,7 +587,7 @@ NfsConnection::MountCallback(int status, [[maybe_unused]] nfs_context *nfs,
 		/* called by nfs_destroy_context() while destructing
 		   this NfsConnection instance */
 		assert(status == -EINTR);
-		assert(mount_state == MountState::FINISHED);
+		assert(mount_state == MountState::WAITING);
 		return;
 	}
 

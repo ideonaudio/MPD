@@ -4,6 +4,7 @@ ver 0.24.14 (not yet released)
 * storage
   - nfs: work around libnfs memory leak
   - nfs: fix use-after-free bug after timeout
+  - nfs: fix assertion failure after mount cancellation
 * input
   - qobuz: use HTTPS for API requests
 * decoder
