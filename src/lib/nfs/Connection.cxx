@@ -10,6 +10,7 @@
 
 extern "C" {
 #include <nfsc/libnfs.h>
+#include <nfsc/libnfs-raw.h> // for nfs_get_rpc_context()
 }
 
 #include <utility>
@@ -240,6 +241,12 @@ NfsConnection::~NfsConnection() noexcept
 	   MountCallback() knows the mount call is being canceled;
 	   checking status==-EINTR would be ambiguous */
 	mount_timeout_event.Cancel();
+
+        /* cancel all pending async calls (e.g. nfs_mount_async();
+	   unfortunately, this is not implied by
+	   nfs_destroy_context(), and omitting the callbacks will leak
+	   memory */
+        rpc_disconnect(nfs_get_rpc_context(context), "Shutting down");
 
 	nfs_destroy_context(context);
 }

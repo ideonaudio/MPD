@@ -2,6 +2,7 @@ ver 0.24.14 (not yet released)
 * storage
   - curl: bound WebDAV PROPFIND responses
 * storage
+  - nfs: work around libnfs memory leak
   - nfs: fix use-after-free bug after timeout
 * input
   - qobuz: use HTTPS for API requests
