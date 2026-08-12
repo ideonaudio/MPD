@@ -112,7 +112,7 @@ NfsConnection::CancellableCallback::CancelAndScheduleClose(struct nfsfh *fh,
 							   DisposablePointer &&_dispose_value) noexcept
 {
 	assert(connection.GetEventLoop().IsInside());
-	assert(!open);
+	assert((fh == nullptr) || !open);
 	assert(close_fh == nullptr);
 	assert(!dispose_value);
 
