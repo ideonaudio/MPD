@@ -12,9 +12,8 @@
 #include <limits>
 #include <stdexcept>
 
-#ifdef HAVE_ICONV
-#include <iconv.h>
-#endif
+#include "lib/icu/Converter.hxx"
+#include "util/AllocatedString.hxx"
 
 namespace Sacd {
 
@@ -849,36 +848,24 @@ Disc::ReadTrackText(AreaInfo& area, const std::byte* area_data, std::size_t area
 std::string
 Disc::ConvertCharset(const char* data, std::size_t length, CharacterSet charset)
 {
-#ifdef HAVE_ICONV
-	const unsigned charset_idx = static_cast<unsigned>(charset);
+	const std::string_view src{data, length};
+
+#ifdef HAVE_ICU_CONVERTER
+	const auto charset_idx = static_cast<std::size_t>(charset);
 	if (charset_idx >= std::size(kCharsetNames))
-		return std::string(data, length);
+		return std::string{src};
 
-	iconv_t conv = iconv_open("UTF-8", kCharsetNames[charset_idx]);
-	if (conv == reinterpret_cast<iconv_t>(-1))
-		return std::string(data, length);
-
-	// Allocate output buffer (UTF-8 can be up to 3x the input size)
-	std::string result;
-	result.resize(length * 3);
-
-	char* inbuf = const_cast<char*>(data);
-	std::size_t inbytes = length;
-	char* outbuf = result.data();
-	std::size_t outbytes = result.size();
-
-	if (iconv(conv, &inbuf, &inbytes, &outbuf, &outbytes) != static_cast<std::size_t>(-1)) {
-		result.resize(result.size() - outbytes);
-	} else {
-		result.assign(data, length);
+	try {
+		const auto converter =
+			IcuConverter::Create(kCharsetNames[charset_idx]);
+		return std::string{converter->ToUTF8(src).c_str()};
+	} catch (...) {
+		/* unsupported charset or malformed input: pass the
+		   bytes through unchanged */
+		return std::string{src};
 	}
-
-	iconv_close(conv);
-	return result;
 #else
-	// No iconv - assume UTF-8 or Latin-1
-	(void)charset;
-	return std::string(data, length);
+	return std::string{src};
 #endif
 }
 
