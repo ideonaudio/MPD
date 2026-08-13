@@ -31,11 +31,14 @@ ver 0.25 (not yet released)
 * switch to C++23
 * require Meson 1.2
 
-ver 0.24.14 (not yet released)
+ver 0.24.14 (2026/08/13)
 * storage
   - curl: bound WebDAV PROPFIND responses
 * storage
+  - nfs: work around libnfs memory leak
   - nfs: fix use-after-free bug after timeout
+  - nfs: fix assertion failures
+  - nfs: stop after 256k directory entries
 * input
   - qobuz: use HTTPS for API requests
 * decoder
@@ -56,6 +59,8 @@ ver 0.24.14 (not yet released)
   - pipewire: fix thread-safety bugs
   - pipewire: fix deadlock bug
   - pipewire: fix ring buffer corruption bug
+* Linux
+  - support Zeroconf with systemd socket activation
 * Windows
   - enable the "mpg123" decoder plugin
   - fix shutdown in console mode
