@@ -5,6 +5,7 @@ ver 0.24.14 (not yet released)
   - nfs: work around libnfs memory leak
   - nfs: fix use-after-free bug after timeout
   - nfs: fix assertion failures
+  - nfs: stop after 256k directory entries
 * input
   - qobuz: use HTTPS for API requests
 * decoder
