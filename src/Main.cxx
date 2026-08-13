@@ -443,14 +443,20 @@ MainConfigured(const CommandLineOptions &options,
 
 #ifdef HAVE_ZEROCONF
 	std::unique_ptr<ZeroconfHelper> zeroconf;
-	try {
-		auto &event_loop = instance.io_thread.GetEventLoop();
-		BlockingCall(event_loop, [&](){
-			zeroconf = ZeroconfInit(event_loop, raw_config, listen_port);
-		});
-	} catch (...) {
-		LogError(std::current_exception(),
-			 "Zeroconf initialization failed");
+
+	if (listen_port > 0) {
+		try {
+			auto &event_loop = instance.io_thread.GetEventLoop();
+			BlockingCall(event_loop, [&](){
+				zeroconf = ZeroconfInit(event_loop, raw_config, listen_port);
+			});
+		} catch (...) {
+			LogError(std::current_exception(),
+				 "Zeroconf initialization failed");
+		}
+	} else {
+		LogWarning(config_domain,
+			   "No global port, disabling zeroconf");
 	}
 
 	AtScopeExit(&zeroconf, &instance) {
