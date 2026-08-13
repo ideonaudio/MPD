@@ -5,7 +5,6 @@
 #include "Helper.hxx"
 #include "config/Data.hxx"
 #include "config/Option.hxx"
-#include "Listen.hxx"
 #include "util/Domain.hxx"
 #include "Log.hxx"
 
@@ -41,7 +40,7 @@ static constexpr Domain zeroconf_domain("zeroconf");
 #define DEFAULT_ZEROCONF_ENABLED 1
 
 std::unique_ptr<ZeroconfHelper>
-ZeroconfInit(const ConfigData &config, [[maybe_unused]] EventLoop &loop)
+ZeroconfInit(EventLoop &loop, const ConfigData &config, unsigned port)
 {
 	const char *serviceName;
 
@@ -49,7 +48,7 @@ ZeroconfInit(const ConfigData &config, [[maybe_unused]] EventLoop &loop)
 			    DEFAULT_ZEROCONF_ENABLED))
 		return nullptr;
 
-	if (listen_port <= 0) {
+	if (port <= 0) {
 		LogWarning(zeroconf_domain,
 			   "No global port, disabling zeroconf");
 		return nullptr;
@@ -71,5 +70,5 @@ ZeroconfInit(const ConfigData &config, [[maybe_unused]] EventLoop &loop)
 	}
 
 	return std::make_unique<ZeroconfHelper>(loop, serviceName,
-						SERVICE_TYPE, listen_port);
+						SERVICE_TYPE, port);
 }

@@ -446,7 +446,7 @@ MainConfigured(const CommandLineOptions &options,
 	try {
 		auto &event_loop = instance.io_thread.GetEventLoop();
 		BlockingCall(event_loop, [&](){
-			zeroconf = ZeroconfInit(raw_config, event_loop);
+			zeroconf = ZeroconfInit(event_loop, raw_config, listen_port);
 		});
 	} catch (...) {
 		LogError(std::current_exception(),
