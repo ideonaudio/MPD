@@ -13,6 +13,7 @@
 #include "Listen.hxx"
 #include "client/Config.hxx"
 #include "client/List.hxx"
+#include "client/Listener.hxx"
 #include "command/AllCommands.hxx"
 #include "Partition.hxx"
 #include "tag/Config.hxx"
@@ -444,11 +445,12 @@ MainConfigured(const CommandLineOptions &options,
 #ifdef HAVE_ZEROCONF
 	std::unique_ptr<ZeroconfHelper> zeroconf;
 
-	if (listen_port > 0) {
+	if (const unsigned port = instance.partitions.front().listener->GetEffectivePort();
+	    port > 0) {
 		try {
 			auto &event_loop = instance.io_thread.GetEventLoop();
 			BlockingCall(event_loop, [&](){
-				zeroconf = ZeroconfInit(event_loop, raw_config, listen_port);
+				zeroconf = ZeroconfInit(event_loop, raw_config, port);
 			});
 		} catch (...) {
 			LogError(std::current_exception(),
