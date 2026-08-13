@@ -3,7 +3,7 @@
 
 /*
  * DstFrameDecoder - Core DST decoding algorithm
- * 
+ *
  * New implementation following MPD code standards.
  * Based on ISO/IEC 14496-3 Part 3 Subpart 10 specification.
  */
@@ -31,7 +31,7 @@ inline constexpr uint8_t kDsdSilence = 0xAA;
 
 /**
  * Core DST frame decoder
- * 
+ *
  * Implements the DST algorithm as specified in ISO/IEC 14496-3.
  */
 class FrameDecoder {
@@ -145,7 +145,7 @@ private:
 
 	// Parsing methods
 	[[nodiscard]] Result ParseFrameHeader() noexcept;
-	[[nodiscard]] Result ParseSegmentation(Segment &seg, uint32_t max_segments, 
+	[[nodiscard]] Result ParseSegmentation(Segment &seg, uint32_t max_segments,
 	                                       uint32_t min_length) noexcept;
 	[[nodiscard]] Result ParseMapping(Segment &seg, uint32_t &nr_of_tables) noexcept;
 	[[nodiscard]] Result ParseFilterCoefs() noexcept;
@@ -166,7 +166,7 @@ private:
 	[[nodiscard]] uint32_t Log2RoundUp(uint32_t x) noexcept;
 
 	// Segment lookup table helpers
-	void FillTable4Bit(const Segment &seg, 
+	void FillTable4Bit(const Segment &seg,
 	                   std::array<std::vector<uint8_t>, kMaxChannels> &table) noexcept;
 	[[nodiscard]] static uint32_t GetNibble(const uint8_t *data, uint32_t index) noexcept;
 };

@@ -3,12 +3,12 @@
 
 /*
  * DstFrameDecoder - Core DST decoding algorithm implementation
- * 
+ *
  * New implementation following MPD code standards.
  * Based on ISO/IEC 14496-3 Part 3 Subpart 10 specification.
  */
 
-#include "decoder.h"
+#include "decoder.hxx"
 #include <algorithm>
 #include <cstring>
 #include <cstdio>  // For debug logging
@@ -24,7 +24,7 @@ static void DebugLog(const char *fmt, ...) noexcept
 {
 	if (!kDebugLogging) return;
 	if (debug_frame_count > 2) return;  // Only log first few frames
-	
+
 	va_list args;
 	va_start(args, fmt);
 	fprintf(stderr, "DST: ");
@@ -36,7 +36,7 @@ static void DebugLog(const char *fmt, ...) noexcept
 // Arithmetic coder constants per ISO/IEC 14496-3 DST specification
 // The AC uses 12-bit precision (8 bits for probability + 4 overhead bits)
 static constexpr unsigned kAcProbBits = 8;      // Bits for probability values
-static constexpr unsigned kAcOverhead = 4;      // Overhead bits for precision  
+static constexpr unsigned kAcOverhead = 4;      // Overhead bits for precision
 static constexpr unsigned kAcTotalBits = kAcProbBits + kAcOverhead;  // = 12
 static constexpr uint32_t kAcOne = 1U << kAcTotalBits;   // = 4096
 static constexpr uint32_t kAcHalf = 1U << (kAcTotalBits - 1);  // = 2048
@@ -100,10 +100,10 @@ static uint32_t IntLog2(uint32_t n) noexcept
 static void InitGrayCodeTables() noexcept
 {
 	if (GC_Initialized) return;
-	
+
 	GC_ICoefSign[0] = 0;
 	GC_ICoefIndex[0] = static_cast<uint32_t>(-1);
-	
+
 	for (int i = 1; i < 256; ++i) {
 		// Gray code delta: current gray - previous gray
 		const int gray_curr = i ^ (i >> 1);
@@ -111,7 +111,7 @@ static void InitGrayCodeTables() noexcept
 		const int gray_delta = gray_curr - gray_prev;
 		const uint32_t gray_delta_abs = IntAbs(gray_delta);
 		const uint32_t gray_index = IntLog2(gray_delta_abs);
-		
+
 		if (gray_delta > 0) {
 			GC_ICoefSign[i] = +1;
 		} else if (gray_delta < 0) {
@@ -121,7 +121,7 @@ static void InitGrayCodeTables() noexcept
 		}
 		GC_ICoefIndex[i] = gray_index;
 	}
-	
+
 	GC_Initialized = true;
 }
 
@@ -270,7 +270,7 @@ FrameDecoder::Decode(const uint8_t *dst_input, std::size_t dst_size,
 		const std::size_t copy_size = std::min(dst_size - 1, dsd_size);
 		std::memcpy(dsd_output, dst_input + 1, copy_size);
 		if (copy_size < dsd_size) {
-			std::memset(dsd_output + copy_size, kDsdSilence, 
+			std::memset(dsd_output + copy_size, kDsdSilence,
 			            dsd_size - copy_size);
 		}
 		return Result::Success;
@@ -281,7 +281,7 @@ FrameDecoder::Decode(const uint8_t *dst_input, std::size_t dst_size,
 	// 2. Filter segmentation
 	// 3. (if !Same_Segmentation) Ptable segmentation
 	bool same_seg = GetBit();  // Same_Segmentation flag FIRST
-	
+
 	result = ParseSegmentation(filter_segment_, 32, 1);
 	if (result != Result::Success)
 		return result;
@@ -300,7 +300,7 @@ FrameDecoder::Decode(const uint8_t *dst_input, std::size_t dst_size,
 	// 3. (if !Same_Mapping) Ptable mapping
 	// 4. HalfProb flags for each channel
 	bool same_map = GetBit();  // Same_Mapping flag FIRST
-	
+
 	result = ParseMapping(filter_segment_, header_.nr_of_filters);
 	if (result != Result::Success)
 		return result;
@@ -308,7 +308,7 @@ FrameDecoder::Decode(const uint8_t *dst_input, std::size_t dst_size,
 	if (same_map) {
 		header_.nr_of_ptables = header_.nr_of_filters;
 		for (uint32_t ch = 0; ch < channel_count_; ++ch) {
-			ptable_segment_.table_for_segment[ch] = 
+			ptable_segment_.table_for_segment[ch] =
 				filter_segment_.table_for_segment[ch];
 		}
 	} else {
@@ -430,7 +430,7 @@ FrameDecoder::Decode(const uint8_t *dst_input, std::size_t dst_size,
 			if (header_.half_prob[ch] && bit_nr < header_.nr_of_half_bits[ch]) {
 				probability = 128; // 0.5 probability
 			} else {
-				const uint32_t ptable_idx = GetPtableIndex(predict, 
+				const uint32_t ptable_idx = GetPtableIndex(predict,
 					header_.ptable_len[ptable_nr]);
 				probability = p_one_[ptable_nr][ptable_idx];
 			}
@@ -714,7 +714,7 @@ FrameDecoder::InitFilterTables() noexcept
 {
 	// Gray code optimized filter table computation
 	// This matches the reference GC_InitCoefTables implementation.
-	// 
+	//
 	// The key insight is that consecutive Gray code values differ by exactly one bit.
 	// We can incrementally compute filter table values by tracking which bit changed
 	// and adjusting the previous value accordingly.
@@ -722,10 +722,10 @@ FrameDecoder::InitFilterTables() noexcept
 	// The table is indexed by Gray code: value for pattern i is stored at gray(i).
 	// Since RunFilter uses channel_status directly as index, and the channel_status
 	// evolves through bit shifts, this Gray code indexing produces correct lookups.
-	
+
 	// Ensure Gray code tables are initialized
 	InitGrayCodeTables();
-	
+
 	for (uint32_t f = 0; f < header_.nr_of_filters; ++f) {
 		const uint32_t filter_length = header_.pred_order[f];
 
@@ -741,17 +741,17 @@ FrameDecoder::InitFilterTables() noexcept
 				cvalue -= header_.coef[f][t * 8 + j];
 			}
 			filter_table_[f][t][0] = static_cast<int16_t>(cvalue);
-			
+
 			// For subsequent patterns, use Gray code incremental update
 			for (int i = 1; i < 256; ++i) {
 				const int i_gray = i ^ (i >> 1);  // Gray code of i
 				const uint32_t j_gray = GC_ICoefIndex[i];  // Which bit changed
-				
+
 				if (j_gray < static_cast<uint32_t>(k)) {
 					// Update: when bit flips 0->1, add 2*coef; when 1->0, subtract 2*coef
 					cvalue += GC_ICoefSign[i] * (header_.coef[f][t * 8 + j_gray] << 1);
 				}
-				
+
 				// Store at Gray code index
 				filter_table_[f][t][i_gray] = static_cast<int16_t>(cvalue);
 			}
@@ -777,10 +777,10 @@ FrameDecoder::AcInit(const uint8_t *data, int total_bits, int start_bit) noexcep
 	ac_.data_bits = total_bits;
 	// Skip bit 0 (validation bit) - start from bit 1 of AC stream
 	ac_.bit_pos = start_bit + 1;
-	
+
 	// Initialize range to ONE - 1 (4095 for 12-bit precision)
 	ac_.range = kAcOne - 1;
-	
+
 	// Load initial ABITS (12) bits into code, reading bit by bit
 	ac_.code = 0;
 	for (unsigned i = 0; i < kAcTotalBits; ++i) {
@@ -797,11 +797,11 @@ FrameDecoder::AcGetBit() noexcept
 	// Read single bit from arithmetic coded data stream
 	if (ac_.bit_pos >= ac_.data_bits)
 		return 0;
-	
+
 	const int byte_idx = ac_.bit_pos >> 3;
 	const int bit_idx = 7 - (ac_.bit_pos & 7);
 	++ac_.bit_pos;
-	
+
 	return (ac_.data[byte_idx] >> bit_idx) & 1;
 }
 
@@ -810,10 +810,10 @@ FrameDecoder::AcDecodeBit(uint32_t probability) noexcept
 {
 	// Calculate threshold with partial rounding per DST spec
 	// Formula: ((A >> PBITS) | ((A >> (PBITS-1)) & 1)) * p
-	const uint32_t scaled_range = (ac_.range >> kAcProbBits) | 
+	const uint32_t scaled_range = (ac_.range >> kAcProbBits) |
 	                              ((ac_.range >> (kAcProbBits - 1)) & 1);
 	const uint32_t threshold = ac_.range - scaled_range * probability;
-	
+
 	uint8_t bit;
 	if (ac_.code >= threshold) {
 		// Bit is 0
@@ -821,11 +821,11 @@ FrameDecoder::AcDecodeBit(uint32_t probability) noexcept
 		ac_.code -= threshold;
 		ac_.range = scaled_range * probability;
 	} else {
-		// Bit is 1  
+		// Bit is 1
 		bit = 1;
 		ac_.range = threshold;
 	}
-	
+
 	// Renormalize: while range < HALF, shift left and read one bit
 	while (ac_.range < kAcHalf) {
 		ac_.range <<= 1;
@@ -835,7 +835,7 @@ FrameDecoder::AcDecodeBit(uint32_t probability) noexcept
 			ac_.code |= AcGetBit();
 		}
 	}
-	
+
 	return bit;
 }
 
@@ -854,7 +854,7 @@ FrameDecoder::RunFilter(uint32_t filter_nr, uint32_t channel) noexcept
 	// So we need to map:
 	// - filter_table[f][0] (oldest coefs) with channel_status[15] (oldest bits)
 	// - filter_table[f][15] (newest coefs) with channel_status[0] (newest bits)
-	
+
 	int16_t predict = 0;
 	for (uint32_t t = 0; t < 16; ++t) {
 		predict += filter_table_[filter_nr][t][channel_status_[channel][t]];
@@ -868,7 +868,7 @@ FrameDecoder::GetPtableIndex(int16_t predict, uint32_t ptable_len) noexcept
 	// Map prediction to ptable index per DST spec
 	// AC_QSTEP = SIZE_PREDCOEF - AC_HISBITS = 9 - 6 = 3
 	static constexpr unsigned kAcQstep = 3;
-	
+
 	const int32_t abs_predict = (predict >= 0) ? predict : -predict;
 	uint32_t index = static_cast<uint32_t>(abs_predict >> kAcQstep);
 	if (index >= ptable_len) {
@@ -888,7 +888,7 @@ FrameDecoder::UpdateChannelStatus(uint32_t channel, int bit) noexcept
 	// - The oldest bit (MSB of channel_status[15]) is discarded
 	// - All other bits shift towards older positions
 	// - The new bit becomes the newest (LSB of channel_status[0])
-	
+
 	auto *st = reinterpret_cast<uint64_t *>(channel_status_[channel].data());
 	st[1] = (st[1] << 1) | (st[0] >> 63);
 	st[0] = (st[0] << 1) | static_cast<uint64_t>(bit);

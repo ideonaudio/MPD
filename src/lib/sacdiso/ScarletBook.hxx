@@ -372,7 +372,7 @@ struct AudioSectorHeader {
  * Audio packet info (2 bytes)
  * Byte 0 layout (MSB to LSB):
  *   bit 7: frame_start
- *   bit 6: reserved  
+ *   bit 6: reserved
  *   bits 5-3: data_type
  *   bits 2-0: packet_length high 3 bits
  * Byte 1: packet_length low 8 bits

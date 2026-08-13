@@ -3,7 +3,7 @@
 
 /*
  * DstDecoderBinding - High-level DST decoder interface
- * 
+ *
  * Thread-safe wrapper around the core DST decoder.
  */
 
@@ -31,7 +31,7 @@ public:
 
 	/**
 	 * Initialize decoder
-	 * 
+	 *
 	 * @param channels Number of audio channels (1-6)
 	 * @param frame_size Frame size in bytes per channel
 	 * @return 0 on success, -1 on error
@@ -40,7 +40,7 @@ public:
 
 	/**
 	 * Decode a DST frame
-	 * 
+	 *
 	 * @param dst_data Input DST data (modified to contain output DSD)
 	 * @return Output size in bytes, or 0 on error
 	 */

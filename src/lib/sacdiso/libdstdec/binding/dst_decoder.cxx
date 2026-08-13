@@ -5,8 +5,8 @@
  * DstDecoderBinding - High-level DST decoder implementation
  */
 
-#include "dst_decoder.h"
-#include "../decoder/decoder.h"
+#include "dst_decoder.hxx"
+#include "../decoder/decoder.hxx"
 
 #include <cstring>
 
