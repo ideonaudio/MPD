@@ -51,17 +51,16 @@ Disc::Open(std::unique_ptr<Media> media)
 	Close();
 
 	if (!media || !media->IsValid()) {
-		FmtWarning(sacdiso_domain, "Disc::Open - media is null or invalid");
+		FmtDebug(sacdiso_domain, "Disc::Open - media is null or invalid");
 		return false;
 	}
 
 	// Detect sector size
 	sector_size_ = DetectSectorSize(*media);
 	if (sector_size_ == 0) {
-		FmtWarning(sacdiso_domain, "Disc::Open - DetectSectorSize failed");
+		FmtDebug(sacdiso_domain, "Disc::Open - DetectSectorSize failed");
 		return false;
 	}
-	FmtWarning(sacdiso_domain, "Disc::Open - sector_size={}", sector_size_);
 
 	// Set sector offset for PSN format
 	sector_offset_ = (sector_size_ == kPsnSize) ? 12 : 0;
@@ -70,12 +69,10 @@ Disc::Open(std::unique_ptr<Media> media)
 
 	// Read Master TOC
 	if (!ReadMasterToc()) {
-		FmtWarning(sacdiso_domain, "Disc::Open - ReadMasterToc failed");
+		FmtDebug(sacdiso_domain, "Disc::Open - ReadMasterToc failed");
 		Close();
 		return false;
 	}
-	FmtWarning(sacdiso_domain, "Disc::Open - ReadMasterToc OK, stereo={}, mch={}",
-	           disc_info_.HasStereoArea(), disc_info_.HasMultichannelArea());
 
 	return true;
 }
@@ -178,7 +175,7 @@ Disc::GetTrackInfo(AreaId area_id, std::size_t track_index,
 
 	// Disc number
 	if (disc_info_.album_set_size > 1 && disc_info_.album_sequence_number > 0)
-		handler.OnTag(TAG_DISC, 
+		handler.OnTag(TAG_DISC,
 		              std::to_string(static_cast<unsigned>(disc_info_.album_sequence_number)).c_str());
 }
 
@@ -193,15 +190,13 @@ Disc::SelectTrack(std::size_t track_index, uint32_t offset) noexcept
 {
 	const auto& area = disc_info_.GetArea(current_area_);
 	if (track_index >= area.tracks.size()) {
-		FmtWarning(sacdiso_domain, "SelectTrack - track {} out of range (size={})",
+		FmtDebug(sacdiso_domain, "SelectTrack - track {} out of range (size={})",
 		           track_index, area.tracks.size());
 		return false;
 	}
 
 	current_track_ = track_index;
 	const auto& track = area.tracks[track_index];
-	FmtWarning(sacdiso_domain, "SelectTrack - track={}, start_lsn={}, length_lsn={}",
-	           track_index, track.start_lsn, track.length_lsn);
 
 	if (!edited_master_mode_) {
 		track_start_lsn_ = track.start_lsn;
@@ -220,9 +215,6 @@ Disc::SelectTrack(std::size_t track_index, uint32_t offset) noexcept
 		/* a track list which is not monotonically increasing
 		   would underflow the subtraction below */
 		if (next_start < track_start_lsn_) {
-			FmtDebug(sacdiso_domain,
-			         "SelectTrack - non-monotonic track list at track {}",
-			         track_index);
 			return false;
 		}
 
@@ -266,7 +258,6 @@ bool
 Disc::ReadFrame(std::span<std::byte> buffer, std::size_t& frame_size,
                 FrameType& frame_type) noexcept
 {
-	static unsigned sector_log_count = 0;  // Limit logging
 
 	/* compute the track end in 64 bit so that a corrupt track
 	   length cannot wrap the sum around */
@@ -281,7 +272,7 @@ Disc::ReadFrame(std::span<std::byte> buffer, std::size_t& frame_size,
 		if (audio_state_.current_packet >= effective_packet_count) {
 			// Read next sector
 			if (!ReadRawSector(current_lsn_, audio_state_.sector_buffer)) {
-				FmtWarning(sacdiso_domain, "ReadFrame - ReadRawSector failed at lsn={}", current_lsn_);
+				FmtDebug(sacdiso_domain, "ReadFrame - ReadRawSector failed at lsn={}", current_lsn_);
 				return false;
 			}
 
@@ -306,42 +297,13 @@ Disc::ReadFrame(std::span<std::byte> buffer, std::size_t& frame_size,
 			}
 
 			// Parse frame info
-			const std::size_t frame_info_size = audio_state_.dst_encoded 
+			const std::size_t frame_info_size = audio_state_.dst_encoded
 				? kAudioFrameInfoSizeDst : kAudioFrameInfoSizeDsd;
 			for (uint8_t i = 0; i < audio_state_.frame_count && i < 8; ++i) {
 				std::memcpy(&audio_state_.frames[i],
 				            data + audio_state_.buffer_offset,
 				            frame_info_size);
 				audio_state_.buffer_offset += frame_info_size;
-			}
-			
-			// Log first few sectors (AFTER parsing)
-			if (sector_log_count < 3) {
-				FmtWarning(sacdiso_domain, "Sector header: dst={}, packets={}, frames={}, raw_byte=0x{:02x}",
-				           audio_state_.dst_encoded, audio_state_.packet_count,
-				           audio_state_.frame_count, static_cast<uint8_t>(data[0]));
-				// Log raw bytes of first 30 bytes of sector
-				FmtWarning(sacdiso_domain, "  Raw[0-9]: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
-				           static_cast<uint8_t>(data[0]), static_cast<uint8_t>(data[1]),
-				           static_cast<uint8_t>(data[2]), static_cast<uint8_t>(data[3]),
-				           static_cast<uint8_t>(data[4]), static_cast<uint8_t>(data[5]),
-				           static_cast<uint8_t>(data[6]), static_cast<uint8_t>(data[7]),
-				           static_cast<uint8_t>(data[8]), static_cast<uint8_t>(data[9]));
-				FmtWarning(sacdiso_domain, "  Raw[10-19]: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
-				           static_cast<uint8_t>(data[10]), static_cast<uint8_t>(data[11]),
-				           static_cast<uint8_t>(data[12]), static_cast<uint8_t>(data[13]),
-				           static_cast<uint8_t>(data[14]), static_cast<uint8_t>(data[15]),
-				           static_cast<uint8_t>(data[16]), static_cast<uint8_t>(data[17]),
-				           static_cast<uint8_t>(data[18]), static_cast<uint8_t>(data[19]));
-				// Log packet details with raw bytes
-				for (uint8_t i = 0; i < audio_state_.packet_count && i < 3; ++i) {
-					const auto& pkt = audio_state_.packets[i];
-					FmtWarning(sacdiso_domain, "  Pkt[{}]: raw=0x{:02x}{:02x} fs={} dt={} len={}",
-					           i, pkt.byte0, pkt.byte1,
-					           pkt.IsFrameStart(), static_cast<int>(pkt.GetDataType()), pkt.GetPacketLength());
-				}
-				FmtWarning(sacdiso_domain, "  buffer_offset after header parse={}", audio_state_.buffer_offset);
-				++sector_log_count;
 			}
 		}
 
@@ -350,7 +312,7 @@ Disc::ReadFrame(std::span<std::byte> buffer, std::size_t& frame_size,
 		                                     static_cast<uint8_t>(audio_state_.packets.size()));
 		while (audio_state_.current_packet < max_packets) {
 			const auto& packet = audio_state_.packets[audio_state_.current_packet];
-			const std::byte* sector_data = audio_state_.sector_buffer.data() 
+			const std::byte* sector_data = audio_state_.sector_buffer.data()
 			                               + sector_offset_;
 			const uint16_t packet_len = packet.GetPacketLength();
 
@@ -371,24 +333,22 @@ Disc::ReadFrame(std::span<std::byte> buffer, std::size_t& frame_size,
 					if (packet.IsFrameStart()) {
 						// Complete frame ready
 						if (frame_state_.size <= buffer.size()) {
-							std::memcpy(buffer.data(), 
+							std::memcpy(buffer.data(),
 							            frame_state_.data.data(),
 							            frame_state_.size);
 							frame_size = frame_state_.size;
-							frame_type = frame_state_.dst_encoded 
+							frame_type = frame_state_.dst_encoded
 								? FrameType::Dst : FrameType::Dsd;
 							// Log first frame
 							static bool logged_first_frame = false;
 							if (!logged_first_frame) {
-								FmtWarning(sacdiso_domain, "First frame complete: size={}, type={}",
-								           frame_size, frame_state_.dst_encoded ? "DST" : "DSD");
 								logged_first_frame = true;
 							}
 							frame_state_.started = false;
 							return true;
 						}
 						// Buffer too small
-						FmtWarning(sacdiso_domain, "Frame buffer too small: frame={}, buffer={}",
+						FmtDebug(sacdiso_domain, "Frame buffer too small: frame={}, buffer={}",
 						           frame_state_.size, buffer.size());
 						frame_state_.started = false;
 						frame_type = FrameType::Invalid;
@@ -485,38 +445,28 @@ Disc::ReadMasterToc()
 	// Allocate buffer for Master TOC
 	std::vector<std::byte> master_data(kMasterTocLength * kLsnSize);
 
-	FmtWarning(sacdiso_domain, "ReadMasterToc: reading {} sectors from LSN {}",
-	           kMasterTocLength, kMasterTocStart);
 
 	if (!ReadRawSectors(kMasterTocStart, kMasterTocLength, master_data)) {
-		FmtWarning(sacdiso_domain, "ReadMasterToc: ReadRawSectors failed");
+		FmtDebug(sacdiso_domain, "ReadMasterToc: ReadRawSectors failed");
 		return false;
 	}
 
 	// Parse Master TOC header
 	const auto* master_toc = reinterpret_cast<const MasterToc*>(master_data.data());
-	
+
 	// Log raw signature bytes
-	FmtWarning(sacdiso_domain, "ReadMasterToc: signature bytes: {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x} {:02x}",
-	           static_cast<uint8_t>(master_data[0]), static_cast<uint8_t>(master_data[1]),
-	           static_cast<uint8_t>(master_data[2]), static_cast<uint8_t>(master_data[3]),
-	           static_cast<uint8_t>(master_data[4]), static_cast<uint8_t>(master_data[5]),
-	           static_cast<uint8_t>(master_data[6]), static_cast<uint8_t>(master_data[7]));
 
 	if (!master_toc->IsValid()) {
-		FmtWarning(sacdiso_domain, "ReadMasterToc: Invalid signature (expected SACDMTOC)");
+		FmtDebug(sacdiso_domain, "ReadMasterToc: Invalid signature (expected SACDMTOC)");
 		return false;
 	}
 
 	// Check version - FIXED: check major first, then minor only if major is equal
-	FmtWarning(sacdiso_domain, "ReadMasterToc: version={}.{} (supported={}.{})",
-	           master_toc->version.major, master_toc->version.minor,
-	           kSupportedVersionMajor, kSupportedVersionMinor);
-	
+
 	if (master_toc->version.major > kSupportedVersionMajor ||
-	    (master_toc->version.major == kSupportedVersionMajor && 
+	    (master_toc->version.major == kSupportedVersionMajor &&
 	     master_toc->version.minor > kSupportedVersionMinor)) {
-		FmtWarning(sacdiso_domain, "ReadMasterToc: Unsupported SACD version");
+		FmtDebug(sacdiso_domain, "ReadMasterToc: Unsupported SACD version");
 		return false;
 	}
 
@@ -571,28 +521,22 @@ Disc::ReadMasterToc()
 	// Read Area TOCs
 	const uint32_t area1_start = static_cast<uint32_t>(master_toc->area_1_toc_1_start);
 	const uint16_t area1_size = static_cast<uint16_t>(master_toc->area_1_toc_size);
-	FmtWarning(sacdiso_domain, "ReadMasterToc: area1_start={}, area1_size={}", 
-	           area1_start, area1_size);
-	
+
 	if (area1_start != 0 && area1_size != 0) {
 		if (!ReadAreaToc(AreaId::Stereo, area1_start, area1_size)) {
-			FmtWarning(sacdiso_domain, "ReadMasterToc: ReadAreaToc(stereo) failed");
+			FmtDebug(sacdiso_domain, "ReadMasterToc: ReadAreaToc(stereo) failed");
 		}
 	}
 
 	const uint32_t area2_start = static_cast<uint32_t>(master_toc->area_2_toc_1_start);
 	const uint16_t area2_size = static_cast<uint16_t>(master_toc->area_2_toc_size);
-	FmtWarning(sacdiso_domain, "ReadMasterToc: area2_start={}, area2_size={}", 
-	           area2_start, area2_size);
-	
+
 	if (area2_start != 0 && area2_size != 0) {
 		if (!ReadAreaToc(AreaId::Multichannel, area2_start, area2_size)) {
-			FmtWarning(sacdiso_domain, "ReadMasterToc: ReadAreaToc(mch) failed");
+			FmtDebug(sacdiso_domain, "ReadMasterToc: ReadAreaToc(mch) failed");
 		}
 	}
 
-	FmtWarning(sacdiso_domain, "ReadMasterToc: HasStereo={}, HasMch={}",
-	           disc_info_.HasStereoArea(), disc_info_.HasMultichannelArea());
 
 	return disc_info_.HasStereoArea() || disc_info_.HasMultichannelArea();
 }
@@ -621,7 +565,7 @@ Disc::ReadAreaToc([[maybe_unused]] AreaId area_id, uint32_t toc_start, uint16_t 
 		return false;
 
 	// Determine which area this is
-	AreaId actual_area_id = area_toc->IsTwoChannel() 
+	AreaId actual_area_id = area_toc->IsTwoChannel()
 		? AreaId::Stereo : AreaId::Multichannel;
 
 	auto& area = disc_info_.GetArea(actual_area_id);
@@ -645,8 +589,6 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 	const auto* area_toc = reinterpret_cast<const AreaToc*>(area_data);
 	const uint8_t track_count = area_toc->track_count;
 
-	FmtWarning(sacdiso_domain, "ReadTrackList: track_count={}, area_size={}", 
-	           track_count, area_size);
 
 	if (track_count == 0)
 		return false;
@@ -659,21 +601,10 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 
 	while (ptr + kLsnSize <= end) {
 		const auto* trl1 = reinterpret_cast<const TrackListOffset*>(ptr);
-		
-		// Log first 8 bytes of each sector to find signatures
-		if (sector_num <= 10) {
-			FmtWarning(sacdiso_domain, "ReadTrackList: sector {} sig: {:c}{:c}{:c}{:c}{:c}{:c}{:c}{:c}",
-			           sector_num,
-			           static_cast<char>(ptr[0]), static_cast<char>(ptr[1]),
-			           static_cast<char>(ptr[2]), static_cast<char>(ptr[3]),
-			           static_cast<char>(ptr[4]), static_cast<char>(ptr[5]),
-			           static_cast<char>(ptr[6]), static_cast<char>(ptr[7]));
-		}
-		
+
 		if (trl1->IsValid()) {
-			FmtWarning(sacdiso_domain, "ReadTrackList: Found SACDTRL1 at sector {}", sector_num);
 			found_trl1 = true;
-			
+
 			// SACDTRL1 layout (from scarletbook.h):
 			//   offset 0-7:    "SACDTRL1" signature (8 bytes)
 			//   offset 8-1027: track_start_lsn[255] - ALL start LSNs first (255 * 4 = 1020 bytes)
@@ -689,13 +620,11 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 			const auto* start_lsn_array = reinterpret_cast<const PackedBE32*>(ptr + 8);
 			const auto* length_lsn_array = reinterpret_cast<const PackedBE32*>(
 				ptr + 8 + kMaxTracks * sizeof(PackedBE32));
-			
+
 			area.tracks.resize(track_count);
 			for (uint8_t i = 0; i < track_count; ++i) {
 				area.tracks[i].start_lsn = static_cast<uint32_t>(start_lsn_array[i]);
 				area.tracks[i].length_lsn = static_cast<uint32_t>(length_lsn_array[i]);
-				FmtWarning(sacdiso_domain, "ReadTrackList: track[{}] start={}, length={}",
-				           i, area.tracks[i].start_lsn, area.tracks[i].length_lsn);
 			}
 			break;
 		}
@@ -703,9 +632,8 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 		++sector_num;
 	}
 
-	if (!found_trl1) {
-		FmtWarning(sacdiso_domain, "ReadTrackList: SACDTRL1 NOT FOUND after {} sectors!", sector_num);
-	}
+	if (!found_trl1)
+		LogDebug(sacdiso_domain, "no SACDTRL1 signature found");
 
 	// Find SACDTRL2 (track times)
 	ptr = area_data + kLsnSize;
@@ -713,8 +641,7 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 	while (ptr + kLsnSize <= end) {
 		const auto* trl2 = reinterpret_cast<const TrackListTime*>(ptr);
 		if (trl2->IsValid()) {
-			FmtWarning(sacdiso_domain, "ReadTrackList: Found SACDTRL2 at sector {}", sector_num);
-			
+
 			// SACDTRL2 layout (from scarletbook.h):
 			//   offset 0-7:    "SACDTRL2" signature (8 bytes)
 			//   offset 8-1027: start[255] - start times (255 * 4 = 1020 bytes)
@@ -731,10 +658,6 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 				area.tracks[i].duration.minutes = duration_array[i].minutes;
 				area.tracks[i].duration.seconds = duration_array[i].seconds;
 				area.tracks[i].duration.frames = duration_array[i].frames;
-				FmtWarning(sacdiso_domain, "ReadTrackList: track[{}] duration={}:{:02d}.{:02d}",
-				           i, area.tracks[i].duration.minutes, 
-				           area.tracks[i].duration.seconds,
-				           area.tracks[i].duration.frames);
 			}
 			break;
 		}
@@ -742,7 +665,6 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 		++sector_num;
 	}
 
-	FmtWarning(sacdiso_domain, "ReadTrackList: returning with {} tracks", area.tracks.size());
 	return !area.tracks.empty();
 }
 
@@ -773,8 +695,6 @@ Disc::ReadTrackText(AreaInfo& area, const std::byte* area_data, std::size_t area
 	while (ptr + kLsnSize <= end) {
 		const auto* text_header = reinterpret_cast<const TrackTextHeader*>(ptr);
 		if (text_header->IsValid()) {
-			FmtWarning(sacdiso_domain, "ReadTrackText: Found SACDTTxt at sector {}",
-			           sector_num);
 			found_text = true;
 
 			// Calculate total bytes available from SACDTTxt start to end of area data
@@ -784,9 +704,6 @@ Disc::ReadTrackText(AreaInfo& area, const std::byte* area_data, std::size_t area
 			// Position array starts at offset 8 (after signature)
 			const auto* positions = reinterpret_cast<const PackedBE16*>(ptr + 8);
 
-			FmtWarning(sacdiso_domain,
-			           "ReadTrackText: remaining_bytes={}, track_count={}",
-			           remaining_bytes, track_count);
 
 			// Parse text for each track.
 			// On-disc layout per record (verified empirically against
@@ -832,9 +749,6 @@ Disc::ReadTrackText(AreaInfo& area, const std::byte* area_data, std::size_t area
 					reinterpret_cast<const TrackTextRecord*>(rec_start);
 				const uint8_t text_amount = record->track_amount;
 
-				FmtWarning(sacdiso_domain,
-				           "ReadTrackText: track[{}] pos={}, amount={}",
-				           i, text_pos, text_amount);
 
 				if (text_amount == 0 || text_amount > 6)
 					continue;
@@ -889,26 +803,14 @@ Disc::ReadTrackText(AreaInfo& area, const std::byte* area_data, std::size_t area
 						case 0:
 							area.tracks[i].text.title =
 								std::move(text);
-							FmtWarning(sacdiso_domain,
-							           "ReadTrackText: track[{}] title='{}'",
-							           i,
-							           area.tracks[i].text.title);
 							break;
 						case 1:
 							area.tracks[i].text.performer =
 								std::move(text);
-							FmtWarning(sacdiso_domain,
-							           "ReadTrackText: track[{}] performer='{}'",
-							           i,
-							           area.tracks[i].text.performer);
 							break;
 						case 2:
 							area.tracks[i].text.songwriter =
 								std::move(text);
-							FmtWarning(sacdiso_domain,
-							           "ReadTrackText: track[{}] songwriter='{}'",
-							           i,
-							           area.tracks[i].text.songwriter);
 							break;
 						case 3:
 							area.tracks[i].text.composer =
@@ -938,11 +840,8 @@ Disc::ReadTrackText(AreaInfo& area, const std::byte* area_data, std::size_t area
 		++sector_num;
 	}
 
-	if (!found_text) {
-		FmtWarning(sacdiso_domain,
-		           "ReadTrackText: SACDTTxt NOT FOUND after {} sectors",
-		           sector_num);
-	}
+	if (!found_text)
+		LogDebug(sacdiso_domain, "no SACDTTxt signature found");
 
 	return found_text;
 }

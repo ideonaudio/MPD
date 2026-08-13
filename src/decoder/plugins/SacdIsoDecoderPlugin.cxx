@@ -120,7 +120,7 @@ std::string
 GenerateTrackName(AreaId area_id, unsigned track_index) noexcept
 {
 	char buffer[64];
-	const char* format = (area_id == AreaId::Stereo) 
+	const char* format = (area_id == AreaId::Stereo)
 		? kTrackNameFormat2ch : kTrackNameFormatMch;
 	std::snprintf(buffer, sizeof(buffer), format, track_index + 1);
 	return buffer;
@@ -143,7 +143,6 @@ BitReverseBuffer(std::byte* data, std::size_t size) noexcept
 bool
 sacdiso_init(const ConfigBlock& block)
 {
-	LogWarning(sacdiso_domain, "sacdiso_init CALLED");
 	config.edited_master = block.GetBlockValue("edited_master", false);
 	config.lsbitfirst = block.GetBlockValue("lsbitfirst", false);
 
@@ -166,13 +165,12 @@ sacdiso_init(const ConfigBlock& block)
 std::forward_list<DetachedSong>
 sacdiso_container_scan(Path path_fs)
 {
-	FmtWarning(sacdiso_domain, "sacdiso_container_scan CALLED: {}", path_fs.c_str());
 	std::forward_list<DetachedSong> list;
 
 	// Check file extension
 	const char* suffix_ptr = path_fs.GetSuffix();
 	if (suffix_ptr == nullptr) {
-		LogWarning(sacdiso_domain, "container_scan: no suffix");
+		LogDebug(sacdiso_domain, "container_scan: no suffix");
 		return list;
 	}
 
@@ -180,38 +178,32 @@ sacdiso_container_scan(Path path_fs)
 
 	// GetSuffix() may return with or without leading dot depending on MPD version
 	// Handle both cases
-	const std::string_view suffix_nodot = (suffix.size() > 0 && suffix[0] == '.') 
+	const std::string_view suffix_nodot = (suffix.size() > 0 && suffix[0] == '.')
 	                                      ? suffix.substr(1) : suffix;
 
 	if (!StringIsEqualIgnoreCase(suffix_nodot, "iso"sv) &&
 	    !StringIsEqualIgnoreCase(suffix_nodot, "dat"sv)) {
-		FmtWarning(sacdiso_domain, "container_scan: unsupported suffix '{}'", suffix);
+		FmtDebug(sacdiso_domain, "container_scan: unsupported suffix '{}'", suffix);
 		return list;
 	}
 
 	// Open the disc
 	auto media = std::make_unique<FileMedia>();
 	if (!media->Open(path_fs.c_str())) {
-		FmtWarning(sacdiso_domain, "container_scan: media->Open failed for '{}'", path_fs.c_str());
+		FmtDebug(sacdiso_domain, "container_scan: media->Open failed for '{}'", path_fs.c_str());
 		return list;
 	}
 
-	LogWarning(sacdiso_domain, "container_scan: media->Open OK");
 
 	Disc disc;
 	if (!disc.Open(std::move(media))) {
-		LogWarning(sacdiso_domain, "container_scan: disc.Open failed (not a valid SACD ISO?)");
+		LogDebug(sacdiso_domain, "container_scan: disc.Open failed (not a valid SACD ISO?)");
 		return list;
 	}
 
-	FmtWarning(sacdiso_domain, "container_scan: disc.Open OK, stereo={}, mch={}",
-	           disc.HasStereoArea(), disc.HasMultichannelArea());
 
 	disc.SetEditedMasterMode(config.edited_master);
 
-	FmtWarning(sacdiso_domain, "container_scan: playable_area config={}",
-	           config.playable_area == AreaId::Stereo ? "stereo" :
-	           config.playable_area == AreaId::Multichannel ? "multichannel" : "both");
 
 	TagBuilder tag_builder;
 	auto tail = list.before_begin();
@@ -222,7 +214,6 @@ sacdiso_container_scan(Path path_fs)
 		disc.SelectArea(AreaId::Stereo);
 		const std::size_t track_count = disc.GetTrackCount(AreaId::Stereo);
 
-		FmtWarning(sacdiso_domain, "container_scan: adding {} stereo tracks", track_count);
 		for (std::size_t i = 0; i < track_count; ++i) {
 			tag_builder.Clear();
 			AddTagHandler handler(tag_builder);
@@ -234,9 +225,6 @@ sacdiso_container_scan(Path path_fs)
 				tag_builder.Commit());
 			++total_tracks;
 		}
-	} else {
-		FmtWarning(sacdiso_domain, "container_scan: skipping stereo (has={}, config allows={})",
-		           disc.HasStereoArea(), config.playable_area != AreaId::Multichannel);
 	}
 
 	// Add multichannel tracks
@@ -244,7 +232,6 @@ sacdiso_container_scan(Path path_fs)
 		disc.SelectArea(AreaId::Multichannel);
 		const std::size_t track_count = disc.GetTrackCount(AreaId::Multichannel);
 
-		FmtWarning(sacdiso_domain, "container_scan: adding {} multichannel tracks", track_count);
 		for (std::size_t i = 0; i < track_count; ++i) {
 			tag_builder.Clear();
 			AddTagHandler handler(tag_builder);
@@ -256,12 +243,8 @@ sacdiso_container_scan(Path path_fs)
 				tag_builder.Commit());
 			++total_tracks;
 		}
-	} else {
-		FmtWarning(sacdiso_domain, "container_scan: skipping multichannel (has={}, config allows={})",
-		           disc.HasMultichannelArea(), config.playable_area != AreaId::Stereo);
 	}
 
-	FmtWarning(sacdiso_domain, "container_scan: returning {} total tracks", total_tracks);
 	return list;
 }
 
@@ -271,58 +254,52 @@ sacdiso_container_scan(Path path_fs)
 void
 sacdiso_file_decode(DecoderClient& client, Path path_fs)
 {
-	LogWarning(sacdiso_domain, "sacdiso_file_decode CALLED");
 
 	// Get base name - MUST keep AllocatedPath alive to avoid dangling pointer
 	const auto base_name = path_fs.GetBase();
 	if (base_name.IsNull()) {
-		LogWarning(sacdiso_domain, "base_name is null");
+		LogDebug(sacdiso_domain, "base_name is null");
 		return;
 	}
 
 	const char* track_name = base_name.c_str();
-	FmtWarning(sacdiso_domain, "track_name: {}", track_name);
 
 	AreaId area_id;
 	unsigned track_index;
 	if (!ParseTrackName(track_name, area_id, track_index)) {
-		LogWarning(sacdiso_domain, "ParseTrackName failed");
+		LogDebug(sacdiso_domain, "ParseTrackName failed");
 		return;
 	}
 
-	LogWarning(sacdiso_domain, "ParseTrackName OK");
 
 	// Get container path - MUST keep AllocatedPath alive
 	const auto container_path = path_fs.GetDirectoryName();
 	if (container_path.IsNull()) {
-		LogWarning(sacdiso_domain, "container_path is null");
+		LogDebug(sacdiso_domain, "container_path is null");
 		return;
 	}
 
-	FmtWarning(sacdiso_domain, "container: {}", container_path.c_str());
 
 	auto media = std::make_unique<FileMedia>();
 	if (!media->Open(container_path.c_str())) {
-		LogWarning(sacdiso_domain, "media->Open failed");
+		LogDebug(sacdiso_domain, "media->Open failed");
 		return;
 	}
 
-	LogWarning(sacdiso_domain, "media->Open OK");
 
 	Disc disc;
 	if (!disc.Open(std::move(media))) {
-		LogWarning(sacdiso_domain, "disc.Open failed");
+		LogDebug(sacdiso_domain, "disc.Open failed");
 		return;
 	}
 
-	LogWarning(sacdiso_domain, "disc.Open OK");
 
 	disc.SetEditedMasterMode(config.edited_master);
 
 	// Select area and track
 	disc.SelectArea(area_id);
 	if (!disc.SelectTrack(track_index)) {
-		FmtWarning(sacdiso_domain,
+		FmtDebug(sacdiso_domain,
 			   "SelectTrack({}) failed for area {}",
 			   track_index, static_cast<unsigned>(area_id));
 		return;
@@ -332,7 +309,6 @@ sacdiso_file_decode(DecoderClient& client, Path path_fs)
 	const unsigned channels = disc.GetChannelCount(area_id);
 	const unsigned sample_rate = Disc::GetSampleRate();
 
-	FmtWarning(sacdiso_domain, "channels={}, sample_rate={}", channels, sample_rate);
 
 	AudioFormat audio_format;
 	try {
@@ -348,17 +324,10 @@ sacdiso_file_decode(DecoderClient& client, Path path_fs)
 	// Initialize DST decoder if needed
 	DstDecoder dst_decoder;
 	const bool dst_encoded = disc.IsDstEncoded(area_id);
-	FmtWarning(sacdiso_domain, "dst_encoded={}", dst_encoded);
 
-	if (dst_encoded) {
-		if (!dst_decoder.Initialize(channels, sample_rate)) {
-			FmtError(sacdiso_domain, 
-			         "Failed to initialize DST decoder");
-			return;
-		}
-		FmtDebug(sacdiso_domain, "DST decoding enabled");
-	} else {
-		FmtDebug(sacdiso_domain, "Raw DSD - no DST decoding needed");
+	if (dst_encoded && !dst_decoder.Initialize(channels, sample_rate)) {
+		LogError(sacdiso_domain, "failed to initialize the DST decoder");
+		return;
 	}
 
 	// Calculate duration and signal ready
@@ -392,8 +361,6 @@ sacdiso_file_decode(DecoderClient& client, Path path_fs)
 
 	// Track DST decode failures for logging
 	unsigned dst_decode_failures = 0;
-	bool dst_failure_logged = false;
-	bool first_frame_logged = false;
 
 	DecoderCommand cmd = DecoderCommand::NONE;
 
@@ -419,15 +386,6 @@ sacdiso_file_decode(DecoderClient& client, Path path_fs)
 		if (!disc.ReadFrame(frame_buffer, frame_size, frame_type))
 			break;  // End of track
 
-		// Log first frame type
-		if (!first_frame_logged) {
-			FmtWarning(sacdiso_domain, "first frame: type={}, size={}",
-			           frame_type == FrameType::Dst ? "DST" : 
-			           (frame_type == FrameType::Dsd ? "DSD" : "Invalid"),
-			           frame_size);
-			first_frame_logged = true;
-		}
-
 		if (frame_type == FrameType::Invalid) {
 			// Skip invalid frames
 			cmd = client.GetCommand();
@@ -443,18 +401,13 @@ sacdiso_file_decode(DecoderClient& client, Path path_fs)
 				std::span{frame_buffer.data(), frame_size}, dsd_buffer)) {
 				// DST decode failed - output DSD silence instead
 				++dst_decode_failures;
-				if (!dst_failure_logged) {
-					FmtWarning(sacdiso_domain, 
-					           "DST decoding failed - outputting silence");
-					dst_failure_logged = true;
-				}
 				// DSD silence is 0xAA (10101010 pattern) - per SACD specification
 				// Calculate expected output size based on DST frame structure
-				const std::size_t expected_size = 
+				const std::size_t expected_size =
 					dst_decoder.GetOutputFrameSize();
 				if (expected_size > 0) {
 					dsd_buffer.resize(expected_size);
-					std::fill(dsd_buffer.begin(), dsd_buffer.end(), 
+					std::fill(dsd_buffer.begin(), dsd_buffer.end(),
 					          std::byte{0xAA});
 					dsd_data = dsd_buffer;
 				} else {
@@ -495,12 +448,10 @@ sacdiso_file_decode(DecoderClient& client, Path path_fs)
 		cmd = client.SubmitAudio(nullptr, dsd_data, kbit_rate);
 	}
 
-	// Log summary of DST decode failures
-	if (dst_decode_failures > 0) {
+	if (dst_decode_failures > 0)
 		FmtWarning(sacdiso_domain,
-		           "Track playback completed with {} DST decode failures",
-		           dst_decode_failures);
-	}
+			   "{} DST frame(s) failed to decode; silence was played instead",
+			   dst_decode_failures);
 }
 
 /**
@@ -509,56 +460,48 @@ sacdiso_file_decode(DecoderClient& client, Path path_fs)
 bool
 sacdiso_scan_file(Path path_fs, TagHandler& handler) noexcept
 {
-	LogWarning(sacdiso_domain, "sacdiso_scan_file CALLED");
-	
+
 	// Get base name - MUST keep AllocatedPath alive to avoid dangling pointer
 	const auto base_name = path_fs.GetBase();
 	if (base_name.IsNull()) {
-		LogWarning(sacdiso_domain, "scan_file: base_name is null");
+		LogDebug(sacdiso_domain, "scan_file: base_name is null");
 		return false;
 	}
 
 	const char* track_name = base_name.c_str();
-	FmtWarning(sacdiso_domain, "scan_file track_name: {}", track_name);
 
 	AreaId area_id;
 	unsigned track_index;
 	if (!ParseTrackName(track_name, area_id, track_index)) {
-		LogWarning(sacdiso_domain, "scan_file: ParseTrackName failed");
+		LogDebug(sacdiso_domain, "scan_file: ParseTrackName failed");
 		return false;
 	}
 
-	LogWarning(sacdiso_domain, "scan_file: ParseTrackName OK");
 
 	// Get container path - MUST keep AllocatedPath alive
 	const auto container_path = path_fs.GetDirectoryName();
 	if (container_path.IsNull()) {
-		LogWarning(sacdiso_domain, "scan_file: container_path is null");
+		LogDebug(sacdiso_domain, "scan_file: container_path is null");
 		return false;
 	}
 
-	FmtWarning(sacdiso_domain, "scan_file container: {}", container_path.c_str());
 
 	auto media = std::make_unique<FileMedia>();
 	if (!media->Open(container_path.c_str())) {
-		LogWarning(sacdiso_domain, "scan_file: media->Open failed");
+		LogDebug(sacdiso_domain, "scan_file: media->Open failed");
 		return false;
 	}
 
-	LogWarning(sacdiso_domain, "scan_file: media->Open OK");
 
 	Disc disc;
 	if (!disc.Open(std::move(media))) {
-		LogWarning(sacdiso_domain, "scan_file: disc.Open failed");
+		LogDebug(sacdiso_domain, "scan_file: disc.Open failed");
 		return false;
 	}
 
-	LogWarning(sacdiso_domain, "scan_file: disc.Open OK");
 
 	disc.SelectArea(area_id);
-	LogWarning(sacdiso_domain, "scan_file: calling GetTrackInfo");
 	disc.GetTrackInfo(area_id, track_index, handler);
-	LogWarning(sacdiso_domain, "scan_file: GetTrackInfo OK");
 
 	return true;
 }
