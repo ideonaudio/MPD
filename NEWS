@@ -9,6 +9,7 @@ ver 0.25 (not yet released)
 * storage
   - curl: use the CURL input plugin configuration
 * decoder
+  - sacdiso: new plugin for SACD ISO images
   - faad: implement seeking
   - faad: output 32 bit floating point samples instead of 16 bit integer
   - psgplay: new plugin

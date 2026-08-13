@@ -584,6 +584,28 @@ pcm
 
 Reads raw PCM samples. It understands the "audio/L16" MIME type with parameters "rate" and "channels" according to RFC 2586. It also understands the MPD-specific MIME type "audio/x-mpd-float".
 
+sacdiso
+-------
+
+Decodes SACD (Super Audio CD) ISO images.  Each track of the disc is
+exposed as a separate song, and DST-compressed tracks are decompressed
+to DSD.  Requires ``-Ddsd=true`` at build time.
+
+.. list-table::
+   :widths: 20 80
+   :header-rows: 1
+
+   * - Setting
+     - Description
+   * - **playable_area stereo|multichannel|both**
+     - Which area(s) of the disc to expose.  Defaults to "both".
+   * - **edited_master yes|no**
+     - Use the edited master track boundaries instead of the ones from
+       the table of contents.  Defaults to "no".
+   * - **lsbitfirst yes|no**
+     - Reverse the bit order of the DSD samples, for DACs which expect
+       LSB-first data.  Defaults to "no".
+
 sidplay
 -------
 
