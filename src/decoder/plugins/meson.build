@@ -181,6 +181,19 @@ if libpsgplay_dep.found()
   decoder_plugins_sources += 'PsgplayDecoderPlugin.cxx'
 endif
 
+libpsgplay_dep = dependency('libpsgplay', version: '>= 0.8', required: get_option('psgplay'))
+decoder_features.set('ENABLE_PSGPLAY', libpsgplay_dep.found())
+if libpsgplay_dep.found()
+  decoder_plugins_sources += 'PsgplayDecoderPlugin.cxx'
+endif
+
+enable_sacdiso = get_option('sacdiso')
+decoder_features.set('ENABLE_SACDISO', enable_sacdiso)
+if enable_sacdiso
+  decoder_plugins_sources += 'SacdIsoDecoderPlugin.cxx'
+  decoder_plugins_dependencies += sacdiso_dep
+endif
+
 decoder_plugins = static_library(
   'decoder_plugins',
   decoder_plugins_sources,
