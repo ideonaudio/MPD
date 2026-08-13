@@ -182,7 +182,7 @@ Publisher::RegisterServices(AvahiClient *c)
 	RegisterServices(*group);
 }
 
-void
+inline void
 Publisher::DeferredRegisterServices() noexcept
 {
 	assert(visible);
