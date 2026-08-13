@@ -4,6 +4,7 @@
 
 #pragma once
 
+#include "StringListPtr.hxx"
 #include "util/IntrusiveList.hxx"
 
 #include <avahi-common/address.h>
@@ -18,6 +19,8 @@ namespace Avahi {
  */
 struct Service : IntrusiveListHook<> {
 	std::string type;
+
+	StringListPtr txt;
 
 	AvahiIfIndex interface = AVAHI_IF_UNSPEC;
 	AvahiProtocol protocol = AVAHI_PROTO_UNSPEC;
