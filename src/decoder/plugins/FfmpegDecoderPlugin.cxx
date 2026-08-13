@@ -103,11 +103,46 @@ IsAudio(const AVStream &stream) noexcept
 static int
 ffmpeg_find_audio_stream(const AVFormatContext &format_context) noexcept
 {
-	for (unsigned i = 0; i < format_context.nb_streams; ++i)
-		if (IsAudio(*format_context.streams[i]))
-			return i;
+	/* For Blu-ray "mpegts" containers (typically *.m2ts),
+	   prefer the lossless stereo LPCM track over surround
+	   mixes (DTS-HD MA, TrueHD, AC3 etc.).  For any other
+	   container, fall back to the first audio stream. */
+	const bool prefer_stereo_pcm =
+		format_context.iformat != nullptr &&
+		StringIsEqual(format_context.iformat->name, "mpegts");
 
-	return -1;
+	int first_audio = -1;
+
+	for (unsigned i = 0; i < format_context.nb_streams; ++i) {
+		const AVStream &stream = *format_context.streams[i];
+		if (!IsAudio(stream))
+			continue;
+
+		if (first_audio < 0)
+			first_audio = static_cast<int>(i);
+
+		if (!prefer_stereo_pcm)
+			return static_cast<int>(i);
+
+		const auto &cp = *stream.codecpar;
+#if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(57, 25, 100)
+		const unsigned channels = cp.ch_layout.nb_channels;
+#else
+		const unsigned channels = cp.channels;
+#endif
+
+		const bool is_pcm =
+			cp.codec_id == AV_CODEC_ID_PCM_BLURAY ||
+			cp.codec_id == AV_CODEC_ID_PCM_S16BE ||
+			cp.codec_id == AV_CODEC_ID_PCM_S16LE ||
+			cp.codec_id == AV_CODEC_ID_PCM_S24BE ||
+			cp.codec_id == AV_CODEC_ID_PCM_S24LE;
+
+		if (is_pcm && channels == 2)
+			return static_cast<int>(i);
+	}
+
+	return first_audio;
 }
 
 [[gnu::pure]]
@@ -725,6 +760,14 @@ ffmpeg_suffixes() noexcept
 				suffixes.emplace("aif"sv);
 
 			suffixes.emplace(input_format->name);
+		}
+
+		if (StringIsEqual(input_format->name, "mpegts")) {
+			/* manually register the Blu-ray container
+			   extensions; some FFmpeg builds omit them
+			   from the demuxer's extension list */
+			suffixes.emplace("m2ts"sv);
+			suffixes.emplace("mts"sv);
 		}
 	}
 
