@@ -173,12 +173,13 @@ uri_apply_relative(std::string_view relative_uri,
 		return result;
 	}
 
+	const std::string_view base_prefix = {base_uri.data(), _base_path.data()};
 	std::string_view base_path = UriPathWithoutFilename(_base_path);
 
 	if (!ConsumeSpecial(relative_path, base_path))
 		return {};
 
-	std::string result(base_uri.data(), _base_path.data());
+	std::string result{base_prefix};
 	result.append(base_path);
 	result.append(relative_path);
 	return result;
