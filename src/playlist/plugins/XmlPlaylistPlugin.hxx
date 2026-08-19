@@ -3,7 +3,7 @@
 
 #pragma once
 
-#include <cstddef>
+#include "input/Offset.hxx"
 
 /* XML playlist plugins materialize the document before returning songs. */
-static constexpr std::size_t XML_PLAYLIST_MAX_SIZE = 16 * 1024 * 1024;
+static constexpr offset_type XML_PLAYLIST_MAX_SIZE = 16 * 1024 * 1024;
