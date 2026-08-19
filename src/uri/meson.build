@@ -5,7 +5,10 @@ uri = static_library(
   'Relative.cxx',
   'Util.cxx',
   include_directories: inc,
-  dependencies: util_dep,
+  dependencies: [
+    fmt_dep,
+    util_dep,
+  ]
 )
 
 uri_dep = declare_dependency(

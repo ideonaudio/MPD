@@ -7,6 +7,8 @@
 #include "util/StringCompare.hxx"
 #include "util/Compiler.h"
 
+#include <fmt/format.h>
+
 #include <cassert>
 
 #include <string.h>
@@ -153,9 +155,7 @@ uri_apply_relative(std::string_view relative_uri,
 			/* there's no URI path - simply append uri */
 			i = base_uri.length();
 
-		std::string result{base_uri.substr(0, i)};
-		result.append(relative_uri);
-		return result;
+		return fmt::format("{}{}"sv, base_uri.substr(0, i), relative_uri);
 	}
 
 	std::string_view relative_path{relative_uri};
@@ -179,8 +179,5 @@ uri_apply_relative(std::string_view relative_uri,
 	if (!ConsumeSpecial(relative_path, base_path))
 		return {};
 
-	std::string result{base_prefix};
-	result.append(base_path);
-	result.append(relative_path);
-	return result;
+	return fmt::format("{}{}{}"sv, base_prefix, base_path, relative_path);
 }
