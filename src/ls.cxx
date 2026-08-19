@@ -9,7 +9,7 @@
 #include "decoder/DecoderPlugin.hxx"
 #include "client/Response.hxx"
 #include "net/Features.hxx" // for HAVE_UN
-#include "util/UriExtract.hxx"
+#include "uri/Extract.hxx"
 
 #include <fmt/format.h>
 
