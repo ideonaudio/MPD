@@ -93,12 +93,8 @@ ConsumeLastSegment(std::string_view &path) noexcept
 
 	path.remove_suffix(1);
 
-	const auto slash = path.rfind('/');
-	if (slash == path.npos)
-		return false;
-
-	path = path.substr(0, slash + 1);
-	return true;
+	path = UriPathWithoutFilename(path);
+	return !path.empty();
 }
 
 static bool
