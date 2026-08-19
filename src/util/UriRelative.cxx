@@ -64,14 +64,18 @@ uri_apply_base(std::string_view uri, std::string_view base) noexcept
 	return out;
 }
 
-static void
-ClearFilename(std::string_view &path) noexcept
+/**
+ * Return the URI path without the last segment (but leave the
+ * trailing slash).
+ */
+static constexpr std::string_view
+UriPathWithoutFilename(std::string_view path) noexcept
 {
 	const auto slash = path.rfind('/');
 	if (slash != path.npos)
-		path = path.substr(0, slash + 1);
+		return path.substr(0, slash + 1);
 	else
-		path = path.substr(0, 0);
+		return path.substr(0, 0);
 }
 
 static void
@@ -167,8 +171,7 @@ uri_apply_relative(std::string_view relative_uri,
 		return result;
 	}
 
-	std::string_view base_path(_base_path);
-	ClearFilename(base_path);
+	std::string_view base_path = UriPathWithoutFilename(_base_path);
 
 	if (!ConsumeSpecial(relative_path, base_path))
 		return {};
