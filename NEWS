@@ -32,6 +32,10 @@ ver 0.25 (not yet released)
 * switch to C++23
 * require Meson 1.2
 
+ver 0.24.15 (not yet released)
+* playlist
+  - asx, rss, xspf: limit to 16 MB
+
 ver 0.24.14 (2026/08/13)
 * storage
   - curl: bound WebDAV PROPFIND responses
