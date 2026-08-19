@@ -109,17 +109,17 @@ ConsumeSpecial(std::string_view &relative_path, std::string_view &base_path) noe
 		} else if (SkipPrefix(relative_path, "../"sv)) {
 			StripLeadingSlashes(relative_path);
 
-			if (base_path.empty())
+			if (base_path.size() <= 1)
+				/* base_path is either already empty
+				   or consists of a single slash: we
+				   can't strip the last segment,
+				   therefore fail */
 				return false;
 
-			if (base_path.front() != '/' &&
-				base_path.find('/') == base_path.size() - 1)
-				base_path = base_path.substr(0, 0);
-			else {
-				base_path = UriPathWithoutLastSegment(base_path);
-				if (base_path.empty())
-					return false;
-			}
+			base_path = UriPathWithoutLastSegment(base_path);
+
+			/* if base_path did not start with a slash, it
+			   may now be empty */
 		} else if (relative_path == "."sv) {
 			relative_path.remove_prefix(1);
 			return true;
