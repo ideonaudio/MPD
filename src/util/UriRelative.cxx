@@ -85,16 +85,19 @@ StripLeadingSlashes(std::string_view &s) noexcept
 		s.remove_prefix(1);
 }
 
-static bool
-ConsumeLastSegment(std::string_view &path) noexcept
+/**
+ * Return the URI path (ending with a slash) without the last segment
+ * (still ending with a slash).  May return an empty string no slash
+ * remains.
+ */
+static constexpr std::string_view
+UriPathWithoutLastSegment(std::string_view path) noexcept
 {
 	assert(!path.empty());
 	assert(path.back() == '/');
 
 	path.remove_suffix(1);
-
-	path = UriPathWithoutFilename(path);
-	return !path.empty();
+	return UriPathWithoutFilename(path);
 }
 
 static bool
@@ -112,8 +115,11 @@ ConsumeSpecial(std::string_view &relative_path, std::string_view &base_path) noe
 			if (base_path.front() != '/' &&
 				base_path.find('/') == base_path.size() - 1)
 				base_path = base_path.substr(0, 0);
-			else if (!ConsumeLastSegment(base_path))
-				return false;
+			else {
+				base_path = UriPathWithoutLastSegment(base_path);
+				if (base_path.empty())
+					return false;
+			}
 		} else if (relative_path == "."sv) {
 			relative_path.remove_prefix(1);
 			return true;
