@@ -7,9 +7,9 @@
 #include "fs/AllocatedPath.hxx"
 #include "ls.hxx"
 #include "storage/Registry.hxx"
+#include "uri/Extract.hxx"
+#include "uri/Util.hxx"
 #include "util/StringCompare.hxx"
-#include "util/UriExtract.hxx"
-#include "util/UriUtil.hxx"
 
 #ifdef ENABLE_DATABASE
 #include "storage/StorageInterface.hxx"
@@ -110,7 +110,7 @@ LocateUri(UriPluginKind kind,
 				     , storage
 #endif
 				     );
-	else if (uri_has_scheme(uri))
+	else if (UriHasScheme(uri))
 		return LocateAbsoluteUri(kind, uri
 #ifdef ENABLE_DATABASE
 					 , storage

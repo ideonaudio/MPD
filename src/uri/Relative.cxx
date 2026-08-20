@@ -1,11 +1,13 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // author: Max Kellermann <max.kellermann@gmail.com>
 
-#include "UriRelative.hxx"
-#include "UriExtract.hxx"
-#include "StringAPI.hxx"
-#include "StringCompare.hxx"
-#include "Compiler.h"
+#include "Relative.hxx"
+#include "Extract.hxx"
+#include "util/StringAPI.hxx"
+#include "util/StringCompare.hxx"
+#include "util/Compiler.h"
+
+#include <fmt/format.h>
 
 #include <cassert>
 
@@ -135,7 +137,7 @@ uri_apply_relative(std::string_view relative_uri,
 	if (relative_uri.empty())
 		return std::string(base_uri);
 
-	if (uri_has_scheme(relative_uri))
+	if (UriHasScheme(relative_uri))
 		return std::string(relative_uri);
 
 	// TODO: support double slash at beginning of relative_uri
@@ -153,14 +155,12 @@ uri_apply_relative(std::string_view relative_uri,
 			/* there's no URI path - simply append uri */
 			i = base_uri.length();
 
-		std::string result{base_uri.substr(0, i)};
-		result.append(relative_uri);
-		return result;
+		return fmt::format("{}{}"sv, base_uri.substr(0, i), relative_uri);
 	}
 
 	std::string_view relative_path{relative_uri};
 
-	const auto _base_path = uri_get_path(base_uri);
+	const auto _base_path = UriGetPath(base_uri);
 	if (_base_path.data() == nullptr) {
 		std::string result(base_uri);
 		if (relative_path.front() != '/')
@@ -173,13 +173,11 @@ uri_apply_relative(std::string_view relative_uri,
 		return result;
 	}
 
+	const std::string_view base_prefix = {base_uri.data(), _base_path.data()};
 	std::string_view base_path = UriPathWithoutFilename(_base_path);
 
 	if (!ConsumeSpecial(relative_path, base_path))
 		return {};
 
-	std::string result(base_uri.data(), _base_path.data());
-	result.append(base_path);
-	result.append(relative_path);
-	return result;
+	return fmt::format("{}{}{}"sv, base_prefix, base_path, relative_path);
 }

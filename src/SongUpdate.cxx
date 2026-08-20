@@ -17,7 +17,7 @@
 #include "tag/Builder.hxx"
 #include "TagFile.hxx"
 #include "TagStream.hxx"
-#include "util/UriExtract.hxx"
+#include "uri/Extract.hxx"
 
 #include "archive/Features.h" // for ENABLE_ARCHIVE
 #ifdef ENABLE_ARCHIVE
@@ -42,7 +42,7 @@ SongPtr
 Song::LoadFile(Storage &storage, std::string_view path_utf8,
 	       const StorageFileInfo &info, Directory &parent)
 {
-	assert(!uri_has_scheme(path_utf8));
+	assert(!UriHasScheme(path_utf8));
 	assert(VerifyRelativePathUTF8(path_utf8));
 
 	auto song = std::make_unique<Song>(path_utf8, parent);
@@ -97,7 +97,7 @@ SongPtr
 Song::LoadFromArchive(ArchiveFile &archive, std::string_view name_utf8,
 		      Directory &parent) noexcept
 {
-	assert(!uri_has_scheme(name_utf8));
+	assert(!UriHasScheme(name_utf8));
 	assert(VerifyRelativePathUTF8(name_utf8));
 
 	auto song = std::make_unique<Song>(name_utf8, parent);

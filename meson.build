@@ -473,6 +473,7 @@ if enable_database
 endif
 
 subdir('src/util')
+subdir('src/uri')
 subdir('src/protocol')
 subdir('src/cmdline')
 subdir('src/time')
@@ -656,6 +657,7 @@ mpd = build_target(
     memory_dep,
     fmt_dep,
     protocol_dep,
+    uri_dep,
   ],
   link_args: link_args,
   build_by_default: not get_option('fuzzer'),

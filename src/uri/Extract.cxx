@@ -1,20 +1,21 @@
 // SPDX-License-Identifier: BSD-2-Clause
 // author: Max Kellermann <max.kellermann@gmail.com>
 
-#include "UriExtract.hxx"
-#include "CharUtil.hxx"
-#include "StringSplit.hxx"
+#include "Extract.hxx"
+#include "util/CharUtil.hxx"
+#include "util/StringSplit.hxx"
+#include "util/StringVerify.hxx"
 
 #include <cstring>
 
 static constexpr bool
-IsValidSchemeStart(char ch)
+IsValidSchemeStart(char ch) noexcept
 {
 	return IsLowerAlphaASCII(ch);
 }
 
 static constexpr bool
-IsValidSchemeChar(char ch)
+IsValidSchemeChar(char ch) noexcept
 {
 	return IsLowerAlphaASCII(ch) || IsDigitASCII(ch) ||
 		ch == '+' || ch == '.' || ch == '-';
@@ -27,45 +28,17 @@ IsValidScheme(std::string_view p) noexcept
 	if (p.empty() || !IsValidSchemeStart(p.front()))
 		return false;
 
-	for (size_t i = 1; i < p.size(); ++i)
-		if (!IsValidSchemeChar(p[i]))
-			return false;
-
-	return true;
-}
-
-/**
- * Return the URI part after the scheme specification (and after the
- * double slash).
- */
-[[gnu::pure]]
-static std::string_view
-uri_after_scheme(std::string_view uri) noexcept
-{
-	if (uri.length() > 2 &&
-	    uri[0] == '/' && uri[1] == '/' && uri[2] != '/')
-		return uri.substr(2);
-
-	auto colon = uri.find(':');
-	if (colon == std::string_view::npos ||
-	    !IsValidScheme(uri.substr(0, colon)))
-		return {};
-
-	uri = uri.substr(colon + 1);
-	if (uri[0] != '/' || uri[1] != '/')
-		return {};
-
-	return uri.substr(2);
+	return CheckChars(p.substr(1), IsValidSchemeChar);
 }
 
 bool
-uri_has_scheme(std::string_view uri) noexcept
+UriHasScheme(std::string_view uri) noexcept
 {
-	return !uri_get_scheme(uri).empty();
+	return !UriGetScheme(uri).empty();
 }
 
 std::string_view
-uri_get_scheme(std::string_view uri) noexcept
+UriGetScheme(std::string_view uri) noexcept
 {
 	auto end = uri.find("://");
 	if (end == std::string_view::npos)
@@ -74,17 +47,31 @@ uri_get_scheme(std::string_view uri) noexcept
 	return uri.substr(0, end);
 }
 
-bool
-uri_is_relative_path(const char *uri) noexcept
+std::string_view
+UriAfterScheme(std::string_view uri) noexcept
 {
-	return !uri_has_scheme(uri) && *uri != '/';
+	if (uri.size() > 2 && uri[0] == '/' && uri[1] == '/' && uri[2] != '/')
+		return uri.substr(2);
+
+	const auto [scheme, rest] = Split(uri, ':');
+	if (IsValidScheme(scheme) &&
+	    rest.size() > 2 && rest[0] == '/' && rest[1] == '/' &&
+	    rest[2] != '/')
+		return rest.substr(2);
+
+	return {};
+}
+
+bool
+UriIsRelativePath(const char *uri) noexcept
+{
+	return !UriHasScheme(uri) && *uri != '/';
 }
 
 std::string_view
-uri_get_path_query_fragment(std::string_view uri) noexcept
+UriPathQueryFragment(std::string_view uri) noexcept
 {
-	auto ap = uri_after_scheme(uri);
-	if (ap.data() != nullptr) {
+	if (std::string_view ap = UriAfterScheme(uri); ap.data() != nullptr) {
 		auto slash = ap.find('/');
 		if (slash == std::string_view::npos)
 			return {};
@@ -102,9 +89,9 @@ UriWithoutQueryString(std::string_view uri) noexcept
 }
 
 std::string_view
-uri_get_path(std::string_view uri) noexcept
+UriGetPath(std::string_view uri) noexcept
 {
-	auto path = uri_get_path_query_fragment(uri);
+	auto path = UriPathQueryFragment(uri);
 	if (path.data() == nullptr || path.data() == uri.data())
 		/* preserve query and fragment if this URI doesn't
 		   have a scheme; the question mark may be part of the
@@ -120,7 +107,7 @@ uri_get_path(std::string_view uri) noexcept
 
 /* suffixes should be ascii only characters */
 std::string_view
-uri_get_suffix(std::string_view _uri) noexcept
+UriGetSuffix(std::string_view _uri) noexcept
 {
 	const auto uri = UriWithoutQueryString(_uri);
 
@@ -139,7 +126,7 @@ uri_get_suffix(std::string_view _uri) noexcept
 }
 
 const char *
-uri_get_fragment(const char *uri) noexcept
+UriGetFragment(const char *uri) noexcept
 {
 	const char *fragment = std::strchr(uri, '#');
 	if (fragment == nullptr)

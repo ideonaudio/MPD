@@ -9,7 +9,7 @@
 #include "decoder/DecoderPlugin.hxx"
 #include "client/Response.hxx"
 #include "net/Features.hxx" // for HAVE_UN
-#include "util/UriExtract.hxx"
+#include "uri/Extract.hxx"
 
 #include <fmt/format.h>
 
@@ -64,7 +64,7 @@ print_supported_uri_schemes(Response &r)
 bool
 uri_supported_scheme(const std::string_view uri) noexcept
 {
-	assert(uri_has_scheme(uri));
+	assert(UriHasScheme(uri));
 
 	for (const auto &plugin : GetEnabledInputPlugins()) {
 		if (plugin.SupportsUri(uri))

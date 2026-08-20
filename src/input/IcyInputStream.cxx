@@ -4,8 +4,8 @@
 #include "IcyInputStream.hxx"
 #include "tag/IcyMetaDataParser.hxx"
 #include "tag/Tag.hxx"
-#include "util/UriExtract.hxx"
-#include "util/UriQueryParser.hxx"
+#include "uri/Extract.hxx"
+#include "uri/QueryParser.hxx"
 
 #include <string>
 
@@ -14,7 +14,7 @@ IcyInputStream::IcyInputStream(InputStreamPtr _input,
 	:ProxyInputStream(std::move(_input)), parser(std::move(_parser))
 {
 #ifdef HAVE_ICU_CONVERTER
-	const char *fragment = uri_get_fragment(GetURI());
+	const char *fragment = UriGetFragment(GetURI());
 	if (fragment != nullptr) {
 		const auto charset = UriFindRawQueryParameter(fragment,
 							      "charset");

@@ -29,9 +29,9 @@
 
 #ifdef HAVE_ICU_CONVERTER
 #include "lib/icu/Converter.hxx"
+#include "uri/Extract.hxx"
+#include "uri/QueryParser.hxx"
 #include "util/AllocatedString.hxx"
-#include "util/UriExtract.hxx"
-#include "util/UriQueryParser.hxx"
 #endif
 
 #include <fmt/format.h>
@@ -223,7 +223,7 @@ CurlInputStream::FreeEasyIndirect() noexcept
 static std::unique_ptr<IcuConverter>
 CreateIcuConverterForUri(const char *uri)
 {
-	const char *fragment = uri_get_fragment(uri);
+	const char *fragment = UriGetFragment(uri);
 	if (fragment == nullptr)
 		return nullptr;
 

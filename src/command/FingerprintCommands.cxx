@@ -18,8 +18,8 @@
 #include "thread/Mutex.hxx"
 #include "thread/Cond.hxx"
 #include "system/Error.hxx"
+#include "uri/Extract.hxx"
 #include "util/MimeType.hxx"
-#include "util/UriExtract.hxx"
 
 #include <fmt/format.h>
 
@@ -150,7 +150,7 @@ GetChromaprintCommand::DecodeStream(InputStream &is,
 inline void
 GetChromaprintCommand::DecodeStream(InputStream &is)
 {
-	const auto suffix = uri_get_suffix(uri);
+	const auto suffix = UriGetSuffix(uri);
 
 	for (const auto &plugin : GetEnabledDecoderPlugins()) {
 		if (DecodeStream(is, suffix, plugin))
@@ -338,7 +338,7 @@ handle_getfingerprint(Client &client, Request args, Response &)
 			lu.path = storage->MapFS(lu.canonical_uri);
 			if (lu.path.IsNull()) {
 				uri = storage->MapUTF8(lu.canonical_uri);
-				if (!uri_has_scheme(uri))
+				if (!UriHasScheme(uri))
 					throw ProtocolError(ACK_ERROR_NO_EXIST, "No such song");
 			}
 		}

@@ -14,7 +14,7 @@
 #include "fs/FileSystem.hxx"
 #include "io/FileOutputStream.hxx"
 #include "io/BufferedOutputStream.hxx"
-#include "util/UriExtract.hxx"
+#include "uri/Extract.hxx"
 
 #include <fmt/format.h>
 
@@ -54,7 +54,7 @@ playlist_print_uri(BufferedOutputStream &os, const char *uri)
 	try {
 		auto path =
 #ifdef ENABLE_DATABASE
-			playlist_saveAbsolutePaths && !uri_has_scheme(uri) &&
+			playlist_saveAbsolutePaths && !UriHasScheme(uri) &&
 			!PathTraitsUTF8::IsAbsolute(uri)
 			? map_uri_fs(uri)
 			:

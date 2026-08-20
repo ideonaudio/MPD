@@ -11,18 +11,26 @@
  */
 [[gnu::pure]]
 bool
-uri_has_scheme(std::string_view uri) noexcept;
+UriHasScheme(std::string_view uri) noexcept;
 
 /**
  * Returns the scheme name of the specified URI, or an empty string.
  */
 [[gnu::pure]]
 std::string_view
-uri_get_scheme(std::string_view uri) noexcept;
+UriGetScheme(std::string_view uri) noexcept;
+
+/**
+ * Return the URI part after the protocol specification (and after the
+ * double slash).
+ */
+[[gnu::pure]]
+std::string_view
+UriAfterScheme(std::string_view uri) noexcept;
 
 [[gnu::pure]]
 bool
-uri_is_relative_path(const char *uri) noexcept;
+UriIsRelativePath(const char *uri) noexcept;
 
 /**
  * Returns the URI path (including query and fragment) or nullptr if
@@ -30,7 +38,7 @@ uri_is_relative_path(const char *uri) noexcept;
  */
 [[gnu::pure]]
 std::string_view
-uri_get_path_query_fragment(std::string_view uri) noexcept;
+UriPathQueryFragment(std::string_view uri) noexcept;
 
 /**
  * Returns the URI path (excluding query and fragment) or nullptr if
@@ -38,11 +46,11 @@ uri_get_path_query_fragment(std::string_view uri) noexcept;
  */
 [[gnu::pure]]
 std::string_view
-uri_get_path(std::string_view uri) noexcept;
+UriGetPath(std::string_view uri) noexcept;
 
 [[gnu::pure]]
 std::string_view
-uri_get_suffix(std::string_view uri) noexcept;
+UriGetSuffix(std::string_view uri) noexcept;
 
 /**
  * Returns the URI fragment, i.e. the portion after the '#', but
@@ -52,4 +60,4 @@ uri_get_suffix(std::string_view uri) noexcept;
  */
 [[gnu::pure]] [[gnu::nonnull]]
 const char *
-uri_get_fragment(const char *uri) noexcept;
+UriGetFragment(const char *uri) noexcept;

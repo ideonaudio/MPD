@@ -16,13 +16,13 @@
 #include "lib/fmt/RuntimeError.hxx"
 #include "thread/ScopeUnlock.hxx"
 #include "system/Error.hxx"
+#include "uri/Extract.hxx"
+#include "uri/QueryParser.hxx"
+#include "uri/Util.hxx"
 #include "util/MimeType.hxx"
-#include "util/UriExtract.hxx"
-#include "util/UriUtil.hxx"
 #include "util/Domain.hxx"
 #include "util/ScopeExit.hxx"
 #include "util/StringCompare.hxx"
-#include "util/UriQueryParser.hxx"
 #include "thread/Name.hxx"
 #include "tag/ApeReplayGain.hxx"
 #include "tag/ReplayGainParser.hxx"
@@ -232,7 +232,7 @@ decoder_run_stream_locked(DecoderBridge &bridge, InputStream &is,
 			  std::unique_lock<Mutex> &lock,
 			  std::string_view uri)
 {
-	const auto suffix = uri_get_suffix(uri);
+	const auto suffix = UriGetSuffix(uri);
 
 	DecodeResult result = DecodeResult::NO_PLUGIN;
 	for (const auto &plugin : GetEnabledDecoderPlugins()) {
@@ -281,7 +281,7 @@ LoadReplayGain(DecoderClient &client, InputStream &is)
 	if (replay_gain_ape_read(is, info))
 		client.SubmitReplayGain(&info);
 
-	const char *fragment = uri_get_fragment(is.GetURI());
+	const char *fragment = UriGetFragment(is.GetURI());
 	if (fragment != nullptr) {
 		const auto gain = UriFindRawQueryParameter(fragment, "gain");
 		if (gain.data() != nullptr) {
