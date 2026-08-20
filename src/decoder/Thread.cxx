@@ -232,7 +232,7 @@ decoder_run_stream_locked(DecoderBridge &bridge, InputStream &is,
 			  std::unique_lock<Mutex> &lock,
 			  std::string_view uri)
 {
-	const auto suffix = uri_get_suffix(uri);
+	const auto suffix = UriGetSuffix(uri);
 
 	DecodeResult result = DecodeResult::NO_PLUGIN;
 	for (const auto &plugin : GetEnabledDecoderPlugins()) {
@@ -281,7 +281,7 @@ LoadReplayGain(DecoderClient &client, InputStream &is)
 	if (replay_gain_ape_read(is, info))
 		client.SubmitReplayGain(&info);
 
-	const char *fragment = uri_get_fragment(is.GetURI());
+	const char *fragment = UriGetFragment(is.GetURI());
 	if (fragment != nullptr) {
 		const auto gain = UriFindRawQueryParameter(fragment, "gain");
 		if (gain.data() != nullptr) {

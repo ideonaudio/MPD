@@ -480,7 +480,7 @@ CurlStorage::GetInfo(std::string_view uri_utf8, [[maybe_unused]] bool follow)
 static std::string_view
 UriPathOrSlash(const char *uri) noexcept
 {
-	auto path = uri_get_path(uri);
+	auto path = UriGetPath(uri);
 	if (path.data() == nullptr)
 		path = "/";
 	return path;
@@ -517,7 +517,7 @@ private:
 	 */
 	[[gnu::pure]]
 	std::string_view HrefToEscapedName(const char *href) const noexcept {
-		std::string_view path = uri_get_path(href);
+		std::string_view path = UriGetPath(href);
 		if (path.data() == nullptr)
 			return {};
 
