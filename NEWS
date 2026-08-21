@@ -2,7 +2,7 @@ ver 0.24.15 (not yet released)
 * protocol
   - fix crash on "sticker delete"
 * playlist
-  - asx, rss, xspf: limit to 16 MB
+  - asx, pls, rss, xspf: limit to 16 MB
   - cue: fix problem playing CUE tracks in music directory root
 
 ver 0.24.14 (2026/08/13)
