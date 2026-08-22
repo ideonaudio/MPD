@@ -84,7 +84,12 @@ public:
 			   ? sticker_database.Delete(sticker_type, validated_uri)
 			   : sticker_database.DeleteValue(sticker_type, validated_uri, name);
 		if (!ret) {
-			response.FmtError(ACK_ERROR_NO_EXIST, "no such sticker: {:?}", name);
+			if (name == nullptr)
+				response.FmtError(ACK_ERROR_NO_EXIST,
+						  "no stickers found: {:?}", uri);
+			else
+				response.FmtError(ACK_ERROR_NO_EXIST,
+						  "no such sticker: {:?}", name);
 			return CommandResult::ERROR;
 		}
 
