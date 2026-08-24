@@ -27,7 +27,7 @@ playlist_provider_print(Response &r,
 			SongEnumerator &e,
 			unsigned start_index,
 			unsigned end_index,
-			bool detail) noexcept
+			bool detail)
 {
 	const auto base_uri = PathTraitsUTF8::GetParent(uri);
 
@@ -59,7 +59,7 @@ playlist_provider_search_print(Response &r,
 			       SongEnumerator &e,
 			       unsigned start_index,
 			       unsigned end_index,
-			       SongFilter *filter) noexcept
+			       SongFilter *filter)
 {
 	const auto base_uri = PathTraitsUTF8::GetParent(uri);
 
