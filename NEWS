@@ -1,6 +1,8 @@
 ver 0.24.15 (not yet released)
 * protocol
   - fix crash on "sticker delete"
+* database
+  - upnp: fix crash bug
 * input
   - alsa, curl, nfs: fix stalled transfers
 * playlist
