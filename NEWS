@@ -1,4 +1,4 @@
-ver 0.24.15 (not yet released)
+ver 0.24.15 (2026/08/27)
 * protocol
   - fix crash on "sticker delete" and "sticker find"
 * database
