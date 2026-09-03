@@ -207,7 +207,6 @@ sacdiso_container_scan(Path path_fs)
 
 	TagBuilder tag_builder;
 	auto tail = list.before_begin();
-	unsigned total_tracks = 0;
 
 	// Add stereo tracks
 	if (disc.HasStereoArea() && config.playable_area != AreaId::Multichannel) {
@@ -223,7 +222,6 @@ sacdiso_container_scan(Path path_fs)
 				tail,
 				GenerateTrackName(AreaId::Stereo, i).c_str(),
 				tag_builder.Commit());
-			++total_tracks;
 		}
 	}
 
@@ -241,7 +239,6 @@ sacdiso_container_scan(Path path_fs)
 				tail,
 				GenerateTrackName(AreaId::Multichannel, i).c_str(),
 				tag_builder.Commit());
-			++total_tracks;
 		}
 	}
 

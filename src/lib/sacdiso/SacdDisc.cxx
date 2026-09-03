@@ -596,7 +596,6 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 	const std::byte* ptr = area_data + kLsnSize;
 	const std::byte* end = area_data + area_size;
 	bool found_trl1 = false;
-	unsigned sector_num = 1;
 
 	while (ptr + kLsnSize <= end) {
 		const auto* trl1 = reinterpret_cast<const TrackListOffset*>(ptr);
@@ -628,7 +627,6 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 			break;
 		}
 		ptr += kLsnSize;
-		++sector_num;
 	}
 
 	if (!found_trl1)
@@ -636,7 +634,6 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 
 	// Find SACDTRL2 (track times)
 	ptr = area_data + kLsnSize;
-	sector_num = 1;
 	while (ptr + kLsnSize <= end) {
 		const auto* trl2 = reinterpret_cast<const TrackListTime*>(ptr);
 		if (trl2->IsValid()) {
@@ -661,7 +658,6 @@ Disc::ReadTrackList(AreaInfo& area, const std::byte* area_data, std::size_t area
 			break;
 		}
 		ptr += kLsnSize;
-		++sector_num;
 	}
 
 	return !area.tracks.empty();
@@ -684,7 +680,6 @@ Disc::ReadTrackText(AreaInfo& area, const std::byte* area_data, std::size_t area
 	const std::byte* ptr = area_data + kLsnSize;  // Skip first sector (AreaToc header)
 	const std::byte* end = area_data + area_size;
 	bool found_text = false;
-	unsigned sector_num = 1;
 
 	/* The position array is indexed with a uint8_t track_count, so
 	   requiring a full sector here keeps those reads in bounds. */
@@ -836,7 +831,6 @@ Disc::ReadTrackText(AreaInfo& area, const std::byte* area_data, std::size_t area
 			break;  // Found and processed SACDTTxt
 		}
 		ptr += kLsnSize;
-		++sector_num;
 	}
 
 	if (!found_text)
