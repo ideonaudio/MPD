@@ -32,9 +32,11 @@ ver 0.25 (not yet released)
 * switch to C++23
 * require Meson 1.2
 
-ver 0.24.15 (not yet released)
+ver 0.24.15 (2026/08/27)
 * protocol
-  - fix crash on "sticker delete"
+  - fix crash on "sticker delete" and "sticker find"
+* database
+  - upnp: fix crash bug
 * input
   - alsa, curl, nfs: fix stalled transfers
 * playlist
