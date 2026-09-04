@@ -574,8 +574,8 @@ libmpg123 = AutotoolsProject(
 )
 
 libnfs = AutotoolsProject(
-    'https://github.com/sahlberg/libnfs/archive/libnfs-7.0.0.tar.gz',
-    'd25c70537d60f1ab307b9cb5e9fb01acff71065fc9547b54dfaec109ba993003',
+    'https://github.com/sahlberg/libnfs/archive/libnfs-7.0.1.tar.gz',
+    'ba62a2705f7100727b8ea37741e6bb6d5e2ff9ec61fee4d77360793eca5eddc2',
     'lib/libnfs.a',
     [
         '--disable-shared', '--enable-static',
@@ -587,6 +587,6 @@ libnfs = AutotoolsProject(
         '--disable-utils', '--disable-examples',
         '--without-libkrb5',
     ],
-    base='libnfs-libnfs-7.0.0',
+    base='libnfs-libnfs-7.0.1',
     autoreconf=True,
 )
