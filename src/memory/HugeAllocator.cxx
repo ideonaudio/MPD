@@ -58,6 +58,8 @@ HugeDiscard(std::span<std::byte> p) noexcept
 
 #elif defined(_WIN32)
 
+#include <new> // for std::bad_alloc
+
 std::span<std::byte>
 HugeAllocate(size_t size)
 {

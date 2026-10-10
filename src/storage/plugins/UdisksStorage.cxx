@@ -23,6 +23,7 @@
 #include "event/Call.hxx"
 #include "event/InjectEvent.hxx"
 #include "fs/AllocatedPath.hxx"
+#include "uri/Util.hxx"
 #include "util/Domain.hxx"
 #include "util/StringCompare.hxx"
 #include "util/StringSplit.hxx"
@@ -49,13 +50,19 @@ class UdisksStorage final : public Storage {
 	mutable Mutex mutex;
 	Cond cond;
 
-	bool want_mount = false;
-
 	std::unique_ptr<Storage> mounted_storage;
 
 	std::exception_ptr mount_error;
 
 	InjectEvent defer_mount, defer_unmount;
+
+	bool want_mount = false;
+
+	/**
+	 * Was #mounted_storage mounted by us?  If not (i.e. it was
+	 * already mounted), it must not be unmounted.
+	 */
+	bool did_mount = false;
 
 public:
 	template<typename B, typename I, typename IP>
@@ -70,12 +77,7 @@ public:
 
 	~UdisksStorage() noexcept override {
 		if (list_request || mount_request)
-			BlockingCall(GetEventLoop(), [this](){
-					if (list_request)
-						list_request.Cancel();
-					if (mount_request)
-						mount_request.Cancel();
-				});
+			CancelIndirect();
 
 		try {
 			UnmountWait();
@@ -125,6 +127,17 @@ public:
 	}
 
 private:
+	void Cancel() noexcept {
+		if (list_request)
+			list_request.Cancel();
+		if (mount_request)
+			mount_request.Cancel();
+	}
+
+	void CancelIndirect() noexcept {
+		BlockingCall(GetEventLoop(), [this](){ Cancel(); });
+	}
+
 	void SetMountPoint(Path mount_point);
 	void LockSetMountPoint(Path mount_point);
 
@@ -145,6 +158,7 @@ UdisksStorage::SetMountPoint(Path mount_point)
 	mounted_storage = inside_path.IsNull()
 		? CreateLocalStorage(mount_point)
 		: CreateLocalStorage(mount_point / inside_path);
+	did_mount = false;
 
 	mount_error = {};
 	want_mount = false;
@@ -259,7 +273,10 @@ try {
 		throw std::runtime_error("Malformed 'Mount' response");
 
 	const char *mount_path = i.GetString();
-	LockSetMountPoint(Path::FromFS(mount_path));
+
+	const std::lock_guard lock{mutex};
+	SetMountPoint(Path::FromFS(mount_path));
+	did_mount = true;
 } catch (...) {
 	const std::lock_guard lock{mutex};
 	mount_error = std::current_exception();
@@ -275,6 +292,12 @@ UdisksStorage::UnmountWait()
 	if (!mounted_storage)
 		/* not mounted */
 		return;
+
+	if (!did_mount) {
+		/* somebody else has mounted it; leave it alone */
+		mounted_storage.reset();
+		return;
+	}
 
 	defer_unmount.Schedule();
 
@@ -358,6 +381,10 @@ CreateUdisksStorageURI(EventLoop &event_loop, std::string_view base_uri)
 
 	while (relative_path.starts_with('/'))
 		relative_path = relative_path.substr(1);
+
+	if (!relative_path.empty() && !uri_safe_local(relative_path))
+		/* don't allow escaping the mount point with ".." */
+		throw std::invalid_argument{"Malformed udisks:// URI"};
 
 	auto inside_path = !relative_path.empty()
 		? AllocatedPath::FromUTF8Throw(relative_path)

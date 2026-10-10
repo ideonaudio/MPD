@@ -145,7 +145,8 @@ playlist::PlayNext(PlayerControl &pc)
 	assert(!queue.IsEmpty());
 	assert(queue.IsValidOrder(current));
 
-	const int old_current = current;
+	const unsigned old_current_position =
+		queue.OrderToPosition(current);
 	stop_on_error = false;
 
 	/* determine the next song from the queue's order list */
@@ -160,14 +161,15 @@ playlist::PlayNext(PlayerControl &pc)
 	}
 	else
 	{
-		if (next_order == 0 && queue.random) {
+		if (next_order == 0 && queue.random &&
+		    queue.single == SingleMode::OFF) {
 			/* The queue told us that the next song is the first
 			   song.  This means we are in repeat mode.  Shuffle
 			   the queue order, so this time, the user hears the
 			   songs in a different than before */
 			assert(queue.repeat);
 
-			queue.ShuffleOrder();
+			queue.ShuffleOrder(old_current_position);
 
 			/* note that current and queued are
 			   now invalid, but PlayOrder() will
@@ -179,7 +181,7 @@ playlist::PlayNext(PlayerControl &pc)
 
 	/* Consume mode removes each played songs. */
 	if (queue.consume != ConsumeMode::OFF)
-		DeleteOrder(pc, old_current);
+		DeletePosition(pc, old_current_position);
 
 	/* Disable consume mode after consuming one song in oneshot mode. */
 	if (queue.consume == ConsumeMode::ONE_SHOT) {

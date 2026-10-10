@@ -32,6 +32,8 @@
 #include <string.h>
 #include <stdlib.h>
 
+using std::string_view_literals::operator""sv;
+
 UpdateWalk::UpdateWalk(const UpdateConfig &_config,
 		       EventLoop &_loop, DatabaseListener &_listener,
 		       Storage &_storage) noexcept
@@ -180,6 +182,23 @@ FindAncestorLoop(Storage &storage, Directory *parent,
 	return 0;
 }
 
+/**
+ * The maximum nesting depth of directories.  This limit protects
+ * against stack overflows caused by (malicious) remote #Storage
+ * implementations which present a directory tree of unlimited depth.
+ */
+static constexpr unsigned MAX_DIRECTORY_DEPTH = 64;
+
+[[gnu::pure]]
+static unsigned
+GetDepth(const Directory &directory) noexcept
+{
+	unsigned depth = 0;
+	for (const Directory *i = directory.parent; i != nullptr; i = i->parent)
+		++depth;
+	return depth;
+}
+
 inline bool
 UpdateWalk::UpdateRegularFile(Directory &directory,
 			      const char *name,
@@ -199,11 +218,18 @@ UpdateWalk::UpdateDirectoryChild(Directory &directory,
 				 const ExcludeList &exclude_list,
 				 const char *name, const StorageFileInfo &info) noexcept
 try {
-	assert(std::strchr(name, '/') == nullptr);
+	assert(PathTraitsUTF8::IsValidFilename(name));
 
 	if (info.IsRegular()) {
 		UpdateRegularFile(directory, name, info);
 	} else if (info.IsDirectory()) {
+		if (GetDepth(directory) >= MAX_DIRECTORY_DEPTH) {
+			FmtError(update_domain,
+				 "Directory nesting too deep: {:?}/{:?}"sv,
+				 directory.GetPath(), name);
+			return;
+		}
+
 		if (FindAncestorLoop(storage, &directory,
 					info.inode, info.device))
 			return;
@@ -352,6 +378,9 @@ UpdateWalk::UpdateDirectory(Directory &directory,
 
 	const char *name_utf8;
 	while (!cancel && (name_utf8 = reader->Read()) != nullptr) {
+		/* guaranteed by the StorageDirectoryReader API */
+		assert(PathTraitsUTF8::IsValidFilename(name_utf8));
+
 		if (!VerifySeenFilenameUTF8(name_utf8))
 			continue;
 

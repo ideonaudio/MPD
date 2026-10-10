@@ -16,6 +16,7 @@
 #include "../AsyncInputStream.hxx"
 #include "event/Call.hxx"
 #include "config/Block.hxx"
+#include "util/CharUtil.hxx"
 #include "util/Domain.hxx"
 #include "util/StringCompare.hxx"
 #include "util/StringSplit.hxx"
@@ -30,6 +31,7 @@
 #include <fmt/format.h>
 
 #include <cassert>
+#include <stdexcept>
 
 #include <string.h>
 
@@ -193,6 +195,43 @@ AlsaInputStream::AlsaInputStream(EventLoop &_loop,
 	defer_invalidate_sockets.Schedule();
 }
 
+/**
+ * Is this ALSA PCM name safe to be opened on behalf of a client?
+ * ALSA PCM names are configuration expressions; some plugins
+ * defined by the standard alsa-lib configuration (e.g. "file" and
+ * "tee") write to arbitrary files.  Plugins can be nested, and
+ * quoted arguments interpret backslash escapes.
+ */
+[[gnu::pure]]
+static bool
+ContainsPluginInvocation(std::string_view name,
+			 std::string_view plugin) noexcept
+{
+	for (std::size_t i = 0; (i = name.find(plugin, i)) != name.npos; ++i) {
+		if (i == 0)
+			return true;
+
+		const char previous = name[i - 1];
+		if (previous == ':' || previous == ',' || previous == '=' ||
+		    previous == '.' || previous == '\'' || previous == '"' ||
+		    IsWhitespaceNotNull(previous))
+			return true;
+	}
+
+	return false;
+}
+
+[[gnu::pure]]
+static bool
+IsSafeDeviceName(std::string_view name) noexcept
+{
+	const auto plugin = Split(name, ':').first;
+	return plugin != "file"sv && plugin != "tee"sv &&
+		!ContainsPluginInvocation(name, "file:"sv) &&
+		!ContainsPluginInvocation(name, "tee:"sv) &&
+		name.find_first_of("{}\\/|"sv) == name.npos;
+}
+
 inline InputStreamPtr
 AlsaInputStream::Create(EventLoop &event_loop, std::string_view uri,
 			Mutex &mutex)
@@ -200,6 +239,14 @@ AlsaInputStream::Create(EventLoop &event_loop, std::string_view uri,
 	AlsaInputStream::SourceSpec spec(uri);
 	if (!spec.IsValidScheme())
 		return nullptr;
+
+	if (!spec.IsValid())
+		/* the query string is present, but it does not
+		   specify a format */
+		throw std::invalid_argument{"Malformed alsa:// URI"};
+
+	if (!IsSafeDeviceName(spec.GetDeviceName()))
+		throw std::invalid_argument{"Forbidden ALSA device name"};
 
 	return std::make_unique<AlsaInputStream>(event_loop, mutex, spec);
 }
