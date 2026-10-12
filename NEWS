@@ -8,6 +8,7 @@ ver 0.25 (not yet released)
   - song property "RealUri"
 * decoder
   - sacdiso: new plugin for SACD ISO images
+  - dsf: support DSD1024
   - faad: implement seeking
   - faad: output 32 bit floating point samples instead of 16 bit integer
   - psgplay: new plugin
