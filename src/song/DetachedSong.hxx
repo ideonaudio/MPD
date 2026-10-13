@@ -117,8 +117,8 @@ public:
 	explicit operator LightSong() const noexcept;
 
 	[[gnu::pure]]
-	const char *GetURI() const noexcept {
-		return uri.c_str();
+	std::string_view GetURI() const noexcept {
+		return uri;
 	}
 
 	template<typename T>
@@ -140,8 +140,8 @@ public:
 	 * GetURI().
 	 */
 	[[gnu::pure]]
-	const char *GetRealURI() const noexcept {
-		return (HasRealURI() ? real_uri : uri).c_str();
+	std::string_view GetRealURI() const noexcept {
+		return HasRealURI() ? real_uri : uri;
 	}
 
 	template<typename T>
