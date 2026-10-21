@@ -5,6 +5,7 @@
 #include "VolumeMapping.hxx"
 #include "lib/alsa/NonBlock.hxx"
 #include "lib/alsa/Error.hxx"
+#include "lib/alsa/PcmCard.hxx"
 #include "lib/fmt/RuntimeError.hxx"
 #include "lib/fmt/ToBuffer.hxx"
 #include "mixer/Mixer.hxx"
@@ -19,6 +20,11 @@
 
 #include <alsa/asoundlib.h>
 #include <cmath>
+
+#include <fmt/format.h>
+
+#include <iterator> // for std::back_inserter()
+#include <string>
 
 #define VOLUME_MIXER_ALSA_DEFAULT		"default"
 #define VOLUME_MIXER_ALSA_CONTROL_DEFAULT	"PCM"
@@ -58,7 +64,24 @@ private:
 class AlsaMixer final : public Mixer {
 	EventLoop &event_loop;
 
-	const char *device;
+	/**
+	 * The "mixer_device" setting (nullptr if not configured).
+	 */
+	const char *mixer_device;
+
+	/**
+	 * The "device" setting of the ALSA output (nullptr if not
+	 * configured).  Its sound card is used if "mixer_device" is
+	 * not configured.
+	 */
+	const char *pcm_device;
+
+	/**
+	 * The mixer device which is actually used; determined by
+	 * Open().
+	 */
+	std::string device;
+
 	const char *control;
 	unsigned int index;
 
@@ -96,6 +119,7 @@ public:
 	AlsaMixer &operator=(const AlsaMixer &) = delete;
 
 	void Configure(const ConfigBlock &block);
+	std::string DetermineDevice() const;
 	void Setup();
 
 	/* virtual methods from class Mixer */
@@ -200,8 +224,8 @@ AlsaMixer::ElemCallback(snd_mixer_elem_t *elem, unsigned mask) noexcept
 inline void
 AlsaMixer::Configure(const ConfigBlock &block)
 {
-	device = block.GetBlockValue("mixer_device",
-				     VOLUME_MIXER_ALSA_DEFAULT);
+	mixer_device = block.GetBlockValue("mixer_device");
+	pcm_device = block.GetBlockValue("device");
 	control = block.GetBlockValue("mixer_control",
 				      VOLUME_MIXER_ALSA_CONTROL_DEFAULT);
 	index = block.GetBlockValue("mixer_index",
@@ -242,12 +266,60 @@ alsa_mixer_lookup_elem(snd_mixer_t *handle,
 	return nullptr;
 }
 
+/**
+ * Build a human-readable list of all simple mixer controls (for
+ * error messages).
+ */
+static std::string
+alsa_mixer_list_controls(snd_mixer_t *handle)
+{
+	std::string result;
+
+	for (snd_mixer_elem_t *elem = snd_mixer_first_elem(handle);
+	     elem != nullptr; elem = snd_mixer_elem_next(elem)) {
+		if (snd_mixer_elem_get_type(elem) != SND_MIXER_ELEM_SIMPLE)
+			continue;
+
+		if (!result.empty())
+			result += ", ";
+
+		fmt::format_to(std::back_inserter(result), "{:?},{}",
+			       snd_mixer_selem_get_name(elem),
+			       snd_mixer_selem_get_index(elem));
+	}
+
+	if (result.empty())
+		result = "none";
+
+	return result;
+}
+
+inline std::string
+AlsaMixer::DetermineDevice() const
+{
+	if (mixer_device != nullptr)
+		return mixer_device;
+
+	if (pcm_device != nullptr) {
+		/* use the sound card of the PCM device */
+		if (auto card = Alsa::FindPcmCard(pcm_device);
+		    !card.empty()) {
+			FmtDebug(alsa_mixer_domain,
+				 "Using mixer device {:?} for PCM device {:?}",
+				 card, pcm_device);
+			return card;
+		}
+	}
+
+	return VOLUME_MIXER_ALSA_DEFAULT;
+}
+
 inline void
 AlsaMixer::Setup()
 {
 	int err;
 
-	if ((err = snd_mixer_attach(handle, device)) < 0)
+	if ((err = snd_mixer_attach(handle, device.c_str())) < 0)
 		throw Alsa::MakeError(err,
 				      FmtBuffer<256>("failed to attach to {}",
 						     device));
@@ -260,7 +332,9 @@ AlsaMixer::Setup()
 
 	elem = alsa_mixer_lookup_elem(handle, control, index);
 	if (elem == nullptr)
-		throw FmtRuntimeError("no such mixer control: {}", control);
+		throw FmtRuntimeError("no such mixer control {:?},{} on {:?} (available: {})",
+				      control, index, device,
+				      alsa_mixer_list_controls(handle));
 
 	snd_mixer_elem_set_callback_private(elem, this);
 	snd_mixer_elem_set_callback(elem, ElemCallback);
@@ -272,6 +346,8 @@ void
 AlsaMixer::Open()
 {
 	desired_volume = resulting_volume = -1;
+
+	device = DetermineDevice();
 
 	int err;
 

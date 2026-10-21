@@ -9,6 +9,8 @@ subdir('net')
 subdir('time')
 subdir('tag')
 subdir('playlist')
+subdir('upnp')
+subdir('alsa')
 
 executable(
   'read_conf',
