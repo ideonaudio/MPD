@@ -14,6 +14,7 @@ ver 0.25 (not yet released)
   - faad: implement seeking
   - faad: output 32 bit floating point samples instead of 16 bit integer
   - ffmpeg: interrupt blocking libavformat I/O on STOP
+  - fluidsynth: add option "settings" for arbitrary FluidSynth settings
   - psgplay: new plugin
   - vgmstream: new plugin
 * output
@@ -26,6 +27,8 @@ ver 0.25 (not yet released)
 * mixer
   - fix mixer idle events on non-default partitions
   - alsa: default "mixer_device" to the sound card of "device"
+  - alsa, pipewire, pulse, software: fix replay gain attenuation with
+    replay_gain_handler "mixer"
 * tags
   - new tag "DiscSubtitle"
 * playlist
@@ -38,8 +41,35 @@ ver 0.25 (not yet released)
   - support $XDG_DATA_HOME, $XDG_STATE_HOME
   - suport netmasks in "host_permissions"
   - option "inhibit_idle" enables systemd idle inhibitor lock
+* Android
+  - don't load mpd.conf from the root of the external storage
+* Windows
+  - don't load mpd.conf from %ProgramData%
 * switch to C++23
 * require Meson 1.2
+
+ver 0.24.18 (not yet released)
+* protocol
+  - "albumart": don't climb above the music directory for CUE tracks
+* database
+  - proxy: fix playback of CUE tracks
+  - simple: reject playlist entries which climb above the music directory
+  - upnp: support libupnp 1.18 (and 1.14.26 to 1.14.29)
+* storage
+  - nfs: fix use-after-free crash bug after disconnect
+  - nfs: fix crash after directory listing cancellation
+* decoder
+  - mpg123: fix "cannot seek!" error
+* output
+  - osx: follow the default device after it has changed
+  - wasapi: fix race crash bug
+* mixer
+  - alsa: fix data race which could set the wrong volume
+  - sndio: fix data race
+  - software: fix use-after-free crash bug
+  - wasapi: fix crash bug
+* Android
+  - fix crash bug
 
 ver 0.24.17 (2026/10/22)
 * protocol
@@ -141,6 +171,7 @@ ver 0.24.16 (2026/10/17)
   - ffmpeg: restrict nested protocols of "hls+" URIs
   - nfs: fix use-after-free bug
   - qobuz: limit the size of API responses
+  - qobuz: fix use-after-free bug
   - qobuz: accept only HTTP stream URLs
 * decoder
   - audiofile: fix division by zero
@@ -172,6 +203,7 @@ ver 0.24.16 (2026/10/17)
   - simple: reject truncated database files
   - upnp: limit size and duration of device description downloads
   - upnp: fix crash on discovery error
+  - upnp: fix use-after-free bug
   - upnp: limit Browse and Search results
   - upnp: accept only HTTP resource URLs
   - upnp: ignore URLBase pointing to a different host

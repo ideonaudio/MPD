@@ -5,16 +5,13 @@
 #include "Glue.hxx"
 #include "Base.hxx"
 #include "Connection.hxx"
+#include "Context.hxx"
 #include "event/Call.hxx"
-#include "util/StringCompare.hxx"
 
 #include <nfsc/libnfs.h> // for struct nfs_stat_64
 
-#include <fmt/format.h>
-
 #include <cassert>
 #include <cstring>
-#include <stdexcept>
 #include <utility>
 
 #include <fcntl.h>
@@ -27,28 +24,9 @@ NfsFileReader::NfsFileReader() noexcept
 {
 }
 
-NfsFileReader::NfsFileReader(NfsConnection &_connection,
-			     std::string_view _path) noexcept
-	:state(State::DEFER),
-	 path(_path),
-	 connection(&_connection),
-	 defer_open(_connection.GetEventLoop(), BIND_THIS_METHOD(OnDeferredOpen))
-{
-	defer_open.Schedule();
-}
-
 NfsFileReader::~NfsFileReader() noexcept
 {
 	assert(state == State::INITIAL);
-}
-
-std::string
-NfsFileReader::GetAbsoluteUri() const noexcept
-{
-	return fmt::format("nfs://{}{}/{}"sv,
-			   connection != nullptr ? connection->GetServer() : server,
-			   connection != nullptr ? connection->GetExportName() : export_name,
-			   path);
 }
 
 void
@@ -108,31 +86,8 @@ NfsFileReader::Open(const char *uri)
 {
 	assert(state == State::INITIAL);
 
-	if (!SkipPrefixIgnoreCase(uri, "nfs://"sv))
-		throw std::runtime_error("Malformed nfs:// URI");
-
-	const char *slash = std::strchr(uri, '/');
-	if (slash == nullptr)
-		throw std::runtime_error("Malformed nfs:// URI");
-
-	server = std::string(uri, slash);
-
-	uri = slash;
-
-	const char *new_path = nfs_check_base(server, uri);
-	if (new_path != nullptr) {
-		export_name.assign(uri, new_path);
-		if (*new_path == 0)
-			new_path = "/";
-		path = new_path;
-	} else {
-		slash = std::strrchr(uri + 1, '/');
-		if (slash == nullptr || slash[1] == 0)
-			throw std::runtime_error("Malformed nfs:// URI");
-
-		export_name.assign(uri, slash);
-		path = slash;
-	}
+	context = NfsContext{NfsContext::Create{}};
+	nfs_url = context.ParseUrlFull(uri);
 
 	/* the previous connection may have been destroyed after a
 	   disconnect; look it up again in OnDeferredOpen() */
@@ -151,7 +106,13 @@ NfsFileReader::Read(uint64_t offset, size_t size)
 	assert(!read_buffer);
 	// TOOD read into caller-provided buffer
 	read_buffer = std::make_unique_for_overwrite<std::byte[]>(size);
-	connection->Read(fh, offset, {read_buffer.get(), size}, *this);
+
+	try {
+		connection->Read(fh, offset, {read_buffer.get(), size}, *this);
+	} catch (...) {
+		read_buffer.reset();
+		throw;
+	}
 #else
 	connection->Read(fh, offset, size, *this);
 #endif
@@ -181,8 +142,10 @@ NfsFileReader::OnNfsConnectionReady() noexcept
 	assert(state == State::MOUNT);
 
 	try {
-		connection->Open(path.c_str(), O_RDONLY, *this);
+		connection->Open(nfs_url->file, O_RDONLY, *this);
 	} catch (...) {
+		connection->RemoveLease(*this);
+		state = State::INITIAL;
 		OnNfsFileError(std::current_exception());
 		return;
 	}
@@ -221,6 +184,9 @@ NfsFileReader::OpenCallback(nfsfh *_fh) noexcept
 	try {
 		connection->Stat(fh, *this);
 	} catch (...) {
+		connection->RemoveLease(*this);
+		connection->Close(fh);
+		state = State::INITIAL;
 		OnNfsFileError(std::current_exception());
 		return;
 	}
@@ -304,6 +270,9 @@ NfsFileReader::OnNfsError(std::exception_ptr &&e) noexcept
 		break;
 
 	case State::READ:
+#ifdef LIBNFS_API_2
+		read_buffer.reset();
+#endif
 		state = State::IDLE;
 		break;
 	}
@@ -315,14 +284,15 @@ void
 NfsFileReader::OnDeferredOpen() noexcept
 {
 	assert(state == State::DEFER);
+	assert(connection == nullptr);
 
-	if (connection == nullptr)
-		try {
-			connection = &nfs_get_connection(server, export_name);
-		} catch (...) {
-			OnNfsFileError(std::current_exception());
-			return;
-		}
+	try {
+		connection = &nfs_get_connection(std::move(context), *nfs_url, true);
+	} catch (...) {
+		state = State::INITIAL;
+		OnNfsFileError(std::current_exception());
+		return;
+	}
 
 	connection->AddLease(*this);
 	state = State::MOUNT;

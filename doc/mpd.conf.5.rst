@@ -17,7 +17,8 @@ If you run :program:`MPD` as a user daemon (and not as a system
 daemon), the configuration is read from
 :file:`$XDG_CONFIG_HOME/mpd/mpd.conf` (usually
 :file:`~/.config/mpd/mpd.conf`). On Android, :file:`mpd.conf` will be
-loaded from the top-level directory of the data partition.
+loaded from MPD's data directory on the external storage (usually
+:file:`Android/data/org.musicpd/files/mpd.conf`).
 
 Each line in the configuration file contains a setting name and its value, e.g.:
 
@@ -280,7 +281,9 @@ Optional Audio Output Settings
 
    Specifies how replay gain is applied. ``software`` uses an internal
    software volume control. ``mixer`` uses the configured (hardware)
-   mixer control. ``none`` disables replay gain on this audio output.
+   mixer control by setting its volume for each song, overwriting the
+   volume chosen by the user; positive gains cannot be applied.
+   ``none`` disables replay gain on this audio output.
 
 .. confval:: mixer_type
    :type:  ``hardware``, ``software`` or ``none``

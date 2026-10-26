@@ -27,20 +27,16 @@ class NfsInputStream final : NfsFileReader, public AsyncInputStream {
 	bool reconnect_on_resume = false, reconnecting = false;
 
 public:
-	NfsInputStream(std::string_view _uri, Mutex &_mutex) noexcept
+	NfsInputStream(std::string_view _uri, Mutex &_mutex)
 		:AsyncInputStream(NfsFileReader::GetEventLoop(),
 				  _uri, _mutex,
 				  NFS_MAX_BUFFERED,
-				  NFS_RESUME_AT) {}
+				  NFS_RESUME_AT)
+	{
+		assert(!IsReady());
 
-	NfsInputStream(NfsConnection &_connection, std::string_view _path,
-		       Mutex &_mutex) noexcept
-		:NfsFileReader(_connection, _path),
-		 AsyncInputStream(NfsFileReader::GetEventLoop(),
-				  NfsFileReader::GetAbsoluteUri(),
-				  _mutex,
-				  NFS_MAX_BUFFERED,
-				  NFS_RESUME_AT) {}
+		NfsFileReader::Open(GetURI());
+	}
 
 	~NfsInputStream() override {
 		DeferClose();
@@ -49,13 +45,17 @@ public:
 	NfsInputStream(const NfsInputStream &) = delete;
 	NfsInputStream &operator=(const NfsInputStream &) = delete;
 
-	void Open() {
-		assert(!IsReady());
-
-		NfsFileReader::Open(GetURI());
-	}
-
 private:
+	/**
+	 * Close and reopen the file after the NFS connection has
+	 * failed.
+	 *
+	 * Caller holds #mutex.
+	 *
+	 * Throws on error.
+	 */
+	void Reconnect();
+
 	void DoRead();
 
 protected:
@@ -97,6 +97,17 @@ NfsInputStream::DoRead()
 	}
 }
 
+inline void
+NfsInputStream::Reconnect()
+{
+	reconnecting = true;
+
+	const ScopeUnlock unlock(mutex);
+
+	NfsFileReader::Close();
+	NfsFileReader::Open(GetURI());
+}
+
 void
 NfsInputStream::DoResume()
 {
@@ -105,13 +116,7 @@ NfsInputStream::DoResume()
 		   "paused" - attempt to reconnect */
 
 		reconnect_on_resume = false;
-		reconnecting = true;
-
-		ScopeUnlock unlock(mutex);
-
-		NfsFileReader::Close();
-		NfsFileReader::Open(GetURI());
-
+		Reconnect();
 		return;
 	}
 
@@ -136,8 +141,14 @@ NfsInputStream::DoSeek(offset_type new_offset)
 		   start reading at the new offset */
 		return;
 
-	if (!IsIdle())
-		CancelRead();
+	if (!IsIdle()) {
+		/* the NFS connection has failed (and the error has
+		   already been reported) - attempt to reconnect;
+		   OnNfsFileOpen() will start reading at the new
+		   offset */
+		Reconnect();
+		return;
+	}
 
 	DoRead();
 }
@@ -192,6 +203,10 @@ NfsInputStream::OnNfsFileError(std::exception_ptr &&e) noexcept
 		return;
 	}
 
+	/* if this was an error while reconnecting, then the reconnect
+	   has failed; the next DoSeek() will try again */
+	reconnecting = false;
+
 	postponed_exception = std::move(e);
 
 	if (IsSeekPending())
@@ -223,9 +238,7 @@ static InputStreamPtr
 input_nfs_open(std::string_view uri,
 	       Mutex &mutex)
 {
-	auto is = std::make_unique<NfsInputStream>(uri, mutex);
-	is->Open();
-	return is;
+	return OpenNfsInputStream(uri, mutex);
 }
 
 static constexpr const char *nfs_prefixes[] = {
@@ -243,8 +256,7 @@ const InputPlugin input_plugin_nfs = {
 };
 
 InputStreamPtr
-OpenNfsInputStream(NfsConnection &connection, std::string_view path,
-		   Mutex &mutex)
+OpenNfsInputStream(std::string_view uri, Mutex &mutex)
 {
-	return std::make_unique<NfsInputStream>(connection, path, mutex);
+	return std::make_unique<NfsInputStream>(uri, mutex);
 }

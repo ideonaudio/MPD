@@ -4,6 +4,7 @@
 #pragma once
 
 #include "Cancellable.hxx"
+#include "Context.hxx"
 #include "event/SocketEvent.hxx"
 #include "event/CoarseTimerEvent.hxx"
 #include "event/DeferEvent.hxx"
@@ -25,82 +26,18 @@ class NfsLease;
  * An asynchronous connection to a NFS server.
  */
 class NfsConnection {
-	class CancellableCallback : public CancellablePointer<NfsCallback> {
-		NfsConnection &connection;
-
-		/**
-		 * Is this a nfs_open_async() operation?  If yes, then
-		 * we need to call nfs_close_async() on the new file
-		 * handle as soon as the callback is invoked
-		 * successfully.
-		 */
-		const bool open;
-
-		/**
-		 * The file handle scheduled to be closed as soon as
-		 * the operation finishes.
-		 */
-		struct nfsfh *close_fh;
-
-		/**
-		 * An arbitrary value that will be disposed of after
-		 * cancellation completes.
-		 */
-		DisposablePointer dispose_value;
-
-	public:
-		explicit CancellableCallback(NfsCallback &_callback,
-					     NfsConnection &_connection,
-					     bool _open) noexcept
-			:CancellablePointer<NfsCallback>(_callback),
-			 connection(_connection),
-			 open(_open), close_fh(nullptr) {}
-
-		void Stat(nfs_context *context, const char *path);
-		void Lstat(nfs_context *context, const char *path);
-		void OpenDirectory(nfs_context *context, const char *path);
-		void Open(nfs_context *context, const char *path, int flags);
-		void Stat(nfs_context *context, struct nfsfh *fh);
-		void Read(nfs_context *context, struct nfsfh *fh,
-			  uint64_t offset,
-#ifdef LIBNFS_API_2
-			  std::span<std::byte> dest
-#else
-			  std::size_t size
-#endif
-			);
-
-		/**
-		 * Cancel the operation and schedule a call to
-		 * nfs_close_async() with the given file handle.
-		 */
-		void CancelAndScheduleClose(struct nfsfh *fh,
-					    DisposablePointer &&_dispose_value) noexcept;
-
-		/**
-		 * Called by NfsConnection::DestroyContext() right
-		 * before nfs_destroy_context().  This object is given
-		 * a chance to prepare for the latter.
-		 */
-		void PrepareDestroyContext() noexcept;
-
-	private:
-		static void Callback(int err, struct nfs_context *nfs,
-				     void *data, void *private_data) noexcept;
-		void Callback(int err, void *data) noexcept;
-	};
-
 	SocketEvent socket_event;
 	DeferEvent defer_new_lease;
 	CoarseTimerEvent mount_timeout_event;
 
 	const std::string server, export_name;
 
-	nfs_context *const context;
+	const NfsContext context;
 
 	using LeaseList = IntrusiveList<NfsLease>;
 	LeaseList new_leases, active_leases;
 
+	class CancellableCallback;
 	typedef CancellableList<NfsCallback, CancellableCallback> CallbackList;
 	CallbackList callbacks;
 
@@ -113,7 +50,12 @@ class NfsConnection {
 	 */
 	std::forward_list<struct nfsfh *> deferred_close;
 
-	std::exception_ptr postponed_mount_error;
+	/**
+	 * If set, then a connection-fatal error has occurred from
+	 * inside nfs_service().  It will be handled as soon as
+	 * nfs_service() returns.
+	 */
+	std::exception_ptr postponed_error;
 
 	enum class MountState : uint_least8_t {
 		INITIAL,
@@ -138,9 +80,8 @@ public:
 	/**
 	 * Throws on error.
 	 */
-	[[gnu::nonnull]]
 	NfsConnection(EventLoop &_loop,
-		      nfs_context *_context,
+		      NfsContext &&_context,
 		      std::string_view _server,
 		      std::string_view _export_name);
 
@@ -259,6 +200,10 @@ public:
 	}
 
 protected:
+	/**
+	 * The implementation may delete this object; the caller must
+	 * not use it after this method returns.
+	 */
 	virtual void OnNfsConnectionError(std::exception_ptr e) noexcept = 0;
 
 	/**
