@@ -436,6 +436,7 @@ sources = [
   'src/TagAny.cxx',
   'src/TimePrint.cxx',
   'src/mixer/Memento.cxx',
+  'src/PlaylistDirectory.cxx',
   'src/PlaylistFile.cxx',
 ]
 
@@ -486,6 +487,7 @@ subdir('src/io/fs')
 subdir('src/io/uring')
 subdir('src/system')
 subdir('src/system/linux')
+subdir('src/system/windows')
 subdir('src/thread')
 subdir('src/net')
 subdir('src/memory')

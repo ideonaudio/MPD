@@ -4,6 +4,7 @@
 #include "LocalOpen.hxx"
 #include "InputStream.hxx"
 #include "plugins/FileInputPlugin.hxx"
+#include "io/FileHandle.hxx"
 #include "config.h"
 
 #include "io/uring/Features.h"
@@ -30,12 +31,11 @@ OpenLocalInputStream(Path path, Mutex &mutex)
 	try {
 #endif
 #ifdef HAVE_URING
-		is = OpenUringInputStream(path.c_str(), mutex);
-		if (is)
-			return is;
+		if (IsUringInputPluginAvailable())
+			is = OpenUringInputStream(path.c_str(), mutex);
+		else
 #endif
-
-		is = OpenFileInputStream(path, mutex);
+			is = OpenFileInputStream(path, mutex);
 #ifdef ENABLE_ARCHIVE
 	} catch (const std::system_error &e) {
 		if (IsPathNotFound(e)) {
@@ -53,4 +53,23 @@ OpenLocalInputStream(Path path, Mutex &mutex)
 	assert(is->IsReady());
 
 	return is;
+}
+
+InputStreamPtr
+OpenLocalInputStream(Path path, UniqueFileHandle &&file, Mutex &mutex)
+{
+	InputStreamPtr is;
+
+#ifdef HAVE_URING
+	if (IsUringInputPluginAvailable())
+		is = OpenUringInputStream(path.c_str(), std::move(file), mutex);
+	else
+#endif
+		is = OpenFileInputStream(path, std::move(file), mutex);
+
+	assert(is);
+	assert(is->IsReady());
+
+	return is;
+
 }
