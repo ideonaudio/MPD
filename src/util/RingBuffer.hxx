@@ -104,10 +104,10 @@ public:
 	std::span<T> Write() noexcept {
 		assert(IsDefined());
 
-		const auto wp = write_position.load(std::memory_order_acquire);
+		const auto wp = write_position.load(std::memory_order_relaxed);
 		assert(wp < buffer.capacity());
 
-		const auto rp = GetPreviousIndex(read_position.load(std::memory_order_relaxed));
+		const auto rp = GetPreviousIndex(read_position.load(std::memory_order_acquire));
 		assert(rp < buffer.capacity());
 
 		std::size_t n = (wp <= rp ? rp : buffer.capacity()) - wp;
@@ -144,8 +144,8 @@ public:
 	 * @return the number of items appended
 	 */
 	std::size_t WriteFrom(std::span<const T> src) noexcept {
-		auto wp = write_position.load(std::memory_order_acquire);
-		const auto rp = GetPreviousIndex(read_position.load(std::memory_order_relaxed));
+		auto wp = write_position.load(std::memory_order_relaxed);
+		const auto rp = GetPreviousIndex(read_position.load(std::memory_order_acquire));
 
 		std::size_t n = std::min((wp <= rp ? rp : buffer.capacity()) - wp,
 					 src.size());
@@ -186,8 +186,12 @@ public:
 	/**
 	 * Check whether the ring buffer is empty.
 	 *
-	 * This method is thread-safe, but it may only be called from
-	 * the consumer thread.
+	 * This method is thread-safe and may be called from both
+	 * threads, but the result is only a snapshot: if called from
+	 * the consumer thread, a "false" result remains valid (only
+	 * the consumer can remove items); if called from the producer
+	 * thread, a "true" result remains valid (only the producer can
+	 * add items).
 	 */
 	[[gnu::pure]]
 	bool IsEmptyRelaxed() const noexcept {
@@ -205,8 +209,8 @@ public:
 	 */
 	[[gnu::pure]]
 	std::span<const T> Read() const noexcept {
-		const auto rp = read_position.load(std::memory_order_acquire);
-		const auto wp = write_position.load(std::memory_order_relaxed);
+		const auto rp = read_position.load(std::memory_order_relaxed);
+		const auto wp = write_position.load(std::memory_order_acquire);
 
 		std::size_t n = (rp <= wp ? wp : buffer.capacity()) - rp;
 		return {&buffer[rp], n};
@@ -242,8 +246,8 @@ public:
 	 * @return the number of items move to the span
 	 */
 	std::size_t ReadTo(std::span<T> dest) noexcept {
-		auto rp = read_position.load(std::memory_order_acquire);
-		const auto wp = write_position.load(std::memory_order_relaxed);
+		auto rp = read_position.load(std::memory_order_relaxed);
+		const auto wp = write_position.load(std::memory_order_acquire);
 
 		std::size_t n = std::min((rp <= wp ? wp : buffer.capacity()) - rp,
 					 dest.size());
@@ -305,7 +309,10 @@ private:
 	void Add(std::atomic_size_t &dest, std::size_t n) const noexcept {
 		assert(IsDefined());
 
-		const std::size_t old_value = dest.load(std::memory_order_acquire);
+		/* this is our own position, which is only modified
+		   by this thread; no synchronization needed for
+		   loading it */
+		const std::size_t old_value = dest.load(std::memory_order_relaxed);
 		assert(old_value < buffer.capacity());
 
 		std::size_t new_value = old_value + n;
