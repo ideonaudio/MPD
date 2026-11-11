@@ -456,6 +456,7 @@ else
     'src/android/Bridge.cxx',
     'src/android/Context.cxx',
     'src/android/AudioManager.cxx',
+    'src/android/AudioFocus.cxx',
     'src/android/Environment.cxx',
     'src/android/LogListener.cxx',
   ]
@@ -520,6 +521,7 @@ subdir('src/lib/pulse')
 subdir('src/lib/sndio')
 subdir('src/lib/sqlite')
 subdir('src/lib/systemd')
+subdir('src/lib/tinyalsa')
 subdir('src/lib/upnp')
 subdir('src/lib/sacdiso')
 
