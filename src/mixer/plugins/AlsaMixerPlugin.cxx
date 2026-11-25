@@ -26,6 +26,7 @@
 #include <fmt/format.h>
 
 #include <iterator> // for std::back_inserter()
+#include <stdexcept>
 #include <string>
 
 #define VOLUME_MIXER_ALSA_DEFAULT		"default"
@@ -98,11 +99,16 @@ class AlsaMixer final : public Mixer {
 	 * Protects #handle, #elem and #desired_volume while #monitor
 	 * exists, because libasound is not thread-safe, and #monitor
 	 * uses the #snd_mixer_t in the #EventLoop thread while
-	 * SetVolume() and GetVolume() are called from other threads.
+	 * SetVolume(), GetVolume() and ScaleVolume() are called from
+	 * other threads.
 	 */
 	Mutex handle_mutex;
 
 	snd_mixer_t *handle;
+
+	/**
+	 * nullptr after the element has been removed
+	 */
 	snd_mixer_elem_t *elem;
 
 	AlsaMixerMonitor *monitor;
@@ -205,6 +211,13 @@ AlsaMixer::ElemCallback(snd_mixer_elem_t *elem, unsigned mask) noexcept
 {
 	AlsaMixer &mixer = *(AlsaMixer *)
 		snd_mixer_elem_get_callback_private(elem);
+
+	if (mask == SND_CTL_EVENT_MASK_REMOVE) {
+		/* libasound is going to free the element */
+		assert(elem == mixer.elem);
+		mixer.elem = nullptr;
+		return 0;
+	}
 
 	if (mask & SND_CTL_EVENT_MASK_VALUE) {
 		const int volume = mixer.GetPercentVolume();
@@ -379,7 +392,8 @@ AlsaMixer::Close() noexcept
 	   anymore, therefore we don't need to lock #handle_mutex */
 	delete monitor;
 
-	snd_mixer_elem_set_callback(elem, nullptr);
+	if (elem != nullptr)
+		snd_mixer_elem_set_callback(elem, nullptr);
 	snd_mixer_close(handle);
 }
 
@@ -396,6 +410,9 @@ AlsaMixer::GetVolume()
 	if (err < 0)
 		throw Alsa::MakeError(err, "snd_mixer_handle_events() failed");
 
+	if (elem == nullptr)
+		throw std::runtime_error{"ALSA mixer control was removed"};
+
 	/* if we're still on the value passed to SetVolume(), this
 	   returns the desired volume */
 	return desired_volume.Translate(GetPercentVolume());
@@ -408,6 +425,9 @@ AlsaMixer::SetVolume(unsigned volume)
 
 	const std::scoped_lock lock{handle_mutex};
 
+	if (elem == nullptr)
+		throw std::runtime_error{"ALSA mixer control was removed"};
+
 	int err = set_normalized_playback_volume(elem, 0.01*volume, 1);
 	if (err < 0)
 		throw Alsa::MakeError(err, "failed to set ALSA volume");
@@ -419,6 +439,12 @@ unsigned
 AlsaMixer::ScaleVolume(unsigned volume, float scale) noexcept
 {
 	assert(handle != nullptr);
+
+	const std::lock_guard lock{handle_mutex};
+
+	if (elem == nullptr)
+		/* the element was removed */
+		return volume;
 
 	return NormalizedToPercent(scale_normalized_playback_volume(elem,
 								    0.01 * volume,

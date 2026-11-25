@@ -332,6 +332,19 @@ public:
 		return result;
 	}
 
+	/**
+	 * Like remove_and_dispose_if(), but move all matching items
+	 * to a new linked list and only then disposes of all of them.
+	 * This allows the disposer to manipulate the list.
+	 */
+	std::size_t safe_remove_and_dispose_if(std::predicate<const_reference> auto pred,
+					       Disposer<value_type> auto dispose) noexcept {
+		IntrusiveList tmp;
+		const std::size_t result = tmp.splice_if(*this, std::move(pred));
+		tmp.clear_and_dispose(std::move(dispose));
+		return result;
+	}
+
 	const_reference front() const noexcept {
 		return *Cast(head.next);
 	}
@@ -653,5 +666,33 @@ public:
 	void splice(iterator position, IntrusiveList &from) noexcept {
 		splice(position, from, from.begin(), from.end(),
 		       constant_time_size ? from.size() : 1);
+	}
+
+	/**
+	 * Move all matching items of the given list to this one
+	 * before the given position.
+	 *
+	 * @return the number of moved items
+	 */
+	std::size_t splice_if(iterator position, IntrusiveList &from,
+			      std::predicate<const_reference> auto pred) noexcept {
+		std::size_t result = 0;
+
+		for (auto i = from.begin(), e = from.end(); i != e;) {
+			if (pred(*i)) {
+				auto &item = *i;
+				i = from.erase(i);
+				insert(position, item);
+				++result;
+			} else
+				++i;
+		}
+
+		return result;
+	}
+
+	std::size_t splice_if(IntrusiveList &from,
+			      std::predicate<const_reference> auto pred) noexcept {
+		return splice_if(end(), from, std::move(pred));
 	}
 };

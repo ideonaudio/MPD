@@ -7,6 +7,8 @@
 #include <array>
 #include <cassert>
 #include <initializer_list>
+#include <iterator>
+#include <memory>
 #include <new>
 #include <span>
 #include <type_traits>
@@ -18,6 +20,8 @@
  */
 template<class T, std::size_t max>
 class StaticVector {
+	static_assert(std::is_nothrow_destructible_v<T>);
+
 	struct alignas(T) Storage {
 		std::byte data[sizeof(T)];
 	};
@@ -307,10 +311,16 @@ public:
 		--the_size;
 	}
 
-	constexpr iterator erase(iterator first, iterator last) noexcept {
-		std::size_t n = std::distance(first, last);
-		std::move(last, end(), first);
-		the_size -= n;
+	constexpr iterator erase(iterator first, iterator last) noexcept
+		requires std::is_nothrow_move_assignable_v<T>
+	{
+		/* move the tail down over the erased range ... */
+		iterator new_end = std::move(last, end(), first);
+
+		/* ... and destroy the slots vacated at the end */
+		std::destroy(new_end, end());
+
+		the_size -= std::distance(first, last);
 		return first;
 	}
 

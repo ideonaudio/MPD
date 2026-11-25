@@ -1,4 +1,8 @@
-ver 0.25 (not yet released)
+ver 0.26 (not yet released)
+
+ver 0.25.1 (not yet released)
+
+ver 0.25 (2026/11/25)
 * protocol
   - implement "window" parameter for command "list"
   - new command "stringnormalization"
@@ -15,13 +19,17 @@ ver 0.25 (not yet released)
   - dsf: support DSD1024
   - faad: implement seeking
   - faad: output 32 bit floating point samples instead of 16 bit integer
+  - faad: fix HE-AACv2 streams with libfaad 2.11.4
   - ffmpeg: interrupt blocking libavformat I/O on STOP
   - fluidsynth: add option "settings" for arbitrary FluidSynth settings
+  - opus: apply the header output gain even if ReplayGain is disabled
+  - opus: use "replaygain_missing_preamp" for files without R128 tags
   - psgplay: new plugin
   - vgmstream: new plugin
 * output
   - alsa: use hardware pause if available
   - pipewire: add option "reconnect_stream"
+  - pipewire: add option "close_on_pause"
   - pipewire don't discard buffered audio on pause
   - pulse: don't discard buffered audio on pause
   - sles: support 24 and 32 bit integer samples
@@ -33,6 +41,7 @@ ver 0.25 (not yet released)
   - alsa: default "mixer_device" to the sound card of "device"
   - alsa, pipewire, pulse, software: fix replay gain attenuation with
     replay_gain_handler "mixer"
+  - software: fix crash bug
 * tags
   - new tag "DiscSubtitle"
   - new tag "ReleaseType"
@@ -52,6 +61,46 @@ ver 0.25 (not yet released)
   - don't load mpd.conf from %ProgramData%
 * switch to C++23
 * require Meson 1.2
+
+ver 0.24.20 (2026/11/20)
+* protocol
+  - "max_command_list_size" limits the real memory usage of command lists
+* input
+  - fix hang after a failed seek
+  - curl, ffmpeg: disable the Gopher protocol
+  - ffmpeg, mms: fix data corruption
+  - ffmpeg, mms: fix broken stream after seeking a non-seekable stream
+  - ffmpeg: don't block other threads while connecting
+  - ffmpeg: fix error and lost data at the end of the stream
+  - ffmpeg: fix bogus size of non-seekable streams
+* input
+  - nfs: fix buffer overflow if the server sends more data than requested
+  - nfs: fix hang if the file is shorter than the reported size
+* decoder
+  - mikmod: fix crash when scanning a module during playback
+  - mad: fix crash when the channel count changes
+  - dsdiff: fix uninitialized sample rate and channel count
+  - opus, vorbis: fix crash when seeking past the end
+  - sidplay: don't block MPD while seeking
+* output
+  - wasapi: fix crash with DoP
+* mixer
+  - alsa: fix crash after the mixer control was removed
+* database
+  - proxy: fix memory leak after receiving a malformed song URI
+  - proxy: reject RealUri with Windows drive path
+  - upnp: reject song URLs with newlines and null bytes
+* tags
+  - id3: fix excessive CPU usage with many frames of the same type
+* playlist
+  - ignore the URI fragment when detecting the file type
+* Linux
+  - fix "chmod failed: Invalid argument" on kernels older than 6.6
+* Android
+  - fix crash after setting the volume fails
+* Windows
+  - playlist: reject Windows reserved device names followed by a colon
+  - archive: reject ".." in archive entry names
 
 ver 0.24.19 (2026/11/11)
 * configuration

@@ -280,6 +280,49 @@ TEST(IntrusiveList, Sort)
 	ASSERT_EQ(&*std::next(list.begin(), 2), &items[4]);
 }
 
+TEST(IntrusiveList, SpliceIf)
+{
+	using Item = CharItem<IntrusiveHookMode::NORMAL>;
+
+	IntrusiveList<Item> dst;
+	Item dst_items[]{'1', '2'};
+	for (auto &i : dst_items)
+		dst.push_back(i);
+
+	IntrusiveList<Item> src;
+	Item src_items[]{'a', 'b', 'c', 'd', 'e'};
+	for (auto &i : src_items)
+		src.push_back(i);
+
+	const auto is_bd = [](const Item &i){
+		return i.ch == 'b' || i.ch == 'd';
+	};
+
+	/* move the matching items to the end of dst */
+	const std::size_t n = dst.splice_if(src, is_bd);
+
+	EXPECT_EQ(n, std::size_t(2));
+
+	/* the non-matching items remain in src, in order */
+	EXPECT_EQ(ToString(src, src.begin(), 4), "ace_");
+
+	/* the matching items were appended to dst, keeping their
+	   relative order (b before d) */
+	EXPECT_EQ(ToString(dst, dst.begin(), 5), "12bd_");
+
+	/* a predicate that matches nothing moves nothing */
+	EXPECT_EQ(dst.splice_if(src, [](const Item &){ return false; }),
+		  std::size_t(0));
+	EXPECT_EQ(ToString(src, src.begin(), 4), "ace_");
+
+	/* splice before a given position, not just at the end */
+	EXPECT_EQ(dst.splice_if(std::next(dst.begin()), src,
+				[](const Item &i){ return i.ch == 'a'; }),
+		  std::size_t(1));
+	EXPECT_EQ(ToString(src, src.begin(), 3), "ce_");
+	EXPECT_EQ(ToString(dst, dst.begin(), 6), "1a2bd_");
+}
+
 /**
  * Call clear_and_dispose(), and let the disposer unlink the last
  * item.
@@ -371,4 +414,49 @@ TEST(IntrusiveList, ClearDisposePush)
 	EXPECT_TRUE(b_added);
 	EXPECT_TRUE(b_disposed);
 	EXPECT_TRUE(list.empty());
+}
+
+/**
+ * safe_remove_and_dispose_if() moves all matching items to a temporary
+ * list before disposing them, so the disposer may manipulate the
+ * original list - something remove_and_dispose_if(), which disposes
+ * while iterating the live list, does not allow.
+ */
+TEST(IntrusiveList, SafeRemoveAndDisposeIf)
+{
+	using Item = CharItem<IntrusiveHookMode::TRACK>;
+
+	Item items[]{'a', 'b', 'c', 'd'};
+
+	IntrusiveList<Item> list;
+	for (auto &i : items)
+		list.push_back(i);
+
+	std::string disposed;
+
+	const std::size_t n = list.safe_remove_and_dispose_if(
+		[](const Item &i){ return i.ch == 'b' || i.ch == 'd'; },
+		[&](Item *item){
+			disposed.push_back(item->ch);
+
+			/* manipulate the original list from the disposer:
+			   while disposing the matching items, unlink the
+			   surviving 'a' - this would corrupt
+			   remove_and_dispose_if()'s iteration */
+			if (items[0].is_linked())
+				items[0].unlink();
+		});
+
+	EXPECT_EQ(n, std::size_t(2));
+
+	/* both matching items were disposed, in list order */
+	EXPECT_EQ(disposed, "bd");
+
+	/* 'a' was unlinked by the disposer and 'b'+'d' were removed, so
+	   only 'c' remains */
+	EXPECT_FALSE(items[0].is_linked());
+	EXPECT_FALSE(items[1].is_linked());
+	EXPECT_TRUE(items[2].is_linked());
+	EXPECT_FALSE(items[3].is_linked());
+	EXPECT_EQ(ToString(list, list.begin(), 2), "c_");
 }

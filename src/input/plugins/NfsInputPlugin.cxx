@@ -7,6 +7,7 @@
 #include "lib/nfs/Glue.hxx"
 #include "lib/nfs/FileReader.hxx"
 #include "thread/ScopeUnlock.hxx"
+#include "net/SocketProtocolError.hxx"
 #include "util/ByteSizes.hxx"
 
 /**
@@ -75,9 +76,10 @@ NfsInputStream::DoRead()
 {
 	assert(NfsFileReader::IsIdle());
 
-	int64_t remaining = size - next_offset;
-	if (remaining <= 0)
+	if (next_offset >= size)
 		return;
+
+	const uint64_t remaining = size - next_offset;
 
 	const size_t buffer_space = GetBufferSpace();
 	if (buffer_space == 0) {
@@ -92,8 +94,7 @@ NfsInputStream::DoRead()
 		const ScopeUnlock unlock(mutex);
 		NfsFileReader::Read(next_offset, nbytes);
 	} catch (...) {
-		postponed_exception = std::current_exception();
-		InvokeOnAvailable();
+		PostponeError(std::current_exception());
 	}
 }
 
@@ -180,6 +181,12 @@ NfsInputStream::OnNfsFileRead(std::span<const std::byte> src) noexcept
 	assert(!IsBufferFull());
 	assert(IsBufferFull() == (GetBufferSpace() == 0));
 
+	if (src.empty()) [[unlikely]] {
+		/* DoRead() never reads past the reported size */
+		PostponeError(std::make_exception_ptr(SocketProtocolError{"Unexpected end of file"}));
+		return;
+	}
+
 	AppendToBuffer(src);
 
 	next_offset += src.size();
@@ -207,14 +214,7 @@ NfsInputStream::OnNfsFileError(std::exception_ptr &&e) noexcept
 	   has failed; the next DoSeek() will try again */
 	reconnecting = false;
 
-	postponed_exception = std::move(e);
-
-	if (IsSeekPending())
-		SeekDone();
-	else if (!IsReady())
-		SetReady();
-	else
-		InvokeOnAvailable();
+	PostponeError(std::move(e));
 }
 
 /*
