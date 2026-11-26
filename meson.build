@@ -295,11 +295,7 @@ add_global_arguments(common_global_cppflags, language: 'cpp')
 add_project_arguments(common_cppflags, language: 'c')
 add_project_arguments(common_cppflags, language: 'cpp')
 
-enable_daemon = not is_windows and not is_android and get_option('daemon')
-conf.set('ENABLE_DAEMON', enable_daemon)
-
 conf.set('HAVE_GETPWNAM_R', compiler.has_function('getpwnam_r'))
-conf.set('HAVE_INITGROUPS', compiler.has_function('initgroups'))
 conf.set('HAVE_FNMATCH', compiler.has_function('fnmatch'))
 conf.set('HAVE_STRNDUP', compiler.has_function('strndup', prefix: '#define _GNU_SOURCE\n#include <string.h>'))
 conf.set('HAVE_STRCASESTR', compiler.has_function('strcasestr'))
@@ -460,10 +456,6 @@ else
     'src/android/Environment.cxx',
     'src/android/LogListener.cxx',
   ]
-endif
-
-if enable_daemon
-  sources += 'src/unix/Daemon.cxx'
 endif
 
 if enable_database

@@ -39,7 +39,6 @@
 #include "config/Check.hxx"
 #include "config/Data.hxx"
 #include "config/Param.hxx"
-#include "config/Path.hxx"
 #include "config/Defaults.hxx"
 #include "config/Option.hxx"
 #include "config/Domain.hxx"
@@ -49,10 +48,6 @@
 
 #ifdef __linux__
 #include "io/linux/ProcStatus.hxx"
-#endif
-
-#ifdef ENABLE_DAEMON
-#include "unix/Daemon.hxx"
 #endif
 
 #include "db/Features.hxx" // for ENABLE_DATABASE
@@ -95,10 +90,6 @@
 #include "lib/dbus/Init.hxx"
 #endif
 
-#if defined(ENABLE_DAEMON) && defined(__APPLE__)
-#include "system/Error.hxx"
-#endif
-
 #ifdef ENABLE_SYSTEMD_DAEMON
 #include <systemd/sd-daemon.h>
 #endif
@@ -109,6 +100,10 @@
 #include <clocale>
 #endif
 
+#ifndef _WIN32
+#include <unistd.h> // for geteuid()
+#endif
+
 #ifdef ANDROID
 Context *context;
 LogListener *logListener;
@@ -117,28 +112,16 @@ AudioFocus *audio_focus;
 
 Instance *global_instance;
 
-#ifdef ENABLE_DAEMON
+#ifndef _WIN32
 
 static void
-glue_daemonize_init(const CommandLineOptions &options,
-		    const ConfigData &config)
+CheckUserGroup(const ConfigData &config)
 {
-	auto pid_file = config.GetPath(ConfigOption::PID_FILE);
-
-#ifdef __linux__
-	if (options.systemd && pid_file != nullptr) {
-		pid_file = nullptr;
-		fprintf(stderr,
-			"Ignoring the 'pid_file' setting in systemd mode\n");
-	}
-#endif
-
-	daemonize_init(config.GetString(ConfigOption::USER),
-		       config.GetString(ConfigOption::GROUP),
-		       std::move(pid_file));
-
-	if (options.kill)
-		daemonize_kill();
+	if ((config.GetParam(ConfigOption::USER) != nullptr ||
+	     config.GetParam(ConfigOption::GROUP) != nullptr) &&
+	    geteuid() == 0)
+		throw std::runtime_error{"The settings \"user\" and \"group\" have been removed; "
+					 "please launch MPD as an unprivileged user"};
 }
 
 #endif
@@ -179,8 +162,8 @@ InitStorage(Instance &instance, EventLoop &event_loop,
 
 /**
  * Returns the database.  If this function returns false, this has not
- * succeeded, and the caller should create the database after the
- * process has been daemonized.
+ * succeeded, and the caller should create the database after
+ * initialization has finished.
  */
 static bool
 glue_db_init_and_load(Instance &instance, const ConfigData &config)
@@ -313,10 +296,6 @@ static inline void
 MainConfigured(const CommandLineOptions &options,
 	       const ConfigData &raw_config)
 {
-#ifdef ENABLE_DAEMON
-	daemonize_close_stdin();
-#endif
-
 #ifndef ANDROID
 	/* initialize locale */
 	std::setlocale(LC_CTYPE,"");
@@ -330,11 +309,10 @@ MainConfigured(const CommandLineOptions &options,
 	const ODBus::ScopeInit dbus_init;
 #endif
 
-	InitPathParser(raw_config);
 	const PartitionConfig partition_config{raw_config};
 
-#ifdef ENABLE_DAEMON
-	glue_daemonize_init(options, raw_config);
+#ifndef _WIN32
+	CheckUserGroup(raw_config);
 #endif
 
 	TagLoadConfig(raw_config);
@@ -372,12 +350,6 @@ MainConfigured(const CommandLineOptions &options,
 				      raw_config, partition_config);
 
 	listen_global_init(raw_config, *instance.partitions.front().listener);
-
-#ifdef ENABLE_DAEMON
-	daemonize_set_user();
-	daemonize_begin(options.daemon);
-	AtScopeExit() { daemonize_finish(); };
-#endif
 
 	ConfigureFS(raw_config);
 	AtScopeExit() { DeinitFS(); };
@@ -429,10 +401,6 @@ MainConfigured(const CommandLineOptions &options,
 
 	const ScopePlaylistPluginsInit playlist_plugins_init(raw_config);
 
-#ifdef ENABLE_DAEMON
-	daemonize_commit();
-#endif
-
 #ifdef ENABLE_DBUS
 	instance.inhibit_idle = raw_config.GetBool(ConfigOption::INHIBIT_IDLE, false);
 #endif
@@ -440,10 +408,7 @@ MainConfigured(const CommandLineOptions &options,
 #ifndef ANDROID
 	setup_log_output();
 
-	const ScopeSignalHandlersInit signal_handlers_init{
-		instance,
-		options.daemon,
-	};
+	const ScopeSignalHandlersInit signal_handlers_init{instance};
 #endif
 
 	instance.io_thread.Start();
@@ -603,20 +568,6 @@ MainOrThrow(int argc, char *argv[])
 	ConfigData raw_config;
 
 	ParseCommandLine(argc, argv, options, raw_config);
-
-#if defined(ENABLE_DAEMON) && defined(__APPLE__)
-	if (options.daemon) {
-		// Fork before any Objective-C runtime initializations
-		pid_t pid = fork();
-		if (pid < 0)
-			throw MakeErrno("fork() failed");
-
-		if (pid > 0) {
-			// Parent process: exit immediately
-			_exit(0);
-		}
-	}
-#endif
 
 	MainConfigured(options, raw_config);
 }
